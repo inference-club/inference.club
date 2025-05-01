@@ -1,0 +1,8 @@
+---
+description:
+globs: frontend/*
+alwaysApply: false
+---
+- Use best practices for writing clean Nuxt.js code
+- Always use shadcn/ui components that are available in frontent/components/ui
+- When writing .vue components, do not write imports for shadcn/ui components since these are auto-imported
