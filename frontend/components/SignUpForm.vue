@@ -15,14 +15,21 @@ const props = defineProps<{
   <div :class="cn('flex flex-col gap-6', props.class)">
     <Card class="overflow-hidden p-0">
       <CardContent class="grid p-0 md:grid-cols-2">
+        <div class="bg-muted relative hidden md:block">
+          <img
+            src="/images/inference-club.png"
+            alt="Image"
+            class="absolute inset-0 h-full w-full object-cover"
+          >
+        </div>
         <form class="p-6 md:p-8">
           <div class="flex flex-col gap-6">
             <div class="flex flex-col items-center text-center">
               <h1 class="text-2xl font-bold">
-                Welcome back!
+                Welcome!
               </h1>
               <p class="text-muted-foreground text-balance">
-                Login to your inference.club account
+                Create an inference.club account
               </p>
             </div>
             <div class="grid gap-3">
@@ -37,17 +44,11 @@ const props = defineProps<{
             <div class="grid gap-3">
               <div class="flex items-center">
                 <Label for="password">Password</Label>
-                <a
-                  href="#"
-                  class="ml-auto text-sm underline-offset-2 hover:underline"
-                >
-                  Forgot your password?
-                </a>
               </div>
               <Input id="password" type="password" required />
             </div>
             <Button type="submit" class="w-full">
-              Login
+              Sign Up
             </Button>
             <div class="after:border-border relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t">
               <span class="bg-card text-muted-foreground relative z-10 px-2">
@@ -69,20 +70,13 @@ const props = defineProps<{
               </Button>
             </div>
             <div class="text-center text-sm">
-              Don't have an account?
-              <a href="/sign-up" class="underline underline-offset-4">
-                Sign up
+              Already have an account?
+              <a href="/login" class="underline underline-offset-4">
+                Log in
               </a>
             </div>
           </div>
         </form>
-        <div class="bg-muted relative hidden md:block">
-          <img
-            src="/images/inference-club.png"
-            alt="Image"
-            class="absolute inset-0 h-full w-full object-cover"
-          >
-        </div>
       </CardContent>
     </Card>
     <div class="text-muted-foreground *:[a]:hover:text-primary text-center text-xs text-balance *:[a]:underline *:[a]:underline-offset-4">

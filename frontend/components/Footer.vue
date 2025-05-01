@@ -9,8 +9,8 @@
       <nav class="flex flex-wrap gap-4 text-muted-foreground text-sm">
         <NuxtLink to="/about" class="hover:text-primary transition">About</NuxtLink>
         <NuxtLink to="/contact" class="hover:text-primary transition">Contact</NuxtLink>
-        <NuxtLink to="/privacy" class="hover:text-primary transition">Privacy Policy</NuxtLink>
-        <NuxtLink to="/terms" class="hover:text-primary transition">Terms of Service</NuxtLink>
+        <NuxtLink to="/privacy-policy" class="hover:text-primary transition">Privacy Policy</NuxtLink>
+        <NuxtLink to="/terms-of-service" class="hover:text-primary transition">Terms of Service</NuxtLink>
       </nav>
       <!-- Right: Socials -->
       <div class="flex items-center gap-4">
