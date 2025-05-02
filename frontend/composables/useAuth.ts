@@ -115,10 +115,20 @@ export const useAuth = () => {
       }
 
       if (data.value) {
-        const { user } = data.value
-        authStore.setUser(user)
-        router.push('/')
-        return { success: true }
+        // After successful login, fetch the user account details
+        const { data: accountData, error: accountError } = await useFetch<User>(`${config.public.apiBase}/api/account/`, {
+          credentials: 'include'
+        })
+
+        if (accountError.value) {
+          throw accountError.value
+        }
+
+        if (accountData.value) {
+          authStore.setUser(accountData.value)
+          router.push('/')
+          return { success: true }
+        }
       }
     } catch (error) {
       return { success: false, error }
