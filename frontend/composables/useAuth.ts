@@ -29,21 +29,29 @@ export const useAuth = () => {
   const checkAuth = async () => {
     try {
       const { data, error } = await useFetch<User>(`${config.public.apiBase}/api/account/`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+        }
       })
 
       if (error.value) {
+        console.error('Auth check failed:', error.value)
         authStore.setUser(null)
         return false
       }
 
       if (data.value) {
+        console.log('User authenticated:', data.value)
         authStore.setUser(data.value)
         return true
       }
 
+      console.log('No user data received')
+      authStore.setUser(null)
       return false
-    } catch {
+    } catch (err) {
+      console.error('Auth check error:', err)
       authStore.setUser(null)
       return false
     }
