@@ -4,7 +4,7 @@ from . import views
 
 # for now only support email/password login
 urlpatterns = [
-    # path("account/", views.Profile.as_view(), name="user-profile"),
+    path("account/", views.Profile.as_view(), name="user-profile"),
     # path("social/<backend>/", views.exchange_token, name="social-auth-callback"),
     path("login/", views.login_view, name="login-view"),
     path("login-set-cookie/", views.login_set_cookie, name="login-view"),

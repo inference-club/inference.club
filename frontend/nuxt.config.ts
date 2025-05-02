@@ -5,6 +5,11 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineNuxtConfig({
   compatibilityDate: '2024-11-01',
   devtools: { enabled: true },
+  runtimeConfig: {
+    public: {
+      apiBase: 'http://localhost:8000'
+    }
+  },
   vite: {
     plugins: [
       tailwindcss(),
@@ -18,6 +23,7 @@ export default defineNuxtConfig({
     '@nuxt/image',
     '@nuxt/scripts',
     '@nuxt/test-utils',
+    '@pinia/nuxt',
     'shadcn-nuxt',
   ],
   components: {

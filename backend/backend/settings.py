@@ -27,6 +27,40 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
+# CORS settings
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",  # Nuxt dev server
+    "http://127.0.0.1:3000",
+]
+CORS_ALLOW_CREDENTIALS = True  # Required for cookies
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
+# CSRF settings
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read the CSRF cookie
+CSRF_USE_SESSIONS = False  # Store CSRF token in cookie instead of session
 
 # Application definition
 
@@ -41,9 +75,11 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework.authtoken",
     "social_django",
+    "corsheaders",  # Add corsheaders app
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",  # Must be as high as possible
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

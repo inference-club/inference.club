@@ -9,13 +9,44 @@ import { Label } from '@/components/ui/label'
 const props = defineProps<{
   class?: HTMLAttributes['class']
 }>()
+
+const { login } = useAuth()
+const router = useRouter()
+
+const email = ref('')
+const password = ref('')
+const isLoading = ref(false)
+const error = ref('')
+
+const handleSubmit = async (e: Event) => {
+  e.preventDefault()
+  error.value = ''
+  isLoading.value = true
+
+  try {
+    const result = await login({
+      email: email.value,
+      password: password.value
+    })
+
+    if (result!.success) {
+      router.push('/')
+    } else {
+      error.value = 'Invalid email or password'
+    }
+  } catch (e) {
+    error.value = 'An error occurred. Please try again.'
+  } finally {
+    isLoading.value = false
+  }
+}
 </script>
 
 <template>
   <div :class="cn('flex flex-col gap-6', props.class)">
     <Card class="overflow-hidden p-0">
       <CardContent class="grid p-0 md:grid-cols-2">
-        <form class="p-6 md:p-8">
+        <form class="p-6 md:p-8" @submit="handleSubmit">
           <div class="flex flex-col gap-6">
             <div class="flex flex-col items-center text-center">
               <h1 class="text-2xl font-bold">
@@ -25,10 +56,14 @@ const props = defineProps<{
                 Login to your inference.club account
               </p>
             </div>
+            <div v-if="error" class="text-destructive text-sm text-center">
+              {{ error }}
+            </div>
             <div class="grid gap-3">
               <Label for="email">Email</Label>
               <Input
                 id="email"
+                v-model="email"
                 type="email"
                 placeholder="m@example.com"
                 required
@@ -44,10 +79,15 @@ const props = defineProps<{
                   Forgot your password?
                 </a>
               </div>
-              <Input id="password" type="password" required />
+              <Input
+                id="password"
+                v-model="password"
+                type="password"
+                required
+              />
             </div>
-            <Button type="submit" class="w-full">
-              Login
+            <Button type="submit" class="w-full" :disabled="isLoading">
+              {{ isLoading ? 'Logging in...' : 'Login' }}
             </Button>
             <div class="after:border-border relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t">
               <span class="bg-card text-muted-foreground relative z-10 px-2">
