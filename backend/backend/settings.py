@@ -25,7 +25,7 @@ SECRET_KEY = "django-insecure-cjs=#69#qf)qbhx#b!__pty1pl#twocrl&h)g98e_$))lt1+$+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -38,6 +38,9 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "apps.accounts",
+    "rest_framework",
+    "rest_framework.authtoken",
+    "social_django",
 ]
 
 MIDDLEWARE = [
@@ -99,6 +102,13 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+AUTH_USER_MODEL = "accounts.CustomUser"
+
+# AUTHENTICATION_BACKENDS = (
+#     "social_core.backends.twitter.TwitterOAuth",
+#     "social_core.backends.github.GithubOAuth2",
+#     "django.contrib.auth.backends.ModelBackend",
+# )
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
