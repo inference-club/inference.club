@@ -11,10 +11,22 @@
             Join a community of AI enthusiasts, researchers, and practitioners. Learn, share, and grow together in the world of artificial intelligence.
           </p>
           <div class="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
-            <Button size="lg" class="w-full sm:w-auto">
-              Join the Club
-              <ArrowRight class="ml-2 h-4 w-4" />
-            </Button>
+            <template v-if="isAuthenticated">
+              <NuxtLink to="/dashboard">
+                <Button size="lg" class="w-full sm:w-auto">
+                  Go to Dashboard
+                  <ArrowRight class="ml-2 h-4 w-4" />
+                </Button>
+              </NuxtLink>
+            </template>
+            <template v-else>
+              <NuxtLink to="/sign-up">
+                <Button size="lg" class="w-full sm:w-auto">
+                  Join the Club
+                  <ArrowRight class="ml-2 h-4 w-4" />
+                </Button>
+              </NuxtLink>
+            </template>
             <Button size="lg" variant="outline" class="w-full sm:w-auto">
               Learn More
             </Button>
@@ -147,4 +159,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { ArrowRight } from 'lucide-vue-next'
+import { useAuth } from '@/composables/useAuth'
+
+const { isAuthenticated } = useAuth()
 </script>

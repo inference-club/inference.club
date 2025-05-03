@@ -39,7 +39,7 @@ const data = {
         },
         {
           title: 'Create Request',
-          url: 'dashboard/inference/requests/create',
+          url: '/dashboard/inference/requests/create',
         },
       ],
     },

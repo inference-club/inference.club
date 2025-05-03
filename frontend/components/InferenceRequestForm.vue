@@ -31,7 +31,7 @@ const form = ref<{
 const onSubmit = async () => {
   try {
     await store.createRequest(form.value)
-    router.push('/inference-requests')
+    router.push('/dashboard/inference/requests')
   } catch {
     // Error is handled by the store
   }

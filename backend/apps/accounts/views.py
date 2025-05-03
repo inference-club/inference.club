@@ -78,6 +78,7 @@ def login_view(request):
     return JsonResponse({"detail": "Invalid credentials"}, status=400)
 
 
+# class SocialSerializer(serializers.Serializer):
 @api_view(["POST", "DELETE"])
 def request_api_token(request):
     logger.info("Requesting API Token")
@@ -92,7 +93,14 @@ def request_api_token(request):
         return Response({"detail": "All of your tokens have been deleted"})
 
 
-# class SocialSerializer(serializers.Serializer):
+@api_view(["GET"])
+def list_api_tokens(request):
+    user = request.user
+    tokens = Token.objects.filter(user=user)
+    # Only return the first 4 characters of each token, use key as id
+    return Response({"tokens": [{"id": t.key, "prefix": t.key[:4]} for t in tokens]})
+
+
 #     """
 #     Serializer which accepts an OAuth2 code.
 #     """
