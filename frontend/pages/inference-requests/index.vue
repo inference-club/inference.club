@@ -3,6 +3,7 @@ import { onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
 import { useOffsetPagination } from '@vueuse/core'
+import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationNext, PaginationFirst, PaginationLast, PaginationEllipsis } from '@/components/ui/pagination'
 
 const router = useRouter()
 const store = useInferenceRequestStore()
@@ -119,65 +120,24 @@ onMounted(async () => {
 
       <!-- Pagination Controls -->
       <div class="flex justify-between items-center mt-6">
-        <div class="text-sm text-gray-500">
-          Showing {{ store.requests.length }} of {{ store.pagination.count }} requests
-        </div>
-        <div class="flex items-center gap-2">
-          <Button
-            variant="outline"
-            :class="'!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700'"
-            :disabled="isFirstPage"
-            @click="prev"
-          >
-            Previous
-          </Button>
-
-          <!-- First Page -->
-          <Button
-            v-if="visiblePages[0] > 1"
-            variant="outline"
-            :class="[currentPage === 1 ? 'bg-primary text-primary-foreground dark:bg-white dark:text-black' : '!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700']"
-            @click="currentPage = 1"
-          >
-            1
-          </Button>
-
-          <!-- Ellipsis -->
-          <span v-if="visiblePages[0] > 2" class="px-2">...</span>
-
-          <!-- Page Numbers -->
-          <Button
-            v-for="page in visiblePages"
-            :key="page"
-            variant="outline"
-            :class="[currentPage === page ? 'bg-primary text-primary-foreground dark:bg-white dark:text-black' : '!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700']"
-            @click="currentPage = page"
-          >
-            {{ page }}
-          </Button>
-
-          <!-- Ellipsis -->
-          <span v-if="visiblePages[visiblePages.length - 1] < pageCount - 1" class="px-2">...</span>
-
-          <!-- Last Page -->
-          <Button
-            v-if="visiblePages[visiblePages.length - 1] < pageCount"
-            variant="outline"
-            :class="[currentPage === pageCount ? 'bg-primary text-primary-foreground dark:bg-white dark:text-black' : '!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700']"
-            @click="currentPage = pageCount"
-          >
-            {{ pageCount }}
-          </Button>
-
-          <Button
-            variant="outline"
-            :class="'!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700'"
-            :disabled="isLastPage"
-            @click="next"
-          >
-            Next
-          </Button>
-        </div>
+        <Pagination :total="pageCount" :page="currentPage" :items-per-page="currentPageSize" class="">
+          <PaginationContent>
+            <PaginationFirst :disabled="isFirstPage" @click="currentPage = 1" />
+            <PaginationPrevious :disabled="isFirstPage" @click="prev" />
+            <PaginationItem
+              v-for="page in visiblePages"
+              :key="page"
+              :value="page"
+              :is-active="currentPage === page"
+              @click="currentPage = page"
+            >
+              {{ page }}
+            </PaginationItem>
+            <PaginationEllipsis v-if="visiblePages[0] > 2" />
+            <PaginationNext :disabled="isLastPage" @click="next" />
+            <PaginationLast :disabled="isLastPage" @click="currentPage = pageCount" />
+          </PaginationContent>
+        </Pagination>
       </div>
     </div>
   </div>
