@@ -31,16 +31,15 @@ const data = {
   navMain: [
     {
       title: 'Inference Requests',
-      url: '/inference-requests',
       icon: Bot,
       items: [
         {
           title: 'List Requests',
-          url: '/inference-requests',
+          url: '/dashboard/inference/requests',
         },
         {
           title: 'Create Request',
-          url: '/inference-requests/create',
+          url: 'dashboard/inference/requests/create',
         },
       ],
     },
@@ -51,15 +50,15 @@ const data = {
       items: [
         {
           title: 'My nodes',
-          url: '/providers/my-nodes',
+          url: '/dashboard/providers/my-nodes',
         },
         {
           title: 'All nodes',
-          url: '/providers/all-nodes',
+          url: '/dashboard/providers/all-nodes',
         },
         {
           title: 'Settings',
-          url: '/providers/settings',
+          url: '/dashboard/providers/settings',
         },
       ],
     },
@@ -70,15 +69,15 @@ const data = {
       items: [
         {
           title: 'Genesis',
-          url: '/models/genesis',
+          url: '/dashboard/models/genesis',
         },
         {
           title: 'Explorer',
-          url: '/models/explorer',
+          url: '/dashboard/models/explorer',
         },
         {
           title: 'Quantum',
-          url: '/models/quantum',
+          url: '/dashboard/models/quantum',
         },
       ],
     },
@@ -112,20 +111,12 @@ const data = {
       items: [
         {
           title: 'General',
-          url: '/settings/general',
+          url: '/dashboard/settings/general',
         },
         {
-          title: 'Team',
-          url: '/settings/team',
-        },
-        {
-          title: 'Billing',
-          url: '/settings/billing',
-        },
-        {
-          title: 'Limits',
-          url: '/settings/limits',
-        },
+          title: 'Token',
+          url: '/dashboard/settings/token',
+        }
       ],
     },
   ],

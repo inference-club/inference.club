@@ -5,6 +5,10 @@ import { useInferenceRequestStore } from '@/stores/inferenceRequest'
 import { usePagination } from '@/composables/usePagination'
 import PaginationControls from '@/components/PaginationControls.vue'
 
+definePageMeta({
+  layout: 'app',
+})
+
 const router = useRouter()
 const store = useInferenceRequestStore()
 
@@ -70,6 +74,20 @@ onMounted(async () => {
     </div>
 
     <div v-else class="space-y-4">
+      <!-- Pagination Controls -->
+      <div class="flex justify-between items-center mt-6">
+        <PaginationControls
+          :current-page="pagination.currentPage.value"
+          :current-page-size="pagination.currentPageSize.value"
+          :page-count="pagination.pageCount.value"
+          :visible-pages="pagination.visiblePages.value"
+          :is-first-page="pagination.isFirstPage.value"
+          :is-last-page="pagination.isLastPage.value"
+          :prev="pagination.prev"
+          :next="pagination.next"
+          :on-page-change="(page) => { pagination.currentPage.value = page }"
+        />
+      </div>
       <Card v-for="request in store.requests" :key="request.id" class="p-4">
         <div class="flex justify-between items-start">
           <div>

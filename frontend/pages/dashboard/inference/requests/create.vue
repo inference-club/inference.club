@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import InferenceRequestForm from '@/components/InferenceRequestForm.vue'
+
+definePageMeta({
+  layout: 'app',
+})
+
 </script>
 
 <template>
