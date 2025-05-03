@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
 import { useOffsetPagination } from '@vueuse/core'
@@ -49,6 +49,17 @@ const visiblePages = computed(() => {
   return pages
 })
 
+const resultsTopRef = ref<HTMLElement | null>(null)
+
+// Scroll to top of results when page changes
+watch(currentPage, () => {
+  if (resultsTopRef.value) {
+    resultsTopRef.value.scrollIntoView({ behavior: 'smooth' })
+  } else {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+})
+
 onMounted(async () => {
   await store.fetchRequests(currentPageSize.value, 0)
 })
@@ -56,6 +67,7 @@ onMounted(async () => {
 
 <template>
   <div class="container mx-auto py-6">
+    <div ref="resultsTopRef" />
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold">Inference Requests</h1>
       <Button @click="router.push('/inference-requests/create')">
@@ -113,6 +125,7 @@ onMounted(async () => {
         <div class="flex items-center gap-2">
           <Button
             variant="outline"
+            :class="'!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700'"
             :disabled="isFirstPage"
             @click="prev"
           >
@@ -123,6 +136,7 @@ onMounted(async () => {
           <Button
             v-if="visiblePages[0] > 1"
             variant="outline"
+            :class="[currentPage === 1 ? 'bg-primary text-primary-foreground dark:bg-white dark:text-black' : '!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700']"
             @click="currentPage = 1"
           >
             1
@@ -136,7 +150,7 @@ onMounted(async () => {
             v-for="page in visiblePages"
             :key="page"
             variant="outline"
-            :class="{ 'bg-primary text-primary-foreground': currentPage === page }"
+            :class="[currentPage === page ? 'bg-primary text-primary-foreground dark:bg-white dark:text-black' : '!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700']"
             @click="currentPage = page"
           >
             {{ page }}
@@ -149,6 +163,7 @@ onMounted(async () => {
           <Button
             v-if="visiblePages[visiblePages.length - 1] < pageCount"
             variant="outline"
+            :class="[currentPage === pageCount ? 'bg-primary text-primary-foreground dark:bg-white dark:text-black' : '!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700']"
             @click="currentPage = pageCount"
           >
             {{ pageCount }}
@@ -156,6 +171,7 @@ onMounted(async () => {
 
           <Button
             variant="outline"
+            :class="'!bg-transparent !text-foreground dark:!text-white dark:!border-gray-700'"
             :disabled="isLastPage"
             @click="next"
           >
