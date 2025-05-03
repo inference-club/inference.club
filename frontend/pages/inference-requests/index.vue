@@ -1,59 +1,28 @@
 <script setup lang="ts">
-import { onMounted, computed, watch } from 'vue'
+import { onMounted, ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
-import { useOffsetPagination } from '@vueuse/core'
-import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationNext, PaginationFirst, PaginationLast, PaginationEllipsis } from '@/components/ui/pagination'
+import { usePagination } from '@/composables/usePagination'
+import PaginationControls from '@/components/PaginationControls.vue'
 
 const router = useRouter()
 const store = useInferenceRequestStore()
 
-const {
-  currentPage,
-  currentPageSize,
-  pageCount,
-  isFirstPage,
-  isLastPage,
-  prev,
-  next,
-} = useOffsetPagination({
-  total: computed(() => store.pagination.count),
-  page: 1,
-  pageSize: 10,
-  onPageChange: async ({ currentPage, currentPageSize }) => {
-    const offset = (currentPage - 1) * currentPageSize
-    await store.fetchRequests(currentPageSize, offset)
-  },
-  onPageSizeChange: async ({ currentPage, currentPageSize }) => {
-    const offset = (currentPage - 1) * currentPageSize
-    await store.fetchRequests(currentPageSize, offset)
-  },
+const pagination = usePagination(computed(() => store.pagination.count), 10)
+
+watch(() => store.pagination.count, () => {
+  pagination.currentPage.value = 1 // reset to first page on data change
 })
 
-// Calculate visible page numbers
-const visiblePages = computed(() => {
-  const pages = []
-  const maxVisiblePages = 5
-  const halfVisible = Math.floor(maxVisiblePages / 2)
-
-  let start = Math.max(1, currentPage.value - halfVisible)
-  const end = Math.min(pageCount.value, start + maxVisiblePages - 1)
-
-  if (end - start + 1 < maxVisiblePages) {
-    start = Math.max(1, end - maxVisiblePages + 1)
-  }
-
-  for (let i = start; i <= end; i++) {
-    pages.push(i)
-  }
-
-  return pages
+watch([pagination.currentPage, pagination.currentPageSize], ([page, size]) => {
+  const offset = (page - 1) * size
+  store.fetchRequests(size, offset)
 })
 
 const resultsTopRef = ref<HTMLElement | null>(null)
 
 // Scroll to top of results when page changes
-watch(currentPage, () => {
+watch(pagination.currentPage, () => {
   if (resultsTopRef.value) {
     resultsTopRef.value.scrollIntoView({ behavior: 'smooth' })
   } else {
@@ -62,7 +31,7 @@ watch(currentPage, () => {
 })
 
 onMounted(async () => {
-  await store.fetchRequests(currentPageSize.value, 0)
+  await store.fetchRequests(pagination.currentPageSize.value, 0)
 })
 </script>
 
@@ -120,24 +89,17 @@ onMounted(async () => {
 
       <!-- Pagination Controls -->
       <div class="flex justify-between items-center mt-6">
-        <Pagination :total="pageCount" :page="currentPage" :items-per-page="currentPageSize" class="">
-          <PaginationContent>
-            <PaginationFirst :disabled="isFirstPage" @click="currentPage = 1" />
-            <PaginationPrevious :disabled="isFirstPage" @click="prev" />
-            <PaginationItem
-              v-for="page in visiblePages"
-              :key="page"
-              :value="page"
-              :is-active="currentPage === page"
-              @click="currentPage = page"
-            >
-              {{ page }}
-            </PaginationItem>
-            <PaginationEllipsis v-if="visiblePages[0] > 2" />
-            <PaginationNext :disabled="isLastPage" @click="next" />
-            <PaginationLast :disabled="isLastPage" @click="currentPage = pageCount" />
-          </PaginationContent>
-        </Pagination>
+        <PaginationControls
+          :current-page="pagination.currentPage.value"
+          :current-page-size="pagination.currentPageSize.value"
+          :page-count="pagination.pageCount.value"
+          :visible-pages="pagination.visiblePages.value"
+          :is-first-page="pagination.isFirstPage.value"
+          :is-last-page="pagination.isLastPage.value"
+          :prev="pagination.prev"
+          :next="pagination.next"
+          :on-page-change="(page) => { pagination.currentPage.value = page }"
+        />
       </div>
     </div>
   </div>
