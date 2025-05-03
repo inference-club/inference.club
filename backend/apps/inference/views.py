@@ -3,6 +3,7 @@ from rest_framework import generics, permissions
 from rest_framework.permissions import IsAuthenticated
 from .models import InferenceRequest
 from .serializers import InferenceRequestSerializer
+from .pagination import StandardResultsSetPagination
 
 # Create your views here.
 
@@ -10,6 +11,7 @@ from .serializers import InferenceRequestSerializer
 class InferenceRequestView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = InferenceRequestSerializer
+    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         return InferenceRequest.objects.filter(user=self.request.user)

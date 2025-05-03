@@ -30,6 +30,21 @@ const data = {
   ],
   navMain: [
     {
+      title: 'Inference Requests',
+      url: '/inference-requests',
+      icon: Bot,
+      items: [
+        {
+          title: 'List Requests',
+          url: '/inference-requests',
+        },
+        {
+          title: 'Create Request',
+          url: '/inference-requests/create',
+        },
+      ],
+    },
+    {
       title: 'Inference Providers',
       url: '/providers',
       icon: Bot,

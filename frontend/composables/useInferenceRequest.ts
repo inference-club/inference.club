@@ -1,0 +1,96 @@
+import { ref } from 'vue'
+import type { InferenceRequest } from '@/types'
+
+interface PaginatedResponse<T> {
+  count: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
+
+export function useInferenceRequest() {
+  const config = useRuntimeConfig()
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+
+  const getCsrfToken = () => {
+    const name = 'csrftoken'
+    let cookieValue = null
+    if (document.cookie && document.cookie !== '') {
+      const cookies = document.cookie.split(';')
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim()
+        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1))
+          break
+        }
+      }
+    }
+    return cookieValue
+  }
+
+  const createInferenceRequest = async (data: Partial<InferenceRequest>) => {
+    loading.value = true
+    error.value = null
+
+    try {
+      const csrfToken = getCsrfToken()
+      if (!csrfToken) {
+        throw new Error('CSRF token not found')
+      }
+
+      const response = await fetch(`${config.public.apiBase}/api/inference/requests/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create inference request')
+      }
+
+      return await response.json()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'An error occurred'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const listInferenceRequests = async (limit: number = 10, offset: number = 0) => {
+    loading.value = true
+    error.value = null
+
+    try {
+      const response = await fetch(
+        `${config.public.apiBase}/api/inference/requests/?limit=${limit}&offset=${offset}`,
+        {
+          credentials: 'include',
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch inference requests')
+      }
+
+      return await response.json() as PaginatedResponse<InferenceRequest>
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'An error occurred'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  return {
+    loading,
+    error,
+    createInferenceRequest,
+    listInferenceRequests,
+  }
+}
