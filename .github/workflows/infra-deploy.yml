@@ -78,7 +78,6 @@ jobs:
           # Inject required + optional secrets at deploy time. Auto-generated
           # SSH/Django/Postgres secrets are produced inside the program.
           config-map: |
-            inference-club-infra:hcloudToken: { value: "${{ secrets.HCLOUD_TOKEN }}", secret: true }
             inference-club-infra:ghcrToken: { value: "${{ secrets.GHCR_TOKEN }}", secret: true }
             inference-club-infra:githubOauthClientId: { value: "${{ secrets.GH_OAUTH_CLIENT_ID }}", secret: true }
             inference-club-infra:githubOauthClientSecret: { value: "${{ secrets.GH_OAUTH_CLIENT_SECRET }}", secret: true }
@@ -86,3 +85,6 @@ jobs:
             inference-club-infra:frontendImage: { value: "ghcr.io/inference-club/inference-club-frontend:${{ steps.tag.outputs.tag }}" }
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          # The hcloud Pulumi provider reads HCLOUD_TOKEN from the env, not
+          # from Pulumi config. Same value, different delivery mechanism.
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}

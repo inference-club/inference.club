@@ -3,10 +3,10 @@ import * as pulumi from "@pulumi/pulumi";
 // All Pulumi config the program needs. Keeping reads in one place so the rest
 // of the code is typed and so the required vs. auto-generated split is obvious.
 //
-// User-supplied (set via GitHub Secrets, then passed by the workflow with
-// `pulumi config set --secret`):
-//   - hcloudToken            : Hetzner Cloud API token (Read & Write)
-//   - ghcrToken              : GitHub PAT (classic, scope: read:packages) so
+// User-supplied:
+//   - HCLOUD_TOKEN env var   : Hetzner Cloud API token; consumed directly by
+//                              the hcloud provider, not via Pulumi config
+//   - ghcrToken (Pulumi cfg) : GitHub PAT (classic, scope: read:packages) so
 //                              the VPS can pull private images from GHCR
 //
 // Optional — if unset, the deployed site renders but GitHub OAuth login is broken:
@@ -37,7 +37,6 @@ export const stackConfig = {
     // PAT created by any user who can read its packages.
     ghcrUsername: cfg.get("ghcrUsername") ?? "inference-club",
 
-    hcloudToken: cfg.requireSecret("hcloudToken"),
     ghcrToken: cfg.requireSecret("ghcrToken"),
 
     // Optional — default to empty string so the backend container starts; the
