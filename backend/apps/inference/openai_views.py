@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import InferenceRequest, Provider, ProviderModel
+from .views import _tailnet_proxies, refresh_provider_models
 
 logger = logging.getLogger("django")
 
@@ -26,15 +27,19 @@ UPSTREAM_TIMEOUT_SECONDS = 300
 
 
 def _online_providers(user):
-    return [p for p in user.providers.filter(is_active=True) if p.is_online]
+    return [
+        p
+        for p in user.providers.filter(is_active=True).exclude(tailnet_hostname="")
+        if p.is_online
+    ]
 
 
 def _find_provider_for_model(user, model_name):
     """Pick the first online provider serving ``model_name``.
 
-    MVP routing: no load balancing, no fallback. If multiple providers serve
-    the same model, the most-recently-created one wins by ProviderModel
-    ordering coincidence; that's fine for now.
+    MVP routing: no load balancing, no fallback. If a provider has no models
+    cached yet (just registered), we'll do a synchronous discovery before
+    giving up — saves the user from clicking "refresh models" the first time.
     """
     if not model_name:
         return None
@@ -45,11 +50,20 @@ def _find_provider_for_model(user, model_name):
             provider__user=user,
             provider__is_active=True,
         )
+        .exclude(provider__tailnet_hostname="")
         .select_related("provider")
         .first()
     )
     if pm and pm.provider.is_online:
         return pm.provider
+
+    # Self-healing: if the user has online providers with no models cached,
+    # try to populate them now. Useful right after a fresh agent registers.
+    for provider in _online_providers(user):
+        if not provider.models.filter(is_active=True).exists():
+            refresh_provider_models(provider)
+            if provider.models.filter(is_active=True, name=model_name).exists():
+                return provider
     return None
 
 
@@ -101,7 +115,7 @@ class _ChatOrCompletionsProxy(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        endpoint = provider.callback_url.rstrip("/") + self.upstream_path
+        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
         stream = bool(body.get("stream"))
         ir = InferenceRequest.objects.create(
             user=request.user,
@@ -114,11 +128,16 @@ class _ChatOrCompletionsProxy(APIView):
         started = time.monotonic()
 
         try:
+            # verify=False because tailnet HTTPS uses a Tailscale-issued cert
+            # bound to the device's full *.ts.net hostname, and we may proxy
+            # by the short MagicDNS name. The wire is encrypted by WireGuard.
             upstream = requests.post(
                 endpoint,
                 json=body,
                 stream=stream,
                 timeout=UPSTREAM_TIMEOUT_SECONDS,
+                verify=False,
+                proxies=_tailnet_proxies(),
             )
         except requests.RequestException as e:
             ir.status = "REQUESTED"
@@ -156,6 +175,7 @@ class _ChatOrCompletionsProxy(APIView):
         ir.results = data
         ir.latency_ms = int((time.monotonic() - started) * 1000)
         ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+        Provider.objects.filter(id=ir.provider_id).update(last_seen_at=timezone.now())
         return Response(data, status=upstream.status_code)
 
     def _stream_response(self, upstream, ir, started):
@@ -172,6 +192,9 @@ class _ChatOrCompletionsProxy(APIView):
                 ir.results = {"streamed": True, "bytes": sum(len(c) for c in chunks)}
                 ir.latency_ms = int((time.monotonic() - started) * 1000)
                 ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+                Provider.objects.filter(id=ir.provider_id).update(
+                    last_seen_at=timezone.now()
+                )
 
         resp = StreamingHttpResponse(
             gen(),

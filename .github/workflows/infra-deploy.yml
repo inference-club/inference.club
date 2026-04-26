@@ -82,6 +82,9 @@ jobs:
             inference-club-infra:sshPublicKey: { value: "${{ secrets.DEPLOY_SSH_PUBLIC_KEY }}", secret: true }
             inference-club-infra:githubOauthClientId: { value: "${{ secrets.GH_OAUTH_CLIENT_ID }}", secret: true }
             inference-club-infra:githubOauthClientSecret: { value: "${{ secrets.GH_OAUTH_CLIENT_SECRET }}", secret: true }
+            inference-club-infra:tailscaleTailnet: { value: "${{ secrets.TAILSCALE_TAILNET }}" }
+            inference-club-infra:tailscaleStaticAuthkey: { value: "${{ secrets.TAILSCALE_STATIC_AUTHKEY }}", secret: true }
+            inference-club-infra:tailscaleWebAuthkey: { value: "${{ secrets.TAILSCALE_WEB_AUTHKEY }}", secret: true }
             inference-club-infra:backendImage: { value: "ghcr.io/inference-club/inference-club-backend:${{ steps.tag.outputs.tag }}" }
             inference-club-infra:frontendImage: { value: "ghcr.io/inference-club/inference-club-frontend:${{ steps.tag.outputs.tag }}" }
         env:

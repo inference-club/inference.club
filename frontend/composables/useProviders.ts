@@ -8,10 +8,12 @@ interface ProviderModel {
 export interface Provider {
   id: number
   name: string
-  callback_url: string
+  tailnet_hostname: string
+  agent_port: number
   is_active: boolean
   is_online: boolean
-  last_heartbeat_at: string | null
+  registered_at: string | null
+  last_seen_at: string | null
   models: ProviderModel[]
   created_on: string
 }
@@ -52,6 +54,32 @@ export const useProviders = () => {
     return Array.from(seen.values())
   })
 
+  const refreshModels = async (providerId: number) => {
+    isLoading.value = true
+    error.value = null
+    try {
+      const csrfToken = import.meta.client
+        ? document.cookie
+            .split('; ')
+            .find(c => c.startsWith('csrftoken='))
+            ?.split('=')[1]
+        : undefined
+      await $fetch(
+        `${config.public.apiBase}/api/inference/providers/${providerId}/refresh-models/`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
+        },
+      )
+      await fetchProviders()
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to refresh models'
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   return {
     providers,
     onlineProviders,
@@ -59,5 +87,6 @@ export const useProviders = () => {
     isLoading,
     error,
     fetchProviders,
+    refreshModels,
   }
 }

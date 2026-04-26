@@ -83,6 +83,26 @@ CSRF_USE_SESSIONS = False
 CSRF_COOKIE_DOMAIN = os.environ.get("DJANGO_CSRF_COOKIE_DOMAIN") or None
 SESSION_COOKIE_DOMAIN = os.environ.get("DJANGO_SESSION_COOKIE_DOMAIN") or None
 
+# ---- Tailscale (for reaching agents over the inference.club tailnet) -----
+
+# Tailnet name (the part before .ts.net), used when constructing FQDNs for
+# agent reachability and when minting auth keys via OAuth. "-" is Tailscale's
+# placeholder for "the API token's default tailnet".
+TAILSCALE_TAILNET = os.environ.get("TAILSCALE_TAILNET", "")
+
+# Production: OAuth client mints fresh per-agent ephemeral keys. Bootstrap:
+# fall back to a single static reusable key so we don't need OAuth set up to
+# iterate.
+TAILSCALE_OAUTH_CLIENT_ID = os.environ.get("TAILSCALE_OAUTH_CLIENT_ID", "")
+TAILSCALE_OAUTH_CLIENT_SECRET = os.environ.get("TAILSCALE_OAUTH_CLIENT_SECRET", "")
+TAILSCALE_HOST_TAG = os.environ.get("TAILSCALE_HOST_TAG", "tag:club-host")
+TAILSCALE_STATIC_AUTHKEY = os.environ.get("TAILSCALE_STATIC_AUTHKEY", "")
+
+# When set (e.g. socks5h://tailscale:1055), tailnet-bound HTTP requests are
+# routed through this proxy. Empty in local dev (where the backend talks to
+# agents directly).
+TAILNET_PROXY_URL = os.environ.get("TAILNET_PROXY_URL", "")
+
 # ---- apps / middleware --------------------------------------------------
 
 INSTALLED_APPS = [

@@ -32,14 +32,40 @@ services:
       timeout: 5s
       retries: 5
 
+  # Tailscale userspace sidecar. Joins the inference.club tailnet as
+  # `club-web` and exposes a SOCKS5 proxy on :1055 that the backend uses to
+  # reach provider agents over the tailnet.
+  tailscale:
+    image: tailscale/tailscale:stable
+    restart: unless-stopped
+    hostname: club-web
+    environment:
+      TS_AUTHKEY: __TAILSCALE_WEB_AUTHKEY__
+      TS_HOSTNAME: club-web
+      TS_USERSPACE: "true"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_EXTRA_ARGS: "--advertise-tags=tag:club-web"
+      TS_SOCKS5_SERVER: ":1055"
+      TS_OUTBOUND_HTTP_PROXY_LISTEN: ":1055"
+    volumes:
+      - /srv/inference-club/tailscale-state:/var/lib/tailscale
+
   backend:
     image: __BACKEND_IMAGE__
     restart: unless-stopped
     env_file:
       - /srv/inference-club/backend.env
+    environment:
+      # Tells the backend to send tailnet-bound requests through the sidecar's
+      # SOCKS5 proxy. Other outbound traffic (e.g. GitHub OAuth callbacks)
+      # goes direct, so the site keeps working even before Tailscale is fully
+      # configured.
+      TAILNET_PROXY_URL: socks5h://tailscale:1055
     depends_on:
       postgres:
         condition: service_healthy
+      tailscale:
+        condition: service_started
 
   frontend:
     image: __FRONTEND_IMAGE__

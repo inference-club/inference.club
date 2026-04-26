@@ -1,17 +1,21 @@
 from rest_framework import serializers
+
 from .models import InferenceRequest, Provider, ProviderModel
 
 
-class HeartbeatModelSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=255)
-    context_window = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+class AgentRegisterSerializer(serializers.Serializer):
+    """Body of POST /api/inference/agent/register/.
 
+    The agent says "here's the friendly name and the hostname I'd like to
+    advertise"; the server picks a canonical hostname (per-provider) and
+    returns a Tailscale auth key so the agent can join the tailnet.
+    """
 
-class HeartbeatSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=128)
-    callback_url = serializers.URLField()
-    models = HeartbeatModelSerializer(many=True)
-    health = serializers.JSONField(required=False)
+    name = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    tailnet_hostname = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    agent_port = serializers.IntegerField(
+        required=False, default=443, min_value=1, max_value=65535
+    )
 
 
 class ProviderModelSerializer(serializers.ModelSerializer):
@@ -29,10 +33,12 @@ class ProviderSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "callback_url",
+            "tailnet_hostname",
+            "agent_port",
             "is_active",
             "is_online",
-            "last_heartbeat_at",
+            "registered_at",
+            "last_seen_at",
             "models",
             "created_on",
         ]
@@ -61,5 +67,4 @@ class InferenceRequestSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        # user is added via view's perform_create
         return InferenceRequest.objects.create(**validated_data)

@@ -12,3 +12,11 @@ SOCIAL_AUTH_LOGIN_REDIRECT_URL=https://__DOMAIN__/
 SOCIAL_AUTH_LOGIN_ERROR_URL=https://__DOMAIN__/login?oauth_error=1
 PORT=8001
 GUNICORN_WORKERS=3
+
+# Tailscale: lets the server reach provider agents over the inference.club
+# tailnet. TAILSCALE_TAILNET is the tailnet name (without .ts.net) used to
+# build agent FQDNs; STATIC_AUTHKEY is the bootstrap key handed to every
+# registering agent.
+TAILSCALE_TAILNET=__TAILSCALE_TAILNET__
+TAILSCALE_STATIC_AUTHKEY=__TAILSCALE_STATIC_AUTHKEY__
+TAILSCALE_HOST_TAG=tag:club-host

@@ -1,4 +1,8 @@
+import logging
+
+import requests
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
@@ -8,10 +12,13 @@ from rest_framework.views import APIView
 from .models import InferenceRequest, Provider, ProviderModel
 from .pagination import StandardResultsSetPagination
 from .serializers import (
-    HeartbeatSerializer,
+    AgentRegisterSerializer,
     InferenceRequestSerializer,
     ProviderSerializer,
 )
+from .tailscale import mint_authkey_for_provider
+
+logger = logging.getLogger("django")
 
 
 class InferenceRequestView(generics.ListCreateAPIView):
@@ -35,53 +42,56 @@ class RetrieveInferenceRequestView(generics.RetrieveAPIView):
         return InferenceRequest.objects.filter(user=self.request.user)
 
 
-class AgentHeartbeatView(APIView):
-    """Receive a heartbeat from an inference-club-agent.
+class AgentRegisterView(APIView):
+    """Agent calls this on first run; returns a Tailscale auth key the agent
+    uses to join the inference.club tailnet.
 
-    Authenticated by the user's API key (Bearer token). Upserts the Provider
-    keyed by ``(user, name)`` and replaces its model set with what the agent
-    currently advertises.
+    Idempotent on (user, name): re-registering an existing provider rebumps
+    last_seen_at and re-mints an auth key. Safe to call repeatedly.
     """
 
     permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
-        serializer = HeartbeatSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        ser = AgentRegisterSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
 
         provider, _ = Provider.objects.update_or_create(
             user=request.user,
-            name=data["name"],
+            name=data.get("name") or "club-host",
             defaults={
-                "callback_url": data["callback_url"],
-                "last_heartbeat_at": timezone.now(),
+                "tailnet_hostname": data.get("tailnet_hostname", ""),
+                "agent_port": data.get("agent_port", 443),
                 "is_active": True,
+                "registered_at": timezone.now(),
+                "last_seen_at": timezone.now(),
             },
         )
 
-        # Replace the model set with what the agent reported. Cheap for MVP;
-        # a diff-based approach can come later if churn matters.
-        provider.models.all().delete()
-        ProviderModel.objects.bulk_create(
-            [
-                ProviderModel(
-                    provider=provider,
-                    name=m["name"],
-                    context_window=m.get("context_window"),
-                )
-                for m in data["models"]
-            ]
-        )
+        # Force a deterministic per-provider hostname so two agents from the
+        # same user can't collide in the tailnet.
+        canonical = f"club-host-{provider.id}"
+        if provider.tailnet_hostname != canonical:
+            provider.tailnet_hostname = canonical
+            provider.save(update_fields=["tailnet_hostname", "modified_on"])
+
+        minted = mint_authkey_for_provider(provider)
 
         return Response(
-            ProviderSerializer(provider).data, status=status.HTTP_200_OK
+            {
+                "provider_id": provider.id,
+                "tailscale_authkey": minted.authkey,
+                "tailscale_login_server": minted.login_server,
+                "tailnet_hostname": provider.tailnet_hostname,
+            },
+            status=status.HTTP_200_OK,
         )
 
 
 class ProviderListView(generics.ListAPIView):
-    """List the authenticated user's providers (for the /providers UI page)."""
+    """List the authenticated user's providers (powers /providers/my-nodes UI)."""
 
     permission_classes = [IsAuthenticated]
     serializer_class = ProviderSerializer
@@ -90,4 +100,73 @@ class ProviderListView(generics.ListAPIView):
         return (
             Provider.objects.filter(user=self.request.user)
             .prefetch_related("models")
+        )
+
+
+def _tailnet_proxies():
+    """Per-call proxy dict for outbound tailnet requests.
+
+    Returning None when no proxy is configured keeps local dev simple: the
+    backend just talks to the agent directly (e.g. on localhost). In prod the
+    Tailscale sidecar provides a SOCKS5 endpoint that resolves *.ts.net names.
+    """
+    from django.conf import settings as _settings
+
+    url = getattr(_settings, "TAILNET_PROXY_URL", "") or ""
+    if not url:
+        return None
+    return {"http": url, "https": url}
+
+
+def refresh_provider_models(provider) -> int:
+    """Hit the agent's /v1/models over the tailnet and sync ProviderModel rows.
+
+    Returns the count of models the agent currently advertises. Soft-replace:
+    models the agent no longer reports get marked is_active=False rather than
+    deleted, so old InferenceRequest rows still resolve their FK.
+    """
+    if not provider.tailnet_base_url:
+        return 0
+    try:
+        # verify=False because the cert chain inside the tailnet is Tailscale's
+        # own and we may not always have the FQDN that matches it; the wire is
+        # already encrypted by WireGuard so this is defense-in-depth we drop
+        # for the MVP. Revisit when the FQDN handling is solid.
+        resp = requests.get(
+            provider.tailnet_base_url.rstrip("/") + "/models",
+            timeout=10,
+            verify=False,
+            proxies=_tailnet_proxies(),
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning("refresh_provider_models failed for %s: %s", provider, e)
+        return 0
+    payload = resp.json()
+    rows = payload.get("data") or payload.get("models") or []
+
+    incoming = {row["id"]: row for row in rows if row.get("id")}
+    existing = {pm.name: pm for pm in provider.models.all()}
+
+    for name, pm in existing.items():
+        if name not in incoming and pm.is_active:
+            pm.is_active = False
+            pm.save(update_fields=["is_active", "modified_on"])
+    for name in incoming:
+        ProviderModel.objects.update_or_create(
+            provider=provider, name=name, defaults={"is_active": True}
+        )
+    return len(incoming)
+
+
+class RefreshProviderModelsView(APIView):
+    """POST /api/inference/providers/<id>/refresh-models/ — UI-triggered model sync."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, id):
+        provider = get_object_or_404(Provider, id=id, user=request.user)
+        count = refresh_provider_models(provider)
+        return Response(
+            {"refreshed": count, "provider": ProviderSerializer(provider).data}
         )

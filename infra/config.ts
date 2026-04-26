@@ -44,6 +44,17 @@ export const stackConfig = {
 
     ghcrToken: cfg.requireSecret("ghcrToken"),
 
+    // Tailscale: optional during initial bootstrap. Empty values let the
+    // stack come up without Tailscale wired (the server just won't be able
+    // to reach any agents). Set the secrets to enable inference end-to-end.
+    tailscaleTailnet: cfg.get("tailscaleTailnet") ?? "",
+    tailscaleStaticAuthkey: pulumi
+        .output(cfg.getSecret("tailscaleStaticAuthkey"))
+        .apply((v) => v ?? ""),
+    tailscaleWebAuthkey: pulumi
+        .output(cfg.getSecret("tailscaleWebAuthkey"))
+        .apply((v) => v ?? ""),
+
     sshPublicKey: cfg.requireSecret("sshPublicKey"),
 
     // The SSH private key comes in via env (DEPLOY_SSH_PRIVATE_KEY) rather

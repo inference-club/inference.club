@@ -6,13 +6,19 @@ from django.utils import timezone
 
 from apps.core.models import BaseModel
 
-# A provider is considered online if its last heartbeat is within this window.
-# The agent posts every 30s; 60s gives one missed beat of grace.
-PROVIDER_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
+# How long after the last successful proxy / probe a provider stays "online"
+# without any new evidence. Two minutes leaves room for occasional latency
+# spikes without flapping the UI.
+PROVIDER_LAST_SEEN_WINDOW = timedelta(seconds=120)
 
 
 class Provider(BaseModel):
-    """A user-owned agent that proxies inference to local hardware."""
+    """A user-owned agent reachable over the inference.club Tailscale network.
+
+    The agent registers once via POST /api/inference/agent/register/, gets a
+    Tailscale auth key, and joins the tailnet. The server reaches it by its
+    tailnet hostname (e.g. ``club-host-17``) on ``agent_port``.
+    """
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -20,10 +26,20 @@ class Provider(BaseModel):
         related_name="providers",
     )
     name = models.CharField(max_length=128)
-    callback_url = models.URLField(
-        help_text="Reachable URL of the agent, e.g. http://192.168.5.173:8002/v1",
+    tailnet_hostname = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Tailscale MagicDNS hostname inside the inference.club tailnet "
+        "(e.g. 'club-host-17'). Empty until the agent has registered.",
     )
-    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    agent_port = models.PositiveIntegerField(default=443)
+    registered_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Bumped on every successful proxied request and every "
+        "successful liveness probe.",
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -37,11 +53,47 @@ class Provider(BaseModel):
     def __str__(self):
         return f"{self.user_id}:{self.name}"
 
+    def _fqdn(self) -> str:
+        """Resolve the tailnet hostname to a full FQDN if possible.
+
+        We need the FQDN to match the cert Tailscale issues for the agent's
+        ``*.ts.net`` device name. If TAILSCALE_TAILNET isn't configured, fall
+        back to the bare hostname (callers must use verify=False in that case).
+        """
+        host = self.tailnet_hostname
+        if not host or "." in host:
+            return host
+        tailnet = getattr(settings, "TAILSCALE_TAILNET", "") or ""
+        if tailnet and tailnet != "-":
+            tailnet = tailnet.removesuffix(".ts.net")
+            return f"{host}.{tailnet}.ts.net"
+        return host
+
+    @property
+    def tailnet_base_url(self) -> str:
+        host = self._fqdn()
+        if not host:
+            return ""
+        if self.agent_port == 443:
+            return f"https://{host}/v1"
+        return f"http://{host}:{self.agent_port}/v1"
+
+    @property
+    def healthz_url(self) -> str:
+        host = self._fqdn()
+        if not host:
+            return ""
+        if self.agent_port == 443:
+            return f"https://{host}/healthz"
+        return f"http://{host}:{self.agent_port}/healthz"
+
     @property
     def is_online(self) -> bool:
-        if not self.is_active or self.last_heartbeat_at is None:
+        if not self.is_active or not self.tailnet_hostname:
             return False
-        return timezone.now() - self.last_heartbeat_at <= PROVIDER_HEARTBEAT_TIMEOUT
+        if self.last_seen_at is None:
+            return False
+        return timezone.now() - self.last_seen_at <= PROVIDER_LAST_SEEN_WINDOW
 
 
 class ProviderModel(BaseModel):

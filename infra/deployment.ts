@@ -70,6 +70,7 @@ export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
         FRONTEND_IMAGE: stackConfig.frontendImage,
         POSTGRES_PASSWORD: postgresPassword.result,
         DOMAIN: stackConfig.domain,
+        TAILSCALE_WEB_AUTHKEY: stackConfig.tailscaleWebAuthkey,
     });
 
     const caddyfile = render(loadTemplate("Caddyfile.tpl"), {
@@ -81,6 +82,8 @@ export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
         POSTGRES_PASSWORD: postgresPassword.result,
         GITHUB_OAUTH_CLIENT_ID: stackConfig.githubOauthClientId,
         GITHUB_OAUTH_CLIENT_SECRET: stackConfig.githubOauthClientSecret,
+        TAILSCALE_TAILNET: stackConfig.tailscaleTailnet,
+        TAILSCALE_STATIC_AUTHKEY: stackConfig.tailscaleStaticAuthkey,
         DOMAIN: stackConfig.domain,
     });
 

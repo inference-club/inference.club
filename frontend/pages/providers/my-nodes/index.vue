@@ -5,11 +5,11 @@ definePageMeta({
   layout: 'app',
 })
 
-const { providers, isLoading, error, fetchProviders } = useProviders()
+const { providers, isLoading, error, fetchProviders, refreshModels } = useProviders()
 
 onMounted(fetchProviders)
 
-const formatHeartbeat = (iso: string | null) => {
+const formatRelative = (iso: string | null) => {
   if (!iso) return 'never'
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
   if (seconds < 60) return `${seconds}s ago`
@@ -38,14 +38,17 @@ const formatHeartbeat = (iso: string | null) => {
     <div v-if="!isLoading && providers.length === 0" class="p-6 bg-card rounded-lg border">
       <h2 class="text-xl font-semibold mb-2">No nodes yet</h2>
       <p class="text-muted-foreground mb-2">
-        Run <code class="text-foreground">inference-club-agent</code> on a machine with an LLM server, and configure it
-        with your inference.club API key. It will register itself here on its first heartbeat.
+        Run <code class="text-foreground">inference-club-agent</code> on a machine with an LLM server, configured with
+        your inference.club API key. The agent will join the inference.club Tailscale network and register here automatically.
       </p>
       <p class="text-muted-foreground">
         Get an API key at
         <NuxtLink to="/dashboard/settings/token" class="underline">
           Dashboard → Settings → Token
-        </NuxtLink>.
+        </NuxtLink>. See
+        <NuxtLink to="/docs/providers/run-an-agent" class="underline">
+          the agent guide
+        </NuxtLink> for setup.
       </p>
     </div>
 
@@ -69,12 +72,21 @@ const formatHeartbeat = (iso: string | null) => {
               </span>
             </div>
             <p class="text-sm text-muted-foreground mt-1 font-mono">
-              {{ provider.callback_url }}
+              {{ provider.tailnet_hostname || '(awaiting registration)' }}<template v-if="provider.agent_port && provider.agent_port !== 443">:{{ provider.agent_port }}</template>
             </p>
           </div>
-          <p class="text-xs text-muted-foreground">
-            heartbeat: {{ formatHeartbeat(provider.last_heartbeat_at) }}
-          </p>
+          <div class="text-right">
+            <p class="text-xs text-muted-foreground">
+              last seen: {{ formatRelative(provider.last_seen_at) }}
+            </p>
+            <button
+              class="text-xs text-muted-foreground hover:text-foreground mt-1"
+              :disabled="isLoading"
+              @click="refreshModels(provider.id)"
+            >
+              {{ isLoading ? '…' : 'Refresh models' }}
+            </button>
+          </div>
         </div>
 
         <div v-if="provider.models.length > 0">
@@ -92,7 +104,7 @@ const formatHeartbeat = (iso: string | null) => {
           </div>
         </div>
         <p v-else class="text-sm text-muted-foreground italic">
-          No models reported.
+          No models reported. Click "Refresh models" once the agent is online to discover them.
         </p>
       </div>
     </div>
