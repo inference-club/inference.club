@@ -164,6 +164,11 @@ def refresh_provider_models(provider) -> int:
         ProviderModel.objects.update_or_create(
             provider=provider, name=name, defaults={"is_active": True}
         )
+
+    # A successful round-trip is the strongest possible "online" signal —
+    # bump last_seen_at so the provider isn't shown offline to /v1/models
+    # callers between actual inference requests.
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
     return len(incoming)
 
 
