@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import (
     AgentRegisterView,
+    AllProvidersListView,
     InferenceRequestView,
     ProviderListView,
     RefreshProviderModelsView,
@@ -18,6 +19,7 @@ urlpatterns = [
     ),
     path("agent/register/", AgentRegisterView.as_view(), name="agent-register"),
     path("providers/", ProviderListView.as_view(), name="provider-list"),
+    path("providers/all/", AllProvidersListView.as_view(), name="provider-list-all"),
     path(
         "providers/<int:id>/refresh-models/",
         RefreshProviderModelsView.as_view(),

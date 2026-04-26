@@ -18,6 +18,10 @@ export interface Provider {
   created_on: string
 }
 
+export interface PublicProvider extends Provider {
+  owner: string
+}
+
 export const useProviders = () => {
   const config = useRuntimeConfig()
   const providers = ref<Provider[]>([])
@@ -89,4 +93,29 @@ export const useProviders = () => {
     fetchProviders,
     refreshModels,
   }
+}
+
+export const useAllProviders = () => {
+  const config = useRuntimeConfig()
+  const providers = ref<PublicProvider[]>([])
+  const isLoading = ref(false)
+  const error = ref<string | null>(null)
+
+  const fetchAllProviders = async () => {
+    isLoading.value = true
+    error.value = null
+    try {
+      const data = await $fetch<PublicProvider[]>(
+        `${config.public.apiBase}/api/inference/providers/all/`,
+        { credentials: 'include' },
+      )
+      providers.value = data
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to load network nodes'
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  return { providers, isLoading, error, fetchAllProviders }
 }

@@ -15,6 +15,7 @@ from .serializers import (
     AgentRegisterSerializer,
     InferenceRequestSerializer,
     ProviderSerializer,
+    PublicProviderSerializer,
 )
 from .tailscale import mint_authkey_for_provider
 
@@ -99,6 +100,25 @@ class ProviderListView(generics.ListAPIView):
     def get_queryset(self):
         return (
             Provider.objects.filter(user=self.request.user)
+            .prefetch_related("models")
+        )
+
+
+class AllProvidersListView(generics.ListAPIView):
+    """List every active provider on the network (powers /providers/all-nodes UI).
+
+    Exposes per-node detail to any logged-in user, including the owner
+    (email local-part), so the network is legible. Inactive providers
+    are hidden.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = PublicProviderSerializer
+
+    def get_queryset(self):
+        return (
+            Provider.objects.filter(is_active=True)
+            .select_related("user")
             .prefetch_related("models")
         )
 

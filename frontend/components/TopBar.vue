@@ -7,6 +7,13 @@
         </NuxtLink>
         <nav class="hidden md:flex items-center space-x-4 text-sm">
           <NuxtLink
+            v-if="isAuthenticated"
+            to="/dashboard"
+            class="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Dashboard
+          </NuxtLink>
+          <NuxtLink
             to="/docs"
             class="text-muted-foreground transition-colors hover:text-foreground"
           >

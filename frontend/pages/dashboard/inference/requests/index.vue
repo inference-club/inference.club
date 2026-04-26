@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref, watch, computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
 import { usePagination } from '@/composables/usePagination'
 import PaginationControls from '@/components/PaginationControls.vue'
@@ -9,7 +8,6 @@ definePageMeta({
   layout: 'app',
 })
 
-const router = useRouter()
 const store = useInferenceRequestStore()
 
 const pagination = usePagination(computed(() => store.pagination.count), 10)
@@ -44,9 +42,6 @@ onMounted(async () => {
     <div ref="resultsTopRef" />
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold">Inference Requests</h1>
-      <Button @click="router.push('/inference-requests/create')">
-        Create New Request
-      </Button>
     </div>
 
     <!-- Loading Skeleton -->

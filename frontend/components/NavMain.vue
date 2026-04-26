@@ -20,7 +20,7 @@ import { NuxtLink } from '#components'
 defineProps<{
   items: {
     title: string
-    url: string
+    url?: string
     icon?: LucideIcon
     isActive?: boolean
     items?: {

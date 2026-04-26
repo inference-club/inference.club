@@ -44,6 +44,22 @@ class ProviderSerializer(serializers.ModelSerializer):
         ]
 
 
+class PublicProviderSerializer(ProviderSerializer):
+    """Network-wide listing. Adds an ``owner`` field (email local-part)
+    so logged-in users can see whose node is whose without leaking the
+    full email address.
+    """
+
+    owner = serializers.SerializerMethodField()
+
+    class Meta(ProviderSerializer.Meta):
+        fields = ProviderSerializer.Meta.fields + ["owner"]
+
+    def get_owner(self, obj) -> str:
+        email = getattr(obj.user, "email", "") or ""
+        return email.split("@", 1)[0]
+
+
 class InferenceRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = InferenceRequest
