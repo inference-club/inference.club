@@ -53,6 +53,19 @@ RUN DJANGO_COLLECTSTATIC=1 SECRET_KEY=build-only DATABASE_URL=sqlite:///tmp/buil
 USER app
 EXPOSE 8001
 
-# Run migrations then start gunicorn. Keeping this in one entrypoint means the
-# container is self-contained on first boot of a fresh DB.
-CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn backend.wsgi:application --bind 0.0.0.0:${PORT} --workers ${GUNICORN_WORKERS:-3} --access-logfile - --error-logfile -"]
+# Run migrations then start gunicorn.
+#
+# --worker-class gthread + multiple --threads is the right shape for our
+# workload: long-lived streaming proxies that spend ~all their time in I/O
+# wait. The default sync workers would kill any request that runs longer
+# than --timeout (default 30s), which trivially happens with a 27B
+# reasoning model streaming hundreds of tokens.
+CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn backend.wsgi:application \
+    --bind 0.0.0.0:${PORT} \
+    --worker-class gthread \
+    --workers ${GUNICORN_WORKERS:-2} \
+    --threads ${GUNICORN_THREADS:-8} \
+    --timeout ${GUNICORN_TIMEOUT:-600} \
+    --graceful-timeout 30 \
+    --keep-alive 5 \
+    --access-logfile - --error-logfile -"]
