@@ -40,10 +40,19 @@ export function provisionServer(): Server {
         algorithm: "ED25519",
     });
 
-    const sshKey = new hcloud.SshKey("inference-club", {
-        name: "inference-club-deploy",
-        publicKey: deployKey.publicKeyOpenssh,
-    });
+    const sshKey = new hcloud.SshKey(
+        "inference-club",
+        {
+            name: "inference-club-deploy",
+            publicKey: deployKey.publicKeyOpenssh,
+        },
+        // Hetzner SSH key names must be globally unique within the project, so
+        // when Pulumi wants to replace the key (e.g. provider version refresh
+        // regenerates the underlying keypair), we have to delete the old one
+        // before creating the new one — otherwise the create fails on name
+        // uniqueness.
+        { deleteBeforeReplace: true },
+    );
 
     // Allow SSH (auth via the keypair above), HTTP, and HTTPS. Everything
     // else is dropped at the cloud edge.
