@@ -209,6 +209,7 @@ export const useAuth = () => {
     register,
     logout,
     checkAuth,
+    setupCsrf,
     user: computed(() => authStore.user),
     isAuthenticated: computed(() => authStore.isAuthenticated)
   }
