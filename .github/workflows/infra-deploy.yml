@@ -68,21 +68,6 @@ jobs:
 
       - run: npm ci
 
-      # Decode the SSH private key from base64 before handing it to Pulumi.
-      # The DEPLOY_SSH_PRIVATE_KEY secret has to be base64-encoded because
-      # the inline { value: "..." } syntax in pulumi/actions config-map can't
-      # carry literal newlines, and OpenSSH private keys are multi-line.
-      - name: Decode SSH private key
-        id: ssh
-        env:
-          B64: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-        run: |
-          {
-            echo 'pem<<__EOF__'
-            echo "$B64" | base64 -d
-            echo '__EOF__'
-          } >> "$GITHUB_OUTPUT"
-
       - uses: pulumi/actions@v6
         with:
           command: up
@@ -90,16 +75,11 @@ jobs:
           # Create the stack on first run; no-op afterwards.
           upsert: true
           work-dir: infra
-          # Inject required + optional secrets at deploy time. The SSH private
-          # key is the multi-line value decoded above; everything else is
-          # single-line and safe to interpolate inline.
+          # Single-line secrets only — the SSH private key (multi-line) is
+          # passed via the env block below where it survives newlines cleanly.
           config-map: |
             inference-club-infra:ghcrToken: { value: "${{ secrets.GHCR_TOKEN }}", secret: true }
             inference-club-infra:sshPublicKey: { value: "${{ secrets.DEPLOY_SSH_PUBLIC_KEY }}", secret: true }
-            inference-club-infra:sshPrivateKey:
-              value: |
-                ${{ steps.ssh.outputs.pem }}
-              secret: true
             inference-club-infra:githubOauthClientId: { value: "${{ secrets.GH_OAUTH_CLIENT_ID }}", secret: true }
             inference-club-infra:githubOauthClientSecret: { value: "${{ secrets.GH_OAUTH_CLIENT_SECRET }}", secret: true }
             inference-club-infra:backendImage: { value: "ghcr.io/inference-club/inference-club-backend:${{ steps.tag.outputs.tag }}" }
@@ -109,3 +89,8 @@ jobs:
           # The hcloud Pulumi provider reads HCLOUD_TOKEN from the env, not
           # from Pulumi config. Same value, different delivery mechanism.
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          # The repo secret is base64-encoded (single line) and config.ts
+          # decodes it. Multi-line secrets aren't reliable through the
+          # config-map -> YAML -> Pulumi pipeline, so env is the right
+          # transport here.
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}

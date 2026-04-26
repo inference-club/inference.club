@@ -45,7 +45,24 @@ export const stackConfig = {
     ghcrToken: cfg.requireSecret("ghcrToken"),
 
     sshPublicKey: cfg.requireSecret("sshPublicKey"),
-    sshPrivateKey: cfg.requireSecret("sshPrivateKey"),
+
+    // The SSH private key comes in via env (DEPLOY_SSH_PRIVATE_KEY) rather
+    // than Pulumi config, because pulumi/actions's config-map is YAML and
+    // can't carry multi-line values cleanly. The repo secret holds the key
+    // base64-encoded so it travels as a single line through workflow env;
+    // we decode here.
+    sshPrivateKey: pulumi.secret(
+        (() => {
+            const b64 = process.env.DEPLOY_SSH_PRIVATE_KEY;
+            if (!b64) {
+                throw new Error(
+                    "DEPLOY_SSH_PRIVATE_KEY env var is missing. Set the " +
+                        "repo secret of the same name (base64-encoded PEM).",
+                );
+            }
+            return Buffer.from(b64, "base64").toString("utf8");
+        })(),
+    ),
 
     // Optional — default to empty string so the backend container starts; the
     // OAuth login button just won't do anything until you set them.
