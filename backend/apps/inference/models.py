@@ -74,8 +74,9 @@ class Provider(BaseModel):
         host = self._fqdn()
         if not host:
             return ""
-        if self.agent_port == 443:
-            return f"https://{host}/v1"
+        # Plain HTTP regardless of port. The agent uses tsnet's Listen()
+        # (not ListenTLS), so it serves HTTP even on :443. The wire is
+        # already encrypted by Tailscale's WireGuard tunnel.
         return f"http://{host}:{self.agent_port}/v1"
 
     @property
@@ -83,8 +84,6 @@ class Provider(BaseModel):
         host = self._fqdn()
         if not host:
             return ""
-        if self.agent_port == 443:
-            return f"https://{host}/healthz"
         return f"http://{host}:{self.agent_port}/healthz"
 
     @property
