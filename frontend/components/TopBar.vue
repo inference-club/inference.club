@@ -5,6 +5,20 @@
         <NuxtLink to="/" class="mr-6 flex items-center space-x-2">
           <span class="font-bold text-xl">inference.club</span>
         </NuxtLink>
+        <nav class="hidden md:flex items-center space-x-4 text-sm">
+          <NuxtLink
+            to="/docs"
+            class="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Docs
+          </NuxtLink>
+          <NuxtLink
+            to="/blog"
+            class="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Blog
+          </NuxtLink>
+        </nav>
       </div>
       <div class="flex flex-1 items-center justify-end space-x-2">
         <Button variant="ghost" size="sm" @click="toggleTheme">

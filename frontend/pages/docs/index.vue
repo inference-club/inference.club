@@ -1,29 +1,21 @@
 <script setup lang="ts">
-definePageMeta({
-  layout: 'app'
+definePageMeta({ layout: 'docs' })
+
+// The /docs root is rendered from content/docs/index.md so editors don't
+// need to touch Vue to change the landing page.
+const { data: page } = await useAsyncData('docs:/docs', () =>
+  queryCollection('docs').path('/docs').first(),
+)
+
+useSeoMeta({
+  title: 'inference.club docs',
+  description: page.value?.description ?? 'inference.club documentation',
 })
 </script>
 
 <template>
-  <div class="container mx-auto p-6">
-    <h1 class="text-2xl font-bold mb-6">Documentation</h1>
-    <div class="grid gap-6">
-      <div class="p-6 bg-card rounded-lg border">
-        <h2 class="text-xl font-semibold mb-4">Introduction</h2>
-        <p class="text-muted-foreground">Welcome to the inference.club documentation.</p>
-      </div>
-      <div class="p-6 bg-card rounded-lg border">
-        <h2 class="text-xl font-semibold mb-4">Get Started</h2>
-        <p class="text-muted-foreground">Learn how to get started with inference.club.</p>
-      </div>
-      <div class="p-6 bg-card rounded-lg border">
-        <h2 class="text-xl font-semibold mb-4">Tutorials</h2>
-        <p class="text-muted-foreground">Step-by-step guides and tutorials.</p>
-      </div>
-      <div class="p-6 bg-card rounded-lg border">
-        <h2 class="text-xl font-semibold mb-4">Changelog</h2>
-        <p class="text-muted-foreground">Recent updates and changes to the platform.</p>
-      </div>
-    </div>
-  </div>
+  <article>
+    <ContentRenderer v-if="page" :value="page" />
+    <p v-else>Docs landing page is missing — check that <code>content/docs/index.md</code> exists.</p>
+  </article>
 </template>
