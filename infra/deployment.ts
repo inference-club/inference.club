@@ -1,5 +1,6 @@
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
+import * as random from "@pulumi/random";
 import * as fs from "fs";
 import * as path from "path";
 import { stackConfig } from "./config";
@@ -30,10 +31,25 @@ function render(
 }
 
 export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
+    // Auto-generated app secrets. Pulumi state persists these across runs so
+    // a re-deploy doesn't regenerate them (which would invalidate sessions
+    // and break the existing Postgres data dir).
+    const djangoSecretKey = new random.RandomPassword("django-secret-key", {
+        length: 64,
+        special: false,
+    });
+    const postgresPassword = new random.RandomPassword("postgres-password", {
+        length: 32,
+        // Avoid characters that need shell-escaping inside the .env file we
+        // ship to the VPS.
+        overrideSpecial: "_-",
+        special: true,
+    });
+
     const conn: command.types.input.remote.ConnectionArgs = {
         host: server.ipv4,
         user: "root",
-        privateKey: stackConfig.sshPrivateKey,
+        privateKey: server.sshPrivateKey,
     };
 
     // Wait for cloud-init to finish (Docker installed + /srv/inference-club
@@ -52,7 +68,7 @@ export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
     const composeYaml = render(loadTemplate("docker-compose.yml.tpl"), {
         BACKEND_IMAGE: stackConfig.backendImage,
         FRONTEND_IMAGE: stackConfig.frontendImage,
-        POSTGRES_PASSWORD: stackConfig.postgresPassword,
+        POSTGRES_PASSWORD: postgresPassword.result,
         DOMAIN: stackConfig.domain,
     });
 
@@ -61,16 +77,16 @@ export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
     });
 
     const backendEnv = render(loadTemplate("backend.env.tpl"), {
-        DJANGO_SECRET_KEY: stackConfig.djangoSecretKey,
-        POSTGRES_PASSWORD: stackConfig.postgresPassword,
+        DJANGO_SECRET_KEY: djangoSecretKey.result,
+        POSTGRES_PASSWORD: postgresPassword.result,
         GITHUB_OAUTH_CLIENT_ID: stackConfig.githubOauthClientId,
         GITHUB_OAUTH_CLIENT_SECRET: stackConfig.githubOauthClientSecret,
         DOMAIN: stackConfig.domain,
     });
 
     // ---- ship files via SSH heredocs --------------------------------------
-    // CopyToRemote needs a local source file; using a heredoc keeps everything
-    // in Pulumi state and avoids touching the local fs with secrets.
+    // CopyToRemote needs a local source file; using base64-piped-into-base64-d
+    // keeps secrets in Pulumi state only and avoids touching the local fs.
 
     function shipFile(
         name: string,
@@ -80,8 +96,6 @@ export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
     ): command.remote.Command {
         return new command.remote.Command(`ship-${name}`, {
             connection: conn,
-            // base64 encode in JS so the shell never sees the raw secret value
-            // and we don't have to worry about quoting / EOF markers.
             create: contents.apply((c) => {
                 const b64 = Buffer.from(c, "utf8").toString("base64");
                 return `printf '%s' '${b64}' | base64 -d > ${REMOTE_DIR}/${name} && chmod ${mode} ${REMOTE_DIR}/${name}`;

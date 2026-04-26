@@ -1,11 +1,11 @@
 import * as hcloud from "@pulumi/hcloud";
 import * as pulumi from "@pulumi/pulumi";
+import * as tls from "@pulumi/tls";
 import { stackConfig } from "./config";
 
 // cloud-init script that runs once when the VPS first boots. Installs Docker
-// + the compose plugin, opens nothing extra (firewall is the @pulumi/hcloud
-// resource below), and pre-creates /srv/inference-club so the deployment step
-// can scp files into it as root.
+// + the compose plugin and pre-creates /srv/inference-club so the deployment
+// step can scp files into it as root.
 const cloudInit = `#cloud-config
 package_update: true
 package_upgrade: true
@@ -29,16 +29,24 @@ runcmd:
 export interface Server {
     ipv4: pulumi.Output<string>;
     name: pulumi.Output<string>;
+    sshPrivateKey: pulumi.Output<string>;
 }
 
 export function provisionServer(): Server {
-    const sshKey = new hcloud.SshKey("inference-club", {
-        name: "inference-club-deploy",
-        publicKey: stackConfig.sshPublicKey,
+    // Auto-generated SSH keypair. Pulumi state stores both halves encrypted;
+    // the user never has to mint or rotate this manually. Re-using ED25519
+    // because it's small and modern.
+    const deployKey = new tls.PrivateKey("deploy-key", {
+        algorithm: "ED25519",
     });
 
-    // Allow SSH from anywhere (the SSH key is the auth boundary) and HTTP/S
-    // for Caddy. Everything else is dropped.
+    const sshKey = new hcloud.SshKey("inference-club", {
+        name: "inference-club-deploy",
+        publicKey: deployKey.publicKeyOpenssh,
+    });
+
+    // Allow SSH (auth via the keypair above), HTTP, and HTTPS. Everything
+    // else is dropped at the cloud edge.
     const firewall = new hcloud.Firewall("inference-club", {
         name: "inference-club",
         rules: [
@@ -61,5 +69,6 @@ export function provisionServer(): Server {
     return {
         ipv4: server.ipv4Address,
         name: server.name,
+        sshPrivateKey: deployKey.privateKeyOpenssh,
     };
 }
