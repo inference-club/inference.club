@@ -140,10 +140,16 @@ def refresh_provider_models(provider) -> int:
             verify=False,
             proxies=proxies,
         )
-        resp.raise_for_status()
     except requests.RequestException as e:
         logger.warning("refresh_provider_models failed for %s: %s", provider, e)
         raise RefreshError(f"GET {url} via proxies={proxies}: {type(e).__name__}: {e}") from e
+    if not resp.ok:
+        body = resp.text[:500]
+        srv = resp.headers.get("Server", "?")
+        raise RefreshError(
+            f"GET {url} via proxies={proxies}: HTTP {resp.status_code} "
+            f"from Server={srv!r}, body={body!r}"
+        )
     payload = resp.json()
     rows = payload.get("data") or payload.get("models") or []
 
