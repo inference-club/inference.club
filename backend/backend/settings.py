@@ -75,6 +75,14 @@ CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_HTTPONLY = False
 CSRF_USE_SESSIONS = False
 
+# When the frontend and API live on different subdomains of the same parent
+# (inference.club + api.inference.club), the CSRF cookie has to be set on the
+# parent so the frontend's JavaScript can read it via document.cookie. Same
+# story for the session cookie. In dev (localhost) we leave these unset so
+# Django defaults to the request host.
+CSRF_COOKIE_DOMAIN = os.environ.get("DJANGO_CSRF_COOKIE_DOMAIN") or None
+SESSION_COOKIE_DOMAIN = os.environ.get("DJANGO_SESSION_COOKIE_DOMAIN") or None
+
 # ---- apps / middleware --------------------------------------------------
 
 INSTALLED_APPS = [
