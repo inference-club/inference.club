@@ -71,16 +71,35 @@ def _find_provider_for_model(user, model_name):
 
 
 class ModelsView(APIView):
-    """``GET /v1/models`` — OpenAI-format list across the user's online providers."""
+    """``GET /v1/models`` — OpenAI-format list across the user's providers.
+
+    Self-healing: any provider that's been idle long enough to have flipped
+    offline gets a synchronous refresh probe, which bumps last_seen_at on
+    success. So Open-WebUI / curl / any first call after a quiet period
+    still sees a populated dropdown.
+    """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        candidates = list(
+            request.user.providers.filter(is_active=True).exclude(tailnet_hostname="")
+        )
         seen = {}
-        for provider in _online_providers(request.user):
+        for provider in candidates:
+            # If we haven't heard from this provider lately, or we have no
+            # models cached for it, try to wake it up. refresh_provider_models
+            # bumps last_seen_at on success.
+            if not provider.is_online or not provider.models.filter(is_active=True).exists():
+                try:
+                    refresh_provider_models(provider)
+                    provider.refresh_from_db(fields=["last_seen_at"])
+                except Exception:
+                    continue
+            if not provider.is_online:
+                continue
             created = int(provider.created_on.timestamp())
             for m in provider.models.filter(is_active=True):
-                # De-dupe across providers; first writer wins.
                 seen.setdefault(
                     m.name,
                     {
