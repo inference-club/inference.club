@@ -53,35 +53,24 @@ class Provider(BaseModel):
     def __str__(self):
         return f"{self.user_id}:{self.name}"
 
-    def _fqdn(self) -> str:
-        """Resolve the tailnet hostname to a full FQDN if possible.
-
-        We need the FQDN to match the cert Tailscale issues for the agent's
-        ``*.ts.net`` device name. If TAILSCALE_TAILNET isn't configured, fall
-        back to the bare hostname (callers must use verify=False in that case).
-        """
-        host = self.tailnet_hostname
-        if not host or "." in host:
-            return host
-        tailnet = getattr(settings, "TAILSCALE_TAILNET", "") or ""
-        if tailnet and tailnet != "-":
-            tailnet = tailnet.removesuffix(".ts.net")
-            return f"{host}.{tailnet}.ts.net"
-        return host
-
     @property
     def tailnet_base_url(self) -> str:
-        host = self._fqdn()
+        """Plain HTTP via the *short* MagicDNS name.
+
+        Tailscale's userspace SOCKS5 resolves short MagicDNS names within the
+        tailnet but doesn't reliably resolve FQDNs like
+        ``host.<tailnet>.ts.net``. We don't need the FQDN since there's no
+        TLS to validate (the agent serves HTTP and the WireGuard tunnel
+        already encrypts the wire).
+        """
+        host = self.tailnet_hostname
         if not host:
             return ""
-        # Plain HTTP regardless of port. The agent uses tsnet's Listen()
-        # (not ListenTLS), so it serves HTTP even on :443. The wire is
-        # already encrypted by Tailscale's WireGuard tunnel.
         return f"http://{host}:{self.agent_port}/v1"
 
     @property
     def healthz_url(self) -> str:
-        host = self._fqdn()
+        host = self.tailnet_hostname
         if not host:
             return ""
         return f"http://{host}:{self.agent_port}/healthz"
