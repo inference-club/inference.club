@@ -118,30 +118,32 @@ def _tailnet_proxies():
     return {"http": url, "https": url}
 
 
+class RefreshError(Exception):
+    """Internal — surfaces upstream failure detail to the caller of refresh_provider_models."""
+
+
 def refresh_provider_models(provider) -> int:
     """Hit the agent's /v1/models over the tailnet and sync ProviderModel rows.
 
-    Returns the count of models the agent currently advertises. Soft-replace:
-    models the agent no longer reports get marked is_active=False rather than
-    deleted, so old InferenceRequest rows still resolve their FK.
+    Returns the count of models the agent currently advertises. Raises
+    RefreshError with diagnostic detail on transport failure so the calling
+    view can surface it (only in non-prod / for the MVP debugging period).
     """
     if not provider.tailnet_base_url:
-        return 0
+        raise RefreshError("provider has no tailnet_hostname yet")
+    url = provider.tailnet_base_url.rstrip("/") + "/models"
+    proxies = _tailnet_proxies()
     try:
-        # verify=False because the cert chain inside the tailnet is Tailscale's
-        # own and we may not always have the FQDN that matches it; the wire is
-        # already encrypted by WireGuard so this is defense-in-depth we drop
-        # for the MVP. Revisit when the FQDN handling is solid.
         resp = requests.get(
-            provider.tailnet_base_url.rstrip("/") + "/models",
+            url,
             timeout=10,
             verify=False,
-            proxies=_tailnet_proxies(),
+            proxies=proxies,
         )
         resp.raise_for_status()
     except requests.RequestException as e:
         logger.warning("refresh_provider_models failed for %s: %s", provider, e)
-        return 0
+        raise RefreshError(f"GET {url} via proxies={proxies}: {type(e).__name__}: {e}") from e
     payload = resp.json()
     rows = payload.get("data") or payload.get("models") or []
 
@@ -166,7 +168,16 @@ class RefreshProviderModelsView(APIView):
 
     def post(self, request, id):
         provider = get_object_or_404(Provider, id=id, user=request.user)
-        count = refresh_provider_models(provider)
+        try:
+            count = refresh_provider_models(provider)
+            error = None
+        except RefreshError as e:
+            count = 0
+            error = str(e)
         return Response(
-            {"refreshed": count, "provider": ProviderSerializer(provider).data}
+            {
+                "refreshed": count,
+                "error": error,
+                "provider": ProviderSerializer(provider).data,
+            }
         )

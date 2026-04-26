@@ -61,7 +61,10 @@ def _find_provider_for_model(user, model_name):
     # try to populate them now. Useful right after a fresh agent registers.
     for provider in _online_providers(user):
         if not provider.models.filter(is_active=True).exists():
-            refresh_provider_models(provider)
+            try:
+                refresh_provider_models(provider)
+            except Exception:
+                continue
             if provider.models.filter(is_active=True, name=model_name).exists():
                 return provider
     return None
