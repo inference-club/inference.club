@@ -41,6 +41,17 @@ jobs:
 
       - run: npm ci
 
+      - name: Decode SSH private key
+        id: ssh
+        env:
+          B64: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+        run: |
+          {
+            echo 'pem<<__EOF__'
+            echo "$B64" | base64 -d
+            echo '__EOF__'
+          } >> "$GITHUB_OUTPUT"
+
       - uses: pulumi/actions@v6
         with:
           command: destroy
@@ -52,7 +63,10 @@ jobs:
           config-map: |
             inference-club-infra:ghcrToken: { value: "${{ secrets.GHCR_TOKEN }}", secret: true }
             inference-club-infra:sshPublicKey: { value: "${{ secrets.DEPLOY_SSH_PUBLIC_KEY }}", secret: true }
-            inference-club-infra:sshPrivateKey: { value: "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}", secret: true }
+            inference-club-infra:sshPrivateKey:
+              value: |
+                ${{ steps.ssh.outputs.pem }}
+              secret: true
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
