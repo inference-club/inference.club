@@ -45,8 +45,10 @@ services:
       TS_USERSPACE: "true"
       TS_STATE_DIR: /var/lib/tailscale
       TS_EXTRA_ARGS: "--advertise-tags=tag:club-web"
+      # SOCKS5 only — the backend uses socks5h:// to also resolve MagicDNS
+      # via the proxy. Setting TS_OUTBOUND_HTTP_PROXY_LISTEN on the same port
+      # would collide with this listener.
       TS_SOCKS5_SERVER: ":1055"
-      TS_OUTBOUND_HTTP_PROXY_LISTEN: ":1055"
     volumes:
       - /srv/inference-club/tailscale-state:/var/lib/tailscale
 
