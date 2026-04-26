@@ -24,7 +24,7 @@ const cfg = new pulumi.Config();
 export const stackConfig = {
     domain: cfg.get("domain") ?? "inference.club",
     hcloudLocation: cfg.get("hcloudLocation") ?? "nbg1",
-    serverType: cfg.get("serverType") ?? "cx22",
+    serverType: cfg.get("serverType") ?? "cx23",
 
     backendImage:
         cfg.get("backendImage") ??

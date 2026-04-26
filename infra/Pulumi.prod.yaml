@@ -16,6 +16,6 @@
 config:
   inference-club-infra:domain: inference.club
   inference-club-infra:hcloudLocation: nbg1
-  inference-club-infra:serverType: cx22
+  inference-club-infra:serverType: cx23
   inference-club-infra:backendImage: ghcr.io/inference-club/inference-club-backend:latest
   inference-club-infra:frontendImage: ghcr.io/inference-club/inference-club-frontend:latest
