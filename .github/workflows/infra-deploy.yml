@@ -72,6 +72,8 @@ jobs:
         with:
           command: up
           stack-name: prod
+          # Create the stack on first run; no-op afterwards.
+          upsert: true
           work-dir: infra
           # Inject required + optional secrets at deploy time. Auto-generated
           # SSH/Django/Postgres secrets are produced inside the program.
