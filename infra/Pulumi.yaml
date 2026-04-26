@@ -1,0 +1,8 @@
+name: inference-club-infra
+runtime: nodejs
+description: Provisions a single Hetzner VPS and deploys the inference.club app
+  stack (frontend + backend + Postgres + Redis + Caddy) over docker compose.
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: ""

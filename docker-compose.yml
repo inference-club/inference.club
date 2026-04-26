@@ -1,0 +1,64 @@
+# Local "production-like" stack: builds the same images CI ships and points
+# them at a real Postgres. Use this to smoke-test the containers before relying
+# on the prod compose template under infra/templates/. Caddy is intentionally
+# omitted here — exposing each service on its own host port is easier for local
+# poking than dealing with TLS/Caddy locally.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: inference
+      POSTGRES_USER: inference
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdev}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inference -d inference"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      # Host port 5532 to avoid the IPv6 :5432 binding Docker Desktop holds
+      # for dev tooling, and any local Postgres install.
+      - "5532:5432"
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-localdev-not-for-production}
+      DJANGO_DEBUG: "True"
+      DJANGO_ALLOWED_HOSTS: "*"
+      DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference
+      DJANGO_CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      SOCIAL_AUTH_LOGIN_REDIRECT_URL: http://localhost:3001/
+      PORT: "8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Host port 8101 so this can coexist with `manage.py runserver 8001`.
+      - "8101:8001"
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      # The container reaches Django via the host because the browser also runs
+      # on the host — same origin from the browser's perspective.
+      # Browser hits backend on the host's compose port 8101.
+      NUXT_PUBLIC_API_BASE: http://localhost:8101
+      NUXT_HOST: 0.0.0.0
+      NUXT_PORT: "3000"
+    depends_on:
+      - backend
+    ports:
+      # Host port 3100 so this can coexist with `yarn dev --port 3001` and
+      # whatever Docker Desktop has on :3000.
+      - "3100:3000"
+
+volumes:
+  postgres-data:

@@ -1,6 +1,8 @@
 from django.urls import path
 from .views import (
+    AgentHeartbeatView,
     InferenceRequestView,
+    ProviderListView,
     RetrieveInferenceRequestView,
 )
 
@@ -13,4 +15,6 @@ urlpatterns = [
         RetrieveInferenceRequestView.as_view(),
         name="inference-detail",
     ),
+    path("agent/heartbeat/", AgentHeartbeatView.as_view(), name="agent-heartbeat"),
+    path("providers/", ProviderListView.as_view(), name="provider-list"),
 ]

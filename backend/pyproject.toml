@@ -6,7 +6,7 @@ authors = ["Brian Caffey <briancaffey2010@gmail.com>"]
 package-mode = false
 
 [tool.poetry.dependencies]
-python = "==3.13.3"
+python = "~3.13"
 
 # TODO: complete major version upgrades for dependencies (!)
 # Update to Django 3.2 requires additional changes
@@ -47,6 +47,8 @@ argh = "^0.31.2"
 python-social-auth = "^0.3.6"
 social-auth-app-django = "^5.4.3"
 requests = "^2.32.3"
+python-dotenv = "^1.2.2"
+dj-database-url = "^3.1.2"
 
 [tool.poetry.group.test.dependencies]
 

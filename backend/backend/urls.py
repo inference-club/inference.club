@@ -20,6 +20,8 @@ from django.urls import include, path
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("oauth/", include("social_django.urls", namespace="social")),
+    path("v1/", include("apps.inference.openai_urls", namespace="openai")),
     path("api/", include("apps.accounts.urls")),
     path("api/inference/", include("apps.inference.urls")),
 ]

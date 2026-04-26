@@ -1,20 +1,99 @@
 <script setup lang="ts">
+import { useProviders } from '@/composables/useProviders'
+
 definePageMeta({
-  layout: 'app'
+  layout: 'app',
 })
+
+const { providers, isLoading, error, fetchProviders } = useProviders()
+
+onMounted(fetchProviders)
+
+const formatHeartbeat = (iso: string | null) => {
+  if (!iso) return 'never'
+  const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  return new Date(iso).toLocaleString()
+}
 </script>
 
 <template>
   <div class="container mx-auto p-6">
-    <h1 class="text-2xl font-bold mb-6">Inference Providers</h1>
-    <div class="grid gap-6">
-      <div class="p-6 bg-card rounded-lg border">
-        <h2 class="text-xl font-semibold mb-4">My Nodes</h2>
-        <p class="text-muted-foreground">Manage your inference nodes here.</p>
-      </div>
-      <div class="p-6 bg-card rounded-lg border">
-        <h2 class="text-xl font-semibold mb-4">All Nodes</h2>
-        <p class="text-muted-foreground">Browse all available inference nodes.</p>
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold">My Inference Nodes</h1>
+      <button
+        class="text-sm text-muted-foreground hover:text-foreground"
+        :disabled="isLoading"
+        @click="fetchProviders"
+      >
+        {{ isLoading ? 'Refreshing…' : 'Refresh' }}
+      </button>
+    </div>
+
+    <div v-if="error" class="p-4 mb-4 bg-destructive/10 text-destructive rounded">
+      {{ error }}
+    </div>
+
+    <div v-if="!isLoading && providers.length === 0" class="p-6 bg-card rounded-lg border">
+      <h2 class="text-xl font-semibold mb-2">No nodes yet</h2>
+      <p class="text-muted-foreground mb-2">
+        Run <code class="text-foreground">inference-club-agent</code> on a machine with an LLM server, and configure it
+        with your inference.club API key. It will register itself here on its first heartbeat.
+      </p>
+      <p class="text-muted-foreground">
+        Get an API key at
+        <NuxtLink to="/dashboard/settings/token" class="underline">
+          Dashboard → Settings → Token
+        </NuxtLink>.
+      </p>
+    </div>
+
+    <div class="grid gap-4">
+      <div
+        v-for="provider in providers"
+        :key="provider.id"
+        class="p-6 bg-card rounded-lg border"
+      >
+        <div class="flex items-start justify-between mb-3">
+          <div>
+            <div class="flex items-center gap-3">
+              <h2 class="text-xl font-semibold">{{ provider.name }}</h2>
+              <span
+                :class="provider.is_online
+                  ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                  : 'bg-muted text-muted-foreground'"
+                class="px-2 py-0.5 text-xs rounded-full"
+              >
+                {{ provider.is_online ? 'online' : 'offline' }}
+              </span>
+            </div>
+            <p class="text-sm text-muted-foreground mt-1 font-mono">
+              {{ provider.callback_url }}
+            </p>
+          </div>
+          <p class="text-xs text-muted-foreground">
+            heartbeat: {{ formatHeartbeat(provider.last_heartbeat_at) }}
+          </p>
+        </div>
+
+        <div v-if="provider.models.length > 0">
+          <p class="text-xs uppercase text-muted-foreground mb-2">Models</p>
+          <div class="flex flex-wrap gap-2">
+            <span
+              v-for="m in provider.models"
+              :key="m.id"
+              class="px-2 py-1 text-xs rounded bg-muted font-mono"
+            >
+              {{ m.name }}<template v-if="m.context_window">
+                <span class="text-muted-foreground"> · {{ m.context_window }} ctx</span>
+              </template>
+            </span>
+          </div>
+        </div>
+        <p v-else class="text-sm text-muted-foreground italic">
+          No models reported.
+        </p>
       </div>
     </div>
   </div>
