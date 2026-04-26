@@ -4,7 +4,7 @@ import * as random from "@pulumi/random";
 import * as fs from "fs";
 import * as path from "path";
 import { stackConfig } from "./config";
-import { Server } from "./server";
+import type { Server } from "./server";
 
 const REMOTE_DIR = "/srv/inference-club";
 

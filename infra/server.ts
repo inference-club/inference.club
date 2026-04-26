@@ -1,6 +1,5 @@
 import * as hcloud from "@pulumi/hcloud";
 import * as pulumi from "@pulumi/pulumi";
-import * as tls from "@pulumi/tls";
 import { stackConfig } from "./config";
 
 // cloud-init script that runs once when the VPS first boots. Installs Docker
@@ -33,24 +32,15 @@ export interface Server {
 }
 
 export function provisionServer(): Server {
-    // Auto-generated SSH keypair. Pulumi state stores both halves encrypted;
-    // the user never has to mint or rotate this manually. Re-using ED25519
-    // because it's small and modern.
-    const deployKey = new tls.PrivateKey("deploy-key", {
-        algorithm: "ED25519",
-    });
-
     const sshKey = new hcloud.SshKey(
         "inference-club",
         {
             name: "inference-club-deploy",
-            publicKey: deployKey.publicKeyOpenssh,
+            publicKey: stackConfig.sshPublicKey,
         },
         // Hetzner SSH key names must be globally unique within the project, so
-        // when Pulumi wants to replace the key (e.g. provider version refresh
-        // regenerates the underlying keypair), we have to delete the old one
-        // before creating the new one — otherwise the create fails on name
-        // uniqueness.
+        // when Pulumi wants to replace the key we have to delete the old one
+        // first to free the name.
         { deleteBeforeReplace: true },
     );
 
@@ -78,6 +68,6 @@ export function provisionServer(): Server {
     return {
         ipv4: server.ipv4Address,
         name: server.name,
-        sshPrivateKey: deployKey.privateKeyOpenssh,
+        sshPrivateKey: stackConfig.sshPrivateKey,
     };
 }

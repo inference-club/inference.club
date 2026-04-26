@@ -51,6 +51,8 @@ jobs:
           # can plan the destroy.
           config-map: |
             inference-club-infra:ghcrToken: { value: "${{ secrets.GHCR_TOKEN }}", secret: true }
+            inference-club-infra:sshPublicKey: { value: "${{ secrets.DEPLOY_SSH_PUBLIC_KEY }}", secret: true }
+            inference-club-infra:sshPrivateKey: { value: "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}", secret: true }
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}

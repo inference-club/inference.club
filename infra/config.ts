@@ -8,6 +8,11 @@ import * as pulumi from "@pulumi/pulumi";
 //                              the hcloud provider, not via Pulumi config
 //   - ghcrToken (Pulumi cfg) : GitHub PAT (classic, scope: read:packages) so
 //                              the VPS can pull private images from GHCR
+//   - sshPublicKey           : OpenSSH public key (stable across deploys; we
+//                              used to auto-generate via @pulumi/tls but it
+//                              regenerated unpredictably and replaced the
+//                              server, losing data each time)
+//   - sshPrivateKey          : matching private key for SSH-based deployment
 //
 // Optional — if unset, the deployed site renders but GitHub OAuth login is broken:
 //   - githubOauthClientId    : production GitHub OAuth App client id
@@ -38,6 +43,9 @@ export const stackConfig = {
     ghcrUsername: cfg.get("ghcrUsername") ?? "inference-club",
 
     ghcrToken: cfg.requireSecret("ghcrToken"),
+
+    sshPublicKey: cfg.requireSecret("sshPublicKey"),
+    sshPrivateKey: cfg.requireSecret("sshPrivateKey"),
 
     // Optional — default to empty string so the backend container starts; the
     // OAuth login button just won't do anything until you set them.
