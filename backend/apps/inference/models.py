@@ -106,6 +106,45 @@ class ProviderModel(BaseModel):
         return f"{self.provider}/{self.name}"
 
 
+class ServiceManifest(BaseModel):
+    """The operator's description of their home network — hosts, GPUs, and
+    LLM services running on each host.
+
+    Uploaded by the agent via PUT /api/inference/agent/manifest/. Bound
+    OneToOne to a Provider, looked up by ``(user, agent.name)``. Both the
+    raw YAML and the parsed JSON are stored: parsed is what the UI renders,
+    raw is what the operator wrote (so the dashboard can show it back to
+    them verbatim).
+
+    Manifests that fail server-side validation are still persisted with
+    ``is_valid=False`` and a list of errors, so the dashboard can show
+    "your manifest is broken, here's why" instead of "no manifest yet."
+    """
+
+    provider = models.OneToOneField(
+        "Provider",
+        on_delete=models.CASCADE,
+        related_name="manifest",
+    )
+    schema_version = models.PositiveSmallIntegerField(default=1)
+    raw_yaml = models.TextField(
+        help_text="The YAML the operator wrote, stored verbatim for re-display."
+    )
+    parsed = models.JSONField(
+        help_text="Validated structured form. UI renders from this; "
+        "no YAML parser runs in the browser."
+    )
+    uploaded_at = models.DateTimeField(auto_now=True)
+    is_valid = models.BooleanField(default=True)
+    validation_errors = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ["-uploaded_at"]
+
+    def __str__(self):
+        return f"manifest for {self.provider}"
+
+
 class InferenceRequest(BaseModel):
     INFERENCE_TYPES = (
         ("LLM", "Language Model"),

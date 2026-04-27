@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import InferenceRequest, Provider, ProviderModel
+from .models import InferenceRequest, Provider, ProviderModel, ServiceManifest
 
 
 class AgentRegisterSerializer(serializers.Serializer):
@@ -24,9 +24,42 @@ class ProviderModelSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "context_window", "is_active"]
 
 
+class PublicServiceManifestSerializer(serializers.ModelSerializer):
+    """Public-facing manifest view — exposes the parsed structure but not
+    the raw YAML (which may contain notes the operator wouldn't want
+    on a public profile)."""
+
+    class Meta:
+        model = ServiceManifest
+        fields = [
+            "schema_version",
+            "parsed",
+            "uploaded_at",
+            "is_valid",
+        ]
+
+
+class ServiceManifestSerializer(serializers.ModelSerializer):
+    """Owner-facing manifest view — includes raw YAML and validation errors
+    so the dashboard can show the operator exactly what they uploaded and
+    what (if anything) the server rejected."""
+
+    class Meta:
+        model = ServiceManifest
+        fields = [
+            "schema_version",
+            "raw_yaml",
+            "parsed",
+            "uploaded_at",
+            "is_valid",
+            "validation_errors",
+        ]
+
+
 class ProviderSerializer(serializers.ModelSerializer):
     models = ProviderModelSerializer(many=True, read_only=True)
     is_online = serializers.BooleanField(read_only=True)
+    manifest = ServiceManifestSerializer(read_only=True)
 
     class Meta:
         model = Provider
@@ -40,6 +73,7 @@ class ProviderSerializer(serializers.ModelSerializer):
             "registered_at",
             "last_seen_at",
             "models",
+            "manifest",
             "created_on",
         ]
 
@@ -49,10 +83,15 @@ class PublicProviderSerializer(ProviderSerializer):
     handle, since signup is GitHub-only) and ``owner`` (preferred display
     name — github_login when present, otherwise the email local-part as a
     safety net).
+
+    Overrides ``manifest`` with the public-facing serializer so we don't
+    leak the raw YAML or validation errors to other users on the
+    network-wide listing or the public profile.
     """
 
     owner = serializers.SerializerMethodField()
     github_login = serializers.SerializerMethodField()
+    manifest = PublicServiceManifestSerializer(read_only=True)
 
     class Meta(ProviderSerializer.Meta):
         fields = ProviderSerializer.Meta.fields + ["owner", "github_login"]
