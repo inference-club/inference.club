@@ -1,0 +1,148 @@
+name: add-ssh-key
+
+# One-shot to add a personal SSH public key to the prod VPS so the operator
+# gets an interactive root shell without disturbing the deploy key. Runs the
+# existing deploy key (from secrets) end-to-end; you only paste in your
+# laptop's *public* key.
+#
+# Usage:
+#   1. Locally:
+#        ssh-keygen -t ed25519 -f ~/.ssh/inference_club -C "$(whoami)@$(hostname -s)"
+#        cat ~/.ssh/inference_club.pub
+#   2. Run this workflow (Actions tab → "add-ssh-key" → Run workflow)
+#      and paste the line from step 1 into `public_key`.
+#   3. Workflow output prints the IP. From your laptop:
+#        ssh -i ~/.ssh/inference_club root@<ip>
+#
+# To revoke later, run with `revoke: true` and the same public_key.
+
+on:
+  workflow_dispatch:
+    inputs:
+      public_key:
+        description: "OpenSSH public key (single line, e.g. 'ssh-ed25519 AAAA... user@host')"
+        required: true
+      revoke:
+        description: "Remove the key instead of adding it"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Reuse the infra-prod group so we don't race a deploy halfway through
+  # rewriting authorized_keys.
+  group: infra-prod
+  cancel-in-progress: false
+
+jobs:
+  add-key:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate input
+        run: |
+          key='${{ inputs.public_key }}'
+          if ! [[ "$key" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256)\  ]]; then
+            echo "::error::public_key doesn't look like an OpenSSH pubkey"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install Pulumi deps
+        working-directory: infra
+        run: npm ci
+
+      - name: Resolve VPS IP from Pulumi state
+        id: ip
+        uses: pulumi/actions@v6
+        with:
+          command: output
+          stack-name: prod
+          work-dir: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+
+      - name: Extract serverIp
+        id: vps
+        run: |
+          # pulumi/actions writes outputs to ${{ steps.ip.outputs.* }}; serverIp
+          # is exported from infra/index.ts.
+          ip='${{ steps.ip.outputs.serverIp }}'
+          if [ -z "$ip" ]; then
+            echo "::error::no serverIp output — has the stack been deployed?"; exit 1
+          fi
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"
+          echo "VPS IP: $ip"
+
+      - name: Set up deploy SSH key
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          # DEPLOY_SSH_PRIVATE_KEY is base64-encoded per the existing convention.
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" | base64 -d > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -t ed25519,rsa,ecdsa "${{ steps.vps.outputs.ip }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Append (or remove) authorized key
+        env:
+          IP: ${{ steps.vps.outputs.ip }}
+          PUBKEY: ${{ inputs.public_key }}
+          REVOKE: ${{ inputs.revoke }}
+        run: |
+          # Pipe the pubkey via stdin and use a quoted heredoc for the
+          # remote script so neither layer's quoting can be broken by an
+          # odd character in the comment field.
+          printf '%s' "$PUBKEY" | ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
+            root@"$IP" "bash -s -- '$REVOKE'" <<'REMOTE'
+          set -e
+          revoke=$1
+          key=$(cat)
+          mkdir -p /root/.ssh
+          chmod 700 /root/.ssh
+          touch /root/.ssh/authorized_keys
+          chmod 600 /root/.ssh/authorized_keys
+          if [ "$revoke" = "true" ]; then
+            grep -vxF "$key" /root/.ssh/authorized_keys > /tmp/ak.$$ || true
+            mv /tmp/ak.$$ /root/.ssh/authorized_keys
+            echo "revoked"
+          elif grep -qxF "$key" /root/.ssh/authorized_keys; then
+            echo "key already present, no change"
+          else
+            printf '%s\n' "$key" >> /root/.ssh/authorized_keys
+            echo "key added"
+          fi
+          echo "--- authorized_keys (count=$(wc -l < /root/.ssh/authorized_keys)) ---"
+          # Show only the comments / fingerprints so we don't dump full keys
+          # into the public Actions log.
+          ssh-keygen -l -f /root/.ssh/authorized_keys
+          REMOTE
+
+      - name: Next steps
+        if: ${{ !inputs.revoke }}
+        run: |
+          cat <<EOF
+          ✓ Key installed.
+
+          From your laptop:
+            ssh -i ~/.ssh/inference_club root@${{ steps.vps.outputs.ip }}
+            cd /srv/inference-club
+            docker compose exec backend python manage.py shell
+
+          Tip — add to ~/.ssh/config so 'ssh inference-club' just works:
+
+            Host inference-club
+                HostName ${{ steps.vps.outputs.ip }}
+                User root
+                IdentityFile ~/.ssh/inference_club
+                IdentitiesOnly yes
+          EOF
