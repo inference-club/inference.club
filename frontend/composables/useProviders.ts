@@ -1,3 +1,5 @@
+import type { OwnerServiceManifest } from '@/composables/useManifest'
+
 interface ProviderModel {
   id: number
   name: string
@@ -15,6 +17,7 @@ export interface Provider {
   registered_at: string | null
   last_seen_at: string | null
   models: ProviderModel[]
+  manifest: OwnerServiceManifest | null
   created_on: string
 }
 
