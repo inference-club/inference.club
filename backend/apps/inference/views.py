@@ -119,7 +119,7 @@ class AllProvidersListView(generics.ListAPIView):
         return (
             Provider.objects.filter(is_active=True)
             .select_related("user")
-            .prefetch_related("models")
+            .prefetch_related("models", "user__social_auth")
         )
 
 

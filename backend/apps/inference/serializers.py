@@ -45,17 +45,36 @@ class ProviderSerializer(serializers.ModelSerializer):
 
 
 class PublicProviderSerializer(ProviderSerializer):
-    """Network-wide listing. Adds an ``owner`` field (email local-part)
-    so logged-in users can see whose node is whose without leaking the
-    full email address.
+    """Network-wide listing. Adds ``github_login`` (the user's GitHub
+    handle, since signup is GitHub-only) and ``owner`` (preferred display
+    name — github_login when present, otherwise the email local-part as a
+    safety net).
     """
 
     owner = serializers.SerializerMethodField()
+    github_login = serializers.SerializerMethodField()
 
     class Meta(ProviderSerializer.Meta):
-        fields = ProviderSerializer.Meta.fields + ["owner"]
+        fields = ProviderSerializer.Meta.fields + ["owner", "github_login"]
+
+    def _github_social(self, obj):
+        # social_django registers a reverse manager named ``social_auth`` on
+        # the user. Iterate manually so prefetch_related kicks in.
+        for sa in obj.user.social_auth.all():
+            if sa.provider == "github":
+                return sa
+        return None
+
+    def get_github_login(self, obj) -> str | None:
+        sa = self._github_social(obj)
+        if not sa:
+            return None
+        return (sa.extra_data or {}).get("login") or None
 
     def get_owner(self, obj) -> str:
+        login = self.get_github_login(obj)
+        if login:
+            return login
         email = getattr(obj.user, "email", "") or ""
         return email.split("@", 1)[0]
 
