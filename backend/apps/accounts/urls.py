@@ -1,5 +1,7 @@
 from django.urls import path
 
+from apps.inference.views import PublicUserProfileView
+
 from . import views
 
 urlpatterns = [
@@ -10,4 +12,12 @@ urlpatterns = [
     path("logout/", views.logout_view, name="logout-view"),
     path("token/", views.request_api_token, name="request-api-token"),
     path("token/list/", views.list_api_tokens, name="list-api-tokens"),
+    # Public profile — unauthenticated. Mounted here so the URL lands at
+    # /api/users/<login>/. The view lives in apps.inference because the
+    # manifest data does.
+    path(
+        "users/<str:github_login>/",
+        PublicUserProfileView.as_view(),
+        name="public-user-profile",
+    ),
 ]

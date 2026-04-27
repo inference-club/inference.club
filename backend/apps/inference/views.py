@@ -5,17 +5,19 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import InferenceRequest, Provider, ProviderModel
+from .manifest_validator import validate as validate_manifest
+from .models import InferenceRequest, Provider, ProviderModel, ServiceManifest
 from .pagination import StandardResultsSetPagination
 from .serializers import (
     AgentRegisterSerializer,
     InferenceRequestSerializer,
     ProviderSerializer,
     PublicProviderSerializer,
+    ServiceManifestSerializer,
 )
 from .tailscale import mint_authkey_for_provider
 
@@ -210,5 +212,172 @@ class RefreshProviderModelsView(APIView):
                 "refreshed": count,
                 "error": error,
                 "provider": ProviderSerializer(provider).data,
+            }
+        )
+
+
+class AgentManifestView(APIView):
+    """PUT /api/inference/agent/manifest/ — agent uploads its service manifest.
+
+    Resolves the target Provider by ``(request.user, name=agent.name)`` —
+    same key the register endpoint uses, so a user with multiple agents
+    gets one manifest per agent.
+
+    Always persists, even on validation failure: stores ``is_valid=False``
+    plus the error list, and returns 400. The dashboard can then show
+    "your manifest is broken, here's why" instead of "no manifest yet."
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def put(self, request):
+        raw_yaml = request.data.get("raw_yaml") or ""
+        parsed = request.data.get("parsed")
+        if parsed is None:
+            return Response(
+                {"errors": ["body must include `parsed` (the structured manifest)"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        errors = validate_manifest(parsed, raw_yaml=raw_yaml)
+
+        # Even if validation fails we need a Provider to attach the
+        # manifest to; pull the agent name from the (possibly invalid)
+        # parsed body if we can.
+        agent_name = ""
+        if isinstance(parsed, dict):
+            agent_block = parsed.get("agent") or {}
+            if isinstance(agent_block, dict):
+                agent_name = (agent_block.get("name") or "").strip()
+
+        if not agent_name:
+            return Response(
+                {
+                    "errors": (errors or [])
+                    + ["agent.name is required to bind the manifest to a provider"]
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            provider = Provider.objects.get(user=request.user, name=agent_name)
+        except Provider.DoesNotExist:
+            return Response(
+                {
+                    "errors": [
+                        f"no provider named {agent_name!r} for this user — "
+                        "the agent must register before uploading a manifest"
+                    ]
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        schema_version = (
+            parsed.get("schema_version") if isinstance(parsed, dict) else None
+        )
+        if not isinstance(schema_version, int):
+            schema_version = 1
+
+        manifest, _ = ServiceManifest.objects.update_or_create(
+            provider=provider,
+            defaults={
+                "schema_version": schema_version,
+                "raw_yaml": raw_yaml,
+                "parsed": parsed if isinstance(parsed, dict) else {},
+                "is_valid": not errors,
+                "validation_errors": errors,
+            },
+        )
+
+        body = {
+            "manifest": ServiceManifestSerializer(manifest).data,
+            "errors": errors,
+        }
+        if errors:
+            return Response(body, status=status.HTTP_400_BAD_REQUEST)
+        return Response(body, status=status.HTTP_200_OK)
+
+
+class ProviderManifestView(APIView):
+    """GET /api/inference/providers/<id>/manifest/ — owner only.
+
+    Returns the full manifest (raw YAML + parsed + validation status) so
+    the dashboard can display it and surface validation errors.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, id):
+        provider = get_object_or_404(Provider, id=id, user=request.user)
+        manifest = getattr(provider, "manifest", None)
+        if manifest is None:
+            return Response(
+                {"detail": "no manifest uploaded yet"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(ServiceManifestSerializer(manifest).data)
+
+
+class PublicUserProfileView(APIView):
+    """GET /api/users/<github_login>/ — unauthenticated public profile.
+
+    Looks up a user by their GitHub login (since signup is GitHub-only,
+    every user has one) via the ``social_auth`` reverse manager.
+
+    Returns display info plus active providers with their (parsed-only)
+    manifests. The raw YAML is never exposed here.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def get(self, request, github_login):
+        # Case-insensitive match on the JSON-stored ``login`` key, done in
+        # Python so it works regardless of whether ``extra_data`` is stored
+        # as a JSONField or a legacy TextField.
+        from social_django.models import UserSocialAuth
+
+        target = github_login.lower()
+        social = (
+            UserSocialAuth.objects.filter(provider="github")
+            .select_related("user")
+            .prefetch_related(
+                "user__social_auth",
+                "user__providers__models",
+                "user__providers__manifest",
+            )
+        )
+        match = None
+        for sa in social:
+            login_value = (sa.extra_data or {}).get("login") or ""
+            if login_value.lower() == target:
+                match = sa
+                break
+
+        if match is None:
+            return Response(
+                {"detail": f"no user with github login {github_login!r}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        user = match.user
+        github_data = match.extra_data or {}
+
+        providers_qs = user.providers.filter(is_active=True)
+        return Response(
+            {
+                "github_login": github_data.get("login") or github_login,
+                "name": github_data.get("name") or github_data.get("login") or "",
+                "avatar_url": github_data.get("avatar_url") or "",
+                "github_url": (
+                    f"https://github.com/{github_data.get('login')}"
+                    if github_data.get("login")
+                    else ""
+                ),
+                "joined": user.date_joined,
+                "providers": PublicProviderSerializer(
+                    providers_qs, many=True, context={"request": request}
+                ).data,
             }
         )
