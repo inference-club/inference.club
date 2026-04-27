@@ -99,14 +99,19 @@ jobs:
           PUBKEY: ${{ inputs.public_key }}
           REVOKE: ${{ inputs.revoke }}
         run: |
-          # Pipe the pubkey via stdin and use a quoted heredoc for the
-          # remote script so neither layer's quoting can be broken by an
-          # odd character in the comment field.
-          printf '%s' "$PUBKEY" | ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
-            root@"$IP" "bash -s -- '$REVOKE'" <<'REMOTE'
+          # Pass the pubkey to the remote shell via a base64 positional arg,
+          # not stdin. Stdin is owned by bash -s reading the script (the
+          # heredoc); a previous version that *also* piped the pubkey lost
+          # it because $(cat) on the remote then consumed the rest of the
+          # script as the variable's value, leaving an empty key and an
+          # echoless silent exit. Base64 has no shell-special chars so it
+          # round-trips cleanly through the ssh command line.
+          B64=$(printf '%s' "$PUBKEY" | base64 | tr -d '\n')
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
+            root@"$IP" "bash -s -- '$REVOKE' '$B64'" <<'REMOTE'
           set -e
           revoke=$1
-          key=$(cat)
+          key=$(printf '%s' "$2" | base64 -d)
           mkdir -p /root/.ssh
           chmod 700 /root/.ssh
           touch /root/.ssh/authorized_keys
