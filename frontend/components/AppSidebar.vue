@@ -6,11 +6,15 @@ import {
   BookOpen,
   Cpu,
   GalleryVerticalEnd,
+  Moon,
   Send,
   Settings2,
+  Sun,
 } from 'lucide-vue-next'
+import { useTheme } from '@/composables/useTheme'
 
 const route = useRoute()
+const { isDark, toggleTheme } = useTheme()
 const props = withDefaults(defineProps<SidebarProps>(), {
   collapsible: 'icon',
 })
@@ -99,6 +103,18 @@ const navMainWithActive = navMain.map(item => ({
       <NavMain :items="navMainWithActive" />
     </SidebarContent>
     <SidebarFooter>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            :tooltip="isDark ? 'Switch to light' : 'Switch to dark'"
+            @click="toggleTheme"
+          >
+            <Sun v-if="isDark" />
+            <Moon v-else />
+            <span>{{ isDark ? 'Light mode' : 'Dark mode' }}</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
       <NavUser />
     </SidebarFooter>
     <SidebarRail />
