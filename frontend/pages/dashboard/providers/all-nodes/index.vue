@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, computed } from 'vue'
-import { RefreshCw, Globe } from 'lucide-vue-next'
+import { RefreshCw, Globe, Github } from 'lucide-vue-next'
 import { useAllProviders } from '@/composables/useProviders'
 
 definePageMeta({
@@ -113,7 +113,17 @@ const formatRelative = (iso: string | null) => {
                 />
                 {{ provider.is_online ? 'online' : 'offline' }}
               </Badge>
-              <Badge variant="outline" class="font-mono text-xs">
+              <a
+                v-if="provider.github_login"
+                :href="`https://github.com/${provider.github_login}`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md border font-mono hover:bg-accent hover:text-accent-foreground transition-colors"
+              >
+                <Github class="h-3 w-3" />
+                {{ provider.github_login }}
+              </a>
+              <Badge v-else variant="outline" class="font-mono text-xs">
                 @{{ provider.owner }}
               </Badge>
             </div>

@@ -20,6 +20,7 @@ export interface Provider {
 
 export interface PublicProvider extends Provider {
   owner: string
+  github_login: string | null
 }
 
 export const useProviders = () => {
