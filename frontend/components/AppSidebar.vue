@@ -50,6 +50,10 @@ const navMain = [
         title: 'All nodes',
         url: '/dashboard/providers/all-nodes',
       },
+      {
+        title: 'Manifests',
+        url: '/dashboard/manifest',
+      },
     ],
   },
   {
