@@ -69,6 +69,25 @@ services:
       tailscale:
         condition: service_started
 
+  # Long-running prober. Hits each active provider's /healthz over the
+  # tailnet every 30s and bumps Provider.last_seen_at so idle providers
+  # don't appear offline between inference requests. Runs from the same
+  # backend image with a different command. See
+  # backend/apps/inference/management/commands/probe_providers.py.
+  prober:
+    image: __BACKEND_IMAGE__
+    restart: unless-stopped
+    command: ["python", "manage.py", "probe_providers"]
+    env_file:
+      - /srv/inference-club/backend.env
+    environment:
+      TAILNET_PROXY_URL: socks5h://tailscale:1055
+    depends_on:
+      postgres:
+        condition: service_healthy
+      tailscale:
+        condition: service_started
+
   frontend:
     image: __FRONTEND_IMAGE__
     restart: unless-stopped

@@ -66,10 +66,10 @@ The `/v1/*` proxy works but a few things are MVP-grade.
   the response includes `error` with full URL + proxy + exception
   detail. Useful while iterating but leaks internal infrastructure.
   Gate behind `DEBUG=True` or a per-user "admin" flag.
-- **`is_online` flapping.** Provider only stays online for 2 minutes
-  after the last request. Add a small background prober (Celery beat,
-  or a simple thread) that hits each provider's `/healthz` every 30s
-  to keep `last_seen_at` warm. PLAN.md §6 has the design.
+- ~~**`is_online` flapping.**~~ Done — see
+  `backend/apps/inference/management/commands/probe_providers.py` and
+  the `prober` service in the prod compose template. Single sidecar
+  process, parallel probes every 30s, no Celery / Redis broker.
 - **Rate limits per consumer key.** None today. Add before any kind of
   public sign-up.
 - **Quota / accounting.** `InferenceRequest` rows are written but
