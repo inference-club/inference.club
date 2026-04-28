@@ -1,98 +1,11 @@
 <script setup lang="ts">
 import { TresCanvas } from '@tresjs/core'
 import { OrbitControls } from '@tresjs/cientos'
-import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
+import { onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
 import * as THREE from 'three'
-import { useTheme } from '@/composables/useTheme'
+import { useScenePalette } from '@/composables/useScenePalette'
 
-const { isDark } = useTheme()
-
-// ────────────────────────────────────────────────────────────
-// Palettes (reactive)
-// ────────────────────────────────────────────────────────────
-
-const palette = computed(() => isDark.value
-  ? {
-      floor: '#1c2238',
-      floorBevel: '#161b2c',
-      wall: '#232a45',
-      roomAccent: '#2a324d',
-      desk: '#5a4530',
-      deskDark: '#3b2c1e',
-      fabric: '#4a5468',
-      fabricDark: '#2c3344',
-      blanket: '#3a4054',
-      pillow: '#cbd2e6',
-      pc: '#0d1018',
-      pcAccent: '#22d3ee',
-      screenBezel: '#05060c',
-      windowGlass: '#1e3a5f',
-      pictureFrame: '#2a324d',
-      pictureArt: '#4f6286',
-      plantPot: '#3b2c1e',
-      plantLeaves: '#4ea372',
-      plantLeavesAlt: '#6ec79a',
-      mug: '#2a3045',
-      mugInside: '#1a1d2a',
-      laptopBody: '#5a6478',
-      serverBody: '#0d1018',
-      serverSlot: '#181d28',
-      serverAccent: '#22d3ee',
-      logoWhite: '#f0f0fa',
-      logoText: '#a5b4fc',
-      pillFill: '#0f1525',
-      pillBorder: '#3949a8',
-      linkTailscale: '#22d3ee',
-      linkApi: '#a855f7',
-      pulseTail: '#67e8f9',
-      pulseApi: '#c084fc',
-      ground: '#0a0d18',
-    }
-  : {
-      floor: '#e9e6df',
-      floorBevel: '#cfcabf',
-      wall: '#dcd8cf',
-      roomAccent: '#cfcabf',
-      desk: '#c9a079',
-      deskDark: '#a07a55',
-      fabric: '#94a3b8',
-      fabricDark: '#475569',
-      blanket: '#5b6677',
-      pillow: '#e2e8f0',
-      pc: '#1f2937',
-      pcAccent: '#22d3ee',
-      screenBezel: '#0b0b14',
-      windowGlass: '#cfe7f1',
-      pictureFrame: '#ffffff',
-      pictureArt: '#94a3b8',
-      plantPot: '#d4d0c5',
-      plantLeaves: '#3f8f5f',
-      plantLeavesAlt: '#4ea372',
-      mug: '#ffffff',
-      mugInside: '#3a2a1c',
-      laptopBody: '#cbd0d6',
-      serverBody: '#1f2329',
-      serverSlot: '#3b424d',
-      serverAccent: '#0ea5e9',
-      logoWhite: '#fdfdfb',
-      logoText: '#6366f1',
-      pillFill: '#f6f4ee',
-      pillBorder: '#cdc7b8',
-      linkTailscale: '#06b6d4',
-      linkApi: '#7c3aed',
-      pulseTail: '#22d3ee',
-      pulseApi: '#a855f7',
-      ground: '#f5f3ec',
-    })
-
-const monitorScreenColor = computed(() => isDark.value ? '#000814' : '#0b0b14')
-const monitorTextColor = computed(() => '#ffffff')
-const monitorSubColor = computed(() => '#22c55e')
-const laptopScreenColor = computed(() => isDark.value ? '#0b0218' : '#0b0b14')
-const laptopTextColor = computed(() => isDark.value ? '#c084fc' : '#a855f7')
-const laptopSubColor = computed(() => '#22d3ee')
-const logoBgColor = computed(() => isDark.value ? '#0a0a16' : '#ffffff')
-const logoFgColor = computed(() => isDark.value ? '#a5b4fc' : '#6366f1')
+const { palette, isDark } = useScenePalette()
 
 // ────────────────────────────────────────────────────────────
 // Geometry helpers
@@ -153,9 +66,6 @@ const apiPath = [REMOTE_ANCHOR, API_PILL_POS, SERVER_ANCHOR]
 
 const linksGroupRef = shallowRef<THREE.Group | null>(null)
 const pulsesGroupRef = shallowRef<THREE.Group | null>(null)
-const monitorTex = shallowRef<THREE.CanvasTexture | null>(null)
-const laptopTex = shallowRef<THREE.CanvasTexture | null>(null)
-const logoTex = shallowRef<THREE.CanvasTexture | null>(null)
 
 // Materials we need to mutate when theme flips
 let dashTailMaterial: THREE.LineDashedMaterial | null = null
@@ -247,76 +157,11 @@ function updateLabelPositions() {
 }
 
 // ────────────────────────────────────────────────────────────
-// Texture builders (client-only)
-// ────────────────────────────────────────────────────────────
-
-function makeScreenTexture(opts: { primary: string; secondary: string; bg: string; fg: string; sub: string }) {
-  const c = document.createElement('canvas')
-  c.width = 512
-  c.height = 320
-  const ctx = c.getContext('2d')!
-  ctx.fillStyle = opts.bg
-  ctx.fillRect(0, 0, c.width, c.height)
-  ctx.fillStyle = opts.fg
-  ctx.font = 'bold 92px Inter, system-ui, sans-serif'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(opts.primary, c.width / 2, c.height / 2 - 28)
-  ctx.fillStyle = opts.sub
-  ctx.font = 'bold 28px Inter, system-ui, sans-serif'
-  ctx.fillText(opts.secondary, c.width / 2, c.height / 2 + 56)
-  const tex = new THREE.CanvasTexture(c)
-  tex.colorSpace = THREE.SRGBColorSpace
-  tex.anisotropy = 8
-  return tex
-}
-
-function makeLogoTexture(bg: string, fg: string) {
-  const c = document.createElement('canvas')
-  c.width = 256
-  c.height = 256
-  const ctx = c.getContext('2d')!
-  ctx.fillStyle = bg
-  ctx.fillRect(0, 0, c.width, c.height)
-  ctx.fillStyle = fg
-  ctx.font = 'bold 38px Inter, system-ui, sans-serif'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText('inference', c.width / 2, c.height / 2 - 18)
-  ctx.fillText('.club', c.width / 2, c.height / 2 + 22)
-  const tex = new THREE.CanvasTexture(c)
-  tex.colorSpace = THREE.SRGBColorSpace
-  return tex
-}
-
-function rebuildTextures() {
-  monitorTex.value?.dispose()
-  laptopTex.value?.dispose()
-  logoTex.value?.dispose()
-  monitorTex.value = makeScreenTexture({
-    primary: 'vLLM',
-    secondary: 'MODEL LOADED',
-    bg: monitorScreenColor.value,
-    fg: monitorTextColor.value,
-    sub: monitorSubColor.value,
-  })
-  laptopTex.value = makeScreenTexture({
-    primary: 'inference.club',
-    secondary: 'CONNECTING...',
-    bg: laptopScreenColor.value,
-    fg: laptopTextColor.value,
-    sub: laptopSubColor.value,
-  })
-  logoTex.value = makeLogoTexture(logoBgColor.value, logoFgColor.value)
-}
-
-// ────────────────────────────────────────────────────────────
 // Mount: build runtime objects (lines + pulses) + animate
 // ────────────────────────────────────────────────────────────
 
 onMounted(() => {
   if (!import.meta.client) return
-  rebuildTextures()
 
   // Attach a custom wheel handler to the renderer canvas as soon as the
   // OrbitControls instance is available. Lets wheel events fall through to
@@ -457,18 +302,16 @@ onBeforeUnmount(() => {
   }
 })
 
-// React to theme changes — update line/pulse colors, rebuild screen textures
+// React to theme changes — update line and pulse colors
+// (per-component textures rebuild themselves via their own watchers).
 watch(isDark, () => {
   if (!import.meta.client) return
-  rebuildTextures()
   if (dashTailMaterial) dashTailMaterial.color.set(palette.value.linkTailscale)
   if (dashApiMaterial) dashApiMaterial.color.set(palette.value.linkApi)
   for (let i = 0; i < pulseMaterials.length; i++) {
     pulseMaterials[i].color.set(i < 3 ? palette.value.pulseTail : palette.value.pulseApi)
   }
 })
-
-const HALF_PI = Math.PI / 2
 </script>
 
 <template>
@@ -537,333 +380,11 @@ const HALF_PI = Math.PI / 2
         color="#a855f7"
       />
 
-      <!-- ============================================================ -->
-      <!-- HOME NETWORK (BEDROOM) — left platform                        -->
-      <!-- ============================================================ -->
-      <TresGroup :position="[-9, 0, 1]">
-        <TresMesh :position="[0, -0.15, 0]">
-          <TresBoxGeometry :args="[6, 0.3, 5]" />
-          <TresMeshStandardMaterial :color="palette.floor" :roughness="0.85" />
-        </TresMesh>
+      <SceneHomeNetwork :position="[-9, 0, 1]" />
 
-        <!-- Walls -->
-        <TresMesh :position="[0, 1.55, -2.45]">
-          <TresBoxGeometry :args="[6, 3.4, 0.15]" />
-          <TresMeshStandardMaterial :color="palette.wall" :roughness="0.9" />
-        </TresMesh>
-        <TresMesh :position="[-2.95, 1.55, 0]">
-          <TresBoxGeometry :args="[0.15, 3.4, 5]" />
-          <TresMeshStandardMaterial :color="palette.wall" :roughness="0.9" />
-        </TresMesh>
+      <SceneCentralServer :position="[0, 2.4, -2.5]" />
 
-        <!-- Window -->
-        <TresMesh :position="[1.4, 2.0, -2.36]">
-          <TresBoxGeometry :args="[1.6, 1.2, 0.05]" />
-          <TresMeshStandardMaterial :color="palette.pictureFrame" :roughness="0.6" />
-        </TresMesh>
-        <TresMesh :position="[1.4, 2.0, -2.34]">
-          <TresBoxGeometry :args="[1.4, 1.0, 0.02]" />
-          <TresMeshStandardMaterial
-            :color="palette.windowGlass"
-            :emissive="isDark ? '#3b6ea8' : '#000000'"
-            :emissive-intensity="isDark ? 0.6 : 0"
-          />
-        </TresMesh>
-        <!-- Picture -->
-        <TresMesh :position="[-2.86, 2.1, 1.0]" :rotation="[0, HALF_PI, 0]">
-          <TresBoxGeometry :args="[0.7, 0.55, 0.03]" />
-          <TresMeshStandardMaterial :color="palette.pictureFrame" :roughness="0.5" />
-        </TresMesh>
-        <TresMesh :position="[-2.84, 2.1, 1.0]" :rotation="[0, HALF_PI, 0]">
-          <TresBoxGeometry :args="[0.6, 0.45, 0.02]" />
-          <TresMeshBasicMaterial :color="palette.pictureArt" />
-        </TresMesh>
-
-        <!-- Bed -->
-        <TresGroup :position="[-1.6, 0, 1.3]">
-          <TresMesh :position="[0, 0.18, 0]">
-            <TresBoxGeometry :args="[1.6, 0.36, 2.4]" />
-            <TresMeshStandardMaterial :color="palette.roomAccent" :roughness="0.8" />
-          </TresMesh>
-          <TresMesh :position="[0, 0.46, 0.15]">
-            <TresBoxGeometry :args="[1.45, 0.22, 2.0]" />
-            <TresMeshStandardMaterial :color="palette.blanket" :roughness="0.9" />
-          </TresMesh>
-          <TresMesh :position="[0, 0.62, -0.78]">
-            <TresBoxGeometry :args="[1.2, 0.18, 0.45]" />
-            <TresMeshStandardMaterial :color="palette.pillow" :roughness="0.95" />
-          </TresMesh>
-        </TresGroup>
-
-        <!-- Desk -->
-        <TresGroup :position="[1.0, 0, -1.0]">
-          <TresMesh :position="[0, 1.0, 0]">
-            <TresBoxGeometry :args="[2.6, 0.08, 1.2]" />
-            <TresMeshStandardMaterial :color="palette.desk" :roughness="0.7" />
-          </TresMesh>
-          <TresMesh :position="[-1.2, 0.5, -0.5]">
-            <TresBoxGeometry :args="[0.08, 1.0, 0.08]" />
-            <TresMeshStandardMaterial :color="palette.deskDark" />
-          </TresMesh>
-          <TresMesh :position="[1.2, 0.5, -0.5]">
-            <TresBoxGeometry :args="[0.08, 1.0, 0.08]" />
-            <TresMeshStandardMaterial :color="palette.deskDark" />
-          </TresMesh>
-          <TresMesh :position="[-1.2, 0.5, 0.5]">
-            <TresBoxGeometry :args="[0.08, 1.0, 0.08]" />
-            <TresMeshStandardMaterial :color="palette.deskDark" />
-          </TresMesh>
-          <TresMesh :position="[1.2, 0.5, 0.5]">
-            <TresBoxGeometry :args="[0.08, 1.0, 0.08]" />
-            <TresMeshStandardMaterial :color="palette.deskDark" />
-          </TresMesh>
-
-          <!-- Monitor -->
-          <TresMesh :position="[-0.5, 1.18, -0.45]">
-            <TresBoxGeometry :args="[0.5, 0.05, 0.3]" />
-            <TresMeshStandardMaterial :color="palette.screenBezel" />
-          </TresMesh>
-          <TresMesh :position="[-0.5, 1.4, -0.42]">
-            <TresBoxGeometry :args="[0.06, 0.4, 0.06]" />
-            <TresMeshStandardMaterial :color="palette.screenBezel" />
-          </TresMesh>
-          <TresGroup :position="[-0.5, 1.85, -0.4]" :rotation="[0.05, 0, 0]">
-            <TresMesh :position="[0, 0, 0]">
-              <TresBoxGeometry :args="[1.4, 0.85, 0.06]" />
-              <TresMeshStandardMaterial :color="palette.screenBezel" :roughness="0.5" />
-            </TresMesh>
-            <TresMesh :position="[0, 0, 0.04]">
-              <TresPlaneGeometry :args="[1.28, 0.74]" />
-              <TresMeshBasicMaterial :map="monitorTex" :color="monitorTex ? '#ffffff' : '#22c55e'" />
-            </TresMesh>
-            <!-- Glow halo behind monitor in dark mode -->
-            <TresMesh v-if="isDark" :position="[0, 0, -0.05]">
-              <TresPlaneGeometry :args="[1.7, 1.1]" />
-              <TresMeshBasicMaterial
-                color="#22c55e"
-                :transparent="true"
-                :opacity="0.15"
-                :blending="2"
-                :depth-write="false"
-              />
-            </TresMesh>
-          </TresGroup>
-
-          <!-- PC tower -->
-          <TresGroup :position="[1.0, 1.55, -0.35]">
-            <TresMesh :position="[0, 0, 0]">
-              <TresBoxGeometry :args="[0.55, 1.0, 0.55]" />
-              <TresMeshStandardMaterial :color="palette.pc" :roughness="0.55" :metalness="0.2" />
-            </TresMesh>
-            <TresMesh :position="[0, -0.1, 0.276]">
-              <TresPlaneGeometry :args="[0.42, 0.22]" />
-              <TresMeshBasicMaterial :color="palette.pcAccent" />
-            </TresMesh>
-            <TresMesh :position="[-0.18, 0.4, 0.276]">
-              <TresBoxGeometry :args="[0.06, 0.06, 0.005]" />
-              <TresMeshBasicMaterial color="#22c55e" />
-            </TresMesh>
-            <TresMesh :position="[0.0, 0.4, 0.276]">
-              <TresBoxGeometry :args="[0.06, 0.06, 0.005]" />
-              <TresMeshBasicMaterial color="#a855f7" />
-            </TresMesh>
-          </TresGroup>
-        </TresGroup>
-
-        <!-- Office chair -->
-        <TresGroup :position="[1.2, 0, 0.6]">
-          <TresMesh :position="[0, 0.55, 0]">
-            <TresBoxGeometry :args="[0.7, 0.08, 0.7]" />
-            <TresMeshStandardMaterial :color="palette.fabricDark" :roughness="0.7" />
-          </TresMesh>
-          <TresMesh :position="[0, 0.95, 0.32]">
-            <TresBoxGeometry :args="[0.65, 0.7, 0.08]" />
-            <TresMeshStandardMaterial :color="palette.fabricDark" :roughness="0.7" />
-          </TresMesh>
-          <TresMesh :position="[0, 0.27, 0]">
-            <TresCylinderGeometry :args="[0.05, 0.05, 0.5, 12]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-          <TresMesh :position="[0, 0.04, 0]">
-            <TresCylinderGeometry :args="[0.4, 0.4, 0.05, 16]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-        </TresGroup>
-      </TresGroup>
-
-      <!-- ============================================================ -->
-      <!-- CENTRAL SERVER                                                -->
-      <!-- ============================================================ -->
-      <TresGroup :position="[0, 2.4, -2.5]">
-        <TresMesh :position="[0, -0.15, 0]">
-          <TresBoxGeometry :args="[3.6, 0.3, 3.0]" />
-          <TresMeshStandardMaterial :color="palette.floor" :roughness="0.85" />
-        </TresMesh>
-        <TresMesh :position="[0, -0.32, 0]">
-          <TresBoxGeometry :args="[3.4, 0.05, 2.8]" />
-          <TresMeshStandardMaterial :color="palette.floorBevel" :roughness="0.85" />
-        </TresMesh>
-
-        <TresGroup :position="[-0.45, 0, -0.1]">
-          <TresMesh :position="[0, 0.85, 0]">
-            <TresBoxGeometry :args="[1.3, 1.7, 1.2]" />
-            <TresMeshStandardMaterial :color="palette.serverBody" :roughness="0.4" :metalness="0.3" />
-          </TresMesh>
-          <TresMesh
-            v-for="i in 4"
-            :key="`slot-${i}`"
-            :position="[0, 0.25 + i * 0.3, 0.61]"
-          >
-            <TresBoxGeometry :args="[1.1, 0.04, 0.02]" />
-            <TresMeshStandardMaterial :color="palette.serverSlot" />
-          </TresMesh>
-          <TresMesh
-            v-for="i in 4"
-            :key="`led-${i}`"
-            :position="[0.47, 0.25 + i * 0.3, 0.62]"
-          >
-            <TresBoxGeometry :args="[0.06, 0.06, 0.005]" />
-            <TresMeshBasicMaterial :color="palette.serverAccent" />
-          </TresMesh>
-        </TresGroup>
-
-        <TresGroup :position="[0.85, 0.55, 0.55]" :rotation="[0, -0.35, 0]">
-          <TresMesh>
-            <TresBoxGeometry :args="[0.95, 0.95, 0.95]" />
-            <TresMeshStandardMaterial
-              :color="palette.logoWhite"
-              :roughness="0.55"
-              :emissive="isDark ? '#6366f1' : '#000000'"
-              :emissive-intensity="isDark ? 0.25 : 0"
-            />
-          </TresMesh>
-          <TresMesh :position="[0, 0, 0.476]">
-            <TresPlaneGeometry :args="[0.85, 0.85]" />
-            <TresMeshBasicMaterial :map="logoTex" :color="logoTex ? '#ffffff' : palette.logoText" />
-          </TresMesh>
-        </TresGroup>
-      </TresGroup>
-
-      <!-- ============================================================ -->
-      <!-- REMOTE USER                                                   -->
-      <!-- ============================================================ -->
-      <TresGroup :position="[9, 0, 1]">
-        <TresMesh :position="[0, -0.15, 0]">
-          <TresBoxGeometry :args="[5, 0.3, 4]" />
-          <TresMeshStandardMaterial :color="palette.floor" :roughness="0.85" />
-        </TresMesh>
-
-        <TresGroup :position="[0, 0, 0]">
-          <TresMesh :position="[0, 1.05, 0]">
-            <TresBoxGeometry :args="[3.0, 0.1, 1.6]" />
-            <TresMeshStandardMaterial :color="palette.desk" :roughness="0.7" />
-          </TresMesh>
-          <TresMesh :position="[-1.4, 0.55, -0.7]">
-            <TresBoxGeometry :args="[0.08, 1.0, 0.08]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-          <TresMesh :position="[1.4, 0.55, -0.7]">
-            <TresBoxGeometry :args="[0.08, 1.0, 0.08]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-          <TresMesh :position="[-1.4, 0.55, 0.7]">
-            <TresBoxGeometry :args="[0.08, 1.0, 0.08]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-          <TresMesh :position="[1.4, 0.55, 0.7]">
-            <TresBoxGeometry :args="[0.08, 1.0, 0.08]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-
-          <!-- Laptop -->
-          <TresGroup :position="[-0.2, 1.12, -0.05]">
-            <TresMesh :position="[0, 0, 0]">
-              <TresBoxGeometry :args="[1.3, 0.05, 0.9]" />
-              <TresMeshStandardMaterial :color="palette.laptopBody" :roughness="0.4" :metalness="0.4" />
-            </TresMesh>
-            <TresMesh :position="[0, 0.026, 0.05]" :rotation="[-HALF_PI, 0, 0]">
-              <TresPlaneGeometry :args="[1.1, 0.6]" />
-              <TresMeshBasicMaterial color="#1f2937" />
-            </TresMesh>
-            <TresGroup :position="[0, 0.02, -0.45]" :rotation="[-0.35, 0, 0]">
-              <TresMesh :position="[0, 0.45, 0]">
-                <TresBoxGeometry :args="[1.3, 0.9, 0.05]" />
-                <TresMeshStandardMaterial :color="palette.laptopBody" :roughness="0.4" :metalness="0.4" />
-              </TresMesh>
-              <TresMesh :position="[0, 0.45, 0.026]">
-                <TresPlaneGeometry :args="[1.18, 0.78]" />
-                <TresMeshBasicMaterial :map="laptopTex" :color="laptopTex ? '#ffffff' : palette.logoText" />
-              </TresMesh>
-              <TresMesh v-if="isDark" :position="[0, 0.45, -0.05]">
-                <TresPlaneGeometry :args="[1.6, 1.1]" />
-                <TresMeshBasicMaterial
-                  color="#a855f7"
-                  :transparent="true"
-                  :opacity="0.18"
-                  :blending="2"
-                  :depth-write="false"
-                />
-              </TresMesh>
-            </TresGroup>
-          </TresGroup>
-
-          <!-- Plant -->
-          <TresGroup :position="[1.15, 1.1, 0.0]">
-            <TresMesh :position="[0, 0.15, 0]">
-              <TresCylinderGeometry :args="[0.18, 0.14, 0.3, 16]" />
-              <TresMeshStandardMaterial :color="palette.plantPot" :roughness="0.85" />
-            </TresMesh>
-            <TresMesh :position="[0, 0.45, 0]">
-              <TresIcosahedronGeometry :args="[0.28, 0]" />
-              <TresMeshStandardMaterial :color="palette.plantLeaves" :roughness="0.8" />
-            </TresMesh>
-            <TresMesh :position="[0.15, 0.6, 0.05]">
-              <TresIcosahedronGeometry :args="[0.18, 0]" />
-              <TresMeshStandardMaterial :color="palette.plantLeavesAlt" :roughness="0.8" />
-            </TresMesh>
-          </TresGroup>
-
-          <!-- Coffee mug -->
-          <TresGroup :position="[1.1, 1.1, 0.55]">
-            <TresMesh :position="[0, 0.13, 0]">
-              <TresCylinderGeometry :args="[0.13, 0.12, 0.26, 18]" />
-              <TresMeshStandardMaterial :color="palette.mug" :roughness="0.5" />
-            </TresMesh>
-            <TresMesh :position="[0, 0.255, 0]">
-              <TresCylinderGeometry :args="[0.115, 0.115, 0.01, 18]" />
-              <TresMeshBasicMaterial :color="palette.mugInside" />
-            </TresMesh>
-          </TresGroup>
-        </TresGroup>
-
-        <!-- Chair -->
-        <TresGroup :position="[-0.2, 0, 1.4]">
-          <TresMesh :position="[0, 0.55, 0]">
-            <TresBoxGeometry :args="[0.8, 0.08, 0.7]" />
-            <TresMeshStandardMaterial :color="palette.fabric" :roughness="0.7" />
-          </TresMesh>
-          <TresMesh :position="[0, 1.0, 0.34]">
-            <TresBoxGeometry :args="[0.8, 0.85, 0.08]" />
-            <TresMeshStandardMaterial :color="palette.fabric" :roughness="0.7" />
-          </TresMesh>
-          <TresMesh :position="[-0.32, 0.27, -0.3]">
-            <TresBoxGeometry :args="[0.06, 0.55, 0.06]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-          <TresMesh :position="[0.32, 0.27, -0.3]">
-            <TresBoxGeometry :args="[0.06, 0.55, 0.06]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-          <TresMesh :position="[-0.32, 0.27, 0.3]">
-            <TresBoxGeometry :args="[0.06, 0.55, 0.06]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-          <TresMesh :position="[0.32, 0.27, 0.3]">
-            <TresBoxGeometry :args="[0.06, 0.55, 0.06]" />
-            <TresMeshStandardMaterial color="#1f2937" />
-          </TresMesh>
-        </TresGroup>
-      </TresGroup>
+      <SceneRemoteUser :position="[9, 0, 1]" />
 
       <!-- ============================================================ -->
       <!-- TAILNET pill (cyan)                                           -->
