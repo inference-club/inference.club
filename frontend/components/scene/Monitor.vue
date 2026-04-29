@@ -45,18 +45,17 @@ onBeforeUnmount(() => {
 
 <template>
   <TresGroup :position="position" :rotation="rotation">
-    <!-- Stand base -->
-    <TresMesh :position="[0, -0.67, -0.05]">
+    <!-- y=0 is the bottom of the stand base, so the caller can pass the
+         desk-top point as `position` and the monitor stands flush on it. -->
+    <TresMesh :position="[0, 0.025, -0.05]">
       <TresBoxGeometry :args="[0.5, 0.05, 0.3]" />
       <TresMeshStandardMaterial :color="palette.screenBezel" />
     </TresMesh>
-    <!-- Stand pole -->
-    <TresMesh :position="[0, -0.45, -0.02]">
+    <TresMesh :position="[0, 0.245, -0.02]">
       <TresBoxGeometry :args="[0.06, 0.4, 0.06]" />
       <TresMeshStandardMaterial :color="palette.screenBezel" />
     </TresMesh>
-    <!-- Bezel + screen -->
-    <TresGroup :rotation="[0.05, 0, 0]">
+    <TresGroup :position="[0, 0.695, 0]" :rotation="[0.05, 0, 0]">
       <TresMesh>
         <TresBoxGeometry :args="[1.4, 0.85, 0.06]" />
         <TresMeshStandardMaterial :color="palette.screenBezel" :roughness="0.5" />
@@ -65,7 +64,6 @@ onBeforeUnmount(() => {
         <TresPlaneGeometry :args="[1.28, 0.74]" />
         <TresMeshBasicMaterial :map="tex" :color="tex ? '#ffffff' : sub" />
       </TresMesh>
-      <!-- Glow halo (dark mode only) -->
       <TresMesh v-if="isDark" :position="[0, 0, -0.05]">
         <TresPlaneGeometry :args="[1.7, 1.1]" />
         <TresMeshBasicMaterial

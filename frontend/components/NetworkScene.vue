@@ -50,9 +50,9 @@ const apiPillGeo = makePillGeometry(3.6, 1.2, 0.6, 0.2)
 //   - Home (bedroom) → Tailnet pill → Server  (tailscale tailnet)
 //   - Remote (laptop) → API pill → Server     (api.inference.club/v1)
 
-const HOME_ANCHOR = new THREE.Vector3(-7.5, 0.6, 2.0)
+const HOME_ANCHOR = new THREE.Vector3(-6.0, 0.6, 2.0)
 const SERVER_ANCHOR = new THREE.Vector3(0, 1.5, -1.4)
-const REMOTE_ANCHOR = new THREE.Vector3(7.5, 0.9, 1.5)
+const REMOTE_ANCHOR = new THREE.Vector3(6.0, 0.9, 1.5)
 
 const TAILNET_PILL_POS = new THREE.Vector3(-3.6, 0.05, 4.5)
 const API_PILL_POS = new THREE.Vector3(3.6, 0.05, 4.5)
@@ -125,14 +125,14 @@ const userDeviceRef = shallowRef<HTMLElement | null>(null)
 // World anchors — each label is glued to this 3D point and projected to screen
 // pixel coords each frame, so it follows its scene part as the camera orbits.
 const labelAnchors = (): Array<{ el: HTMLElement | null; pos: THREE.Vector3 }> => [
-  { el: homeLabelRef.value, pos: new THREE.Vector3(-9.5, 4.6, 1.0) },
+  { el: homeLabelRef.value, pos: new THREE.Vector3(-8.0, 4.6, 1.0) },
   { el: serverLabelRef.value, pos: new THREE.Vector3(0, 5.7, -2.5) },
   { el: serverBulletsRef.value, pos: new THREE.Vector3(0, 1.2, -0.8) },
-  { el: remoteLabelRef.value, pos: new THREE.Vector3(9.5, 3.5, 1.0) },
+  { el: remoteLabelRef.value, pos: new THREE.Vector3(8.0, 3.5, 1.0) },
   { el: tailnetLabelRef.value, pos: new THREE.Vector3(TAILNET_PILL_POS.x, 0.7, TAILNET_PILL_POS.z) },
   { el: apiLabelRef.value, pos: new THREE.Vector3(API_PILL_POS.x, 0.7, API_PILL_POS.z) },
-  { el: localMachineRef.value, pos: new THREE.Vector3(-9.5, -0.6, 4.2) },
-  { el: userDeviceRef.value, pos: new THREE.Vector3(9.5, -0.6, 4.2) },
+  { el: localMachineRef.value, pos: new THREE.Vector3(-8.0, -0.6, 4.2) },
+  { el: userDeviceRef.value, pos: new THREE.Vector3(8.0, -0.6, 4.2) },
 ]
 
 const _projVec = new THREE.Vector3()
@@ -345,7 +345,7 @@ watch(isDark, () => {
 
       <!-- Dark-mode glow lights (no-op-ish in light mode via low intensity) -->
       <TresPointLight
-        :position="[-9, 1.6, 1]"
+        :position="[-7.5, 1.6, 1]"
         :intensity="isDark ? 14 : 0"
         :distance="8"
         :decay="2"
@@ -359,7 +359,7 @@ watch(isDark, () => {
         color="#a855f7"
       />
       <TresPointLight
-        :position="[9, 1.4, 1]"
+        :position="[7.5, 1.4, 1]"
         :intensity="isDark ? 14 : 0"
         :distance="8"
         :decay="2"
@@ -380,11 +380,11 @@ watch(isDark, () => {
         color="#a855f7"
       />
 
-      <SceneHomeNetwork :position="[-9, 0, 1]" />
+      <SceneHomeNetwork :position="[-7.5, 0, 1]" />
 
       <SceneCentralServer :position="[0, 2.4, -2.5]" />
 
-      <SceneRemoteUser :position="[9, 0, 1]" />
+      <SceneRemoteUser :position="[7.5, 0, 1]" />
 
       <!-- ============================================================ -->
       <!-- TAILNET pill (cyan)                                           -->

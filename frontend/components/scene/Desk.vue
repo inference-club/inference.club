@@ -21,8 +21,9 @@ const { palette } = useScenePalette()
 const inset = 0.1
 const xOff = props.size[0] / 2 - inset
 const zOff = props.size[2] / 2 - inset
-const legY = (props.height - props.size[1]) / 2
-const legHeight = props.height - props.size[1]
+// Legs run from the floor up to the underside of the top slab.
+const legHeight = props.height - props.size[1] / 2
+const legY = legHeight / 2
 </script>
 
 <template>

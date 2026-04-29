@@ -5,6 +5,11 @@ export interface ScenePalette {
   floor: string
   floorBevel: string
   wall: string
+  bedroomWall: string
+  bedroomRug: string
+  bedroomRugBorder: string
+  lampShade: string
+  lampPole: string
   roomAccent: string
   desk: string
   deskDark: string
@@ -42,6 +47,11 @@ const DARK: ScenePalette = {
   floor: '#1c2238',
   floorBevel: '#161b2c',
   wall: '#232a45',
+  bedroomWall: '#1d2942',
+  bedroomRug: '#3b3550',
+  bedroomRugBorder: '#56507a',
+  lampShade: '#f5e9c8',
+  lampPole: '#1a1f2e',
   roomAccent: '#2a324d',
   desk: '#5a4530',
   deskDark: '#3b2c1e',
@@ -49,7 +59,7 @@ const DARK: ScenePalette = {
   fabricDark: '#2c3344',
   blanket: '#3a4054',
   pillow: '#cbd2e6',
-  pc: '#0d1018',
+  pc: '#262c3a',
   pcAccent: '#22d3ee',
   screenBezel: '#05060c',
   windowGlass: '#1e3a5f',
@@ -79,6 +89,11 @@ const LIGHT: ScenePalette = {
   floor: '#e9e6df',
   floorBevel: '#cfcabf',
   wall: '#dcd8cf',
+  bedroomWall: '#e8d5c4',
+  bedroomRug: '#7c8c6b',
+  bedroomRugBorder: '#5d6b50',
+  lampShade: '#fbe8b6',
+  lampPole: '#3e3a35',
   roomAccent: '#cfcabf',
   desk: '#c9a079',
   deskDark: '#a07a55',
@@ -86,7 +101,7 @@ const LIGHT: ScenePalette = {
   fabricDark: '#475569',
   blanket: '#5b6677',
   pillow: '#e2e8f0',
-  pc: '#1f2937',
+  pc: '#3a4250',
   pcAccent: '#22d3ee',
   screenBezel: '#0b0b14',
   windowGlass: '#cfe7f1',
