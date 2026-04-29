@@ -144,12 +144,72 @@ class RefreshError(Exception):
     """Internal — surfaces upstream failure detail to the caller of refresh_provider_models."""
 
 
+def _manifest_model_names(parsed) -> set[str]:
+    """Pull the set of model ids declared in a parsed manifest.
+
+    Walks ``parsed.hosts[].services[].models[].id`` defensively — anything
+    not shaped like the validator expects is just skipped, since the
+    validator already ran.
+    """
+    names: set[str] = set()
+    if not isinstance(parsed, dict):
+        return names
+    for host in parsed.get("hosts") or []:
+        if not isinstance(host, dict):
+            continue
+        for svc in host.get("services") or []:
+            if not isinstance(svc, dict):
+                continue
+            for m in svc.get("models") or []:
+                if isinstance(m, dict):
+                    mid = m.get("id")
+                    if isinstance(mid, str) and mid.strip():
+                        names.add(mid.strip())
+    return names
+
+
+def sync_provider_models_from_manifest(provider, parsed) -> int:
+    """Make the provider's ProviderModel rows match the manifest exactly.
+
+    The manifest is the operator's declared source of truth for "what
+    models this agent serves" — it's what the public profile renders.
+    Mirroring it into ProviderModel keeps the dashboard's Registered
+    Compute panel and the ``/v1/models`` proxy honest, without having
+    to ask the agent (whose own ``/v1/models`` may only reflect the
+    currently-loaded subset).
+
+    Returns the count of active rows after the sync.
+    """
+    declared = _manifest_model_names(parsed)
+    existing = {pm.name: pm for pm in provider.models.all()}
+
+    for name, pm in existing.items():
+        if name in declared:
+            if not pm.is_active:
+                pm.is_active = True
+                pm.save(update_fields=["is_active", "modified_on"])
+        elif pm.is_active:
+            pm.is_active = False
+            pm.save(update_fields=["is_active", "modified_on"])
+    for name in declared:
+        if name not in existing:
+            ProviderModel.objects.create(provider=provider, name=name, is_active=True)
+    return len(declared)
+
+
 def refresh_provider_models(provider) -> int:
     """Hit the agent's /v1/models over the tailnet and sync ProviderModel rows.
 
     Returns the count of models the agent currently advertises. Raises
     RefreshError with diagnostic detail on transport failure so the calling
     view can surface it (only in non-prod / for the MVP debugging period).
+
+    When the provider has uploaded a manifest, this function never
+    deactivates a model declared in that manifest — the manifest is the
+    operator's declared source of truth, and the agent's live ``/v1/models``
+    may legitimately be a subset (e.g. only the model currently loaded into
+    vLLM). Without this guard, a manual "Refresh models" click would
+    silently undo a manifest-driven sync.
     """
     if not provider.tailnet_base_url:
         raise RefreshError("provider has no tailnet_hostname yet")
@@ -178,8 +238,13 @@ def refresh_provider_models(provider) -> int:
     incoming = {row["id"]: row for row in rows if row.get("id")}
     existing = {pm.name: pm for pm in provider.models.all()}
 
+    manifest = getattr(provider, "manifest", None)
+    declared = (
+        _manifest_model_names(manifest.parsed) if manifest and manifest.is_valid else set()
+    )
+
     for name, pm in existing.items():
-        if name not in incoming and pm.is_active:
+        if name not in incoming and name not in declared and pm.is_active:
             pm.is_active = False
             pm.save(update_fields=["is_active", "modified_on"])
     for name in incoming:
@@ -207,6 +272,13 @@ class RefreshProviderModelsView(APIView):
         except RefreshError as e:
             count = 0
             error = str(e)
+        # Always re-mirror the manifest into ProviderModel rows after a
+        # refresh attempt, so the operator-declared model list survives
+        # even when the agent's live /v1/models is a subset (or the agent
+        # is currently offline). Source of truth is the manifest.
+        manifest = getattr(provider, "manifest", None)
+        if manifest is not None and manifest.is_valid:
+            sync_provider_models_from_manifest(provider, manifest.parsed)
         return Response(
             {
                 "refreshed": count,
@@ -289,6 +361,14 @@ class AgentManifestView(APIView):
                 "validation_errors": errors,
             },
         )
+
+        # Mirror the manifest's declared models into ProviderModel rows so
+        # the dashboard and /v1/models proxy reflect every model the
+        # operator has advertised — not just whatever the agent's live
+        # /v1/models happens to return. Skip on validation failure so a
+        # broken manifest can't wipe out a previously-good model list.
+        if not errors:
+            sync_provider_models_from_manifest(provider, manifest.parsed)
 
         body = {
             "manifest": ServiceManifestSerializer(manifest).data,
