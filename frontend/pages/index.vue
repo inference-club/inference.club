@@ -198,6 +198,32 @@ const features = [
       </div>
     </section>
 
+    <!-- 3D network visualization (full-bleed) -->
+    <section class="relative pb-20">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-8">
+          <p class="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">How it fits together</p>
+          <h2 class="text-3xl sm:text-4xl font-bold tracking-tight">
+            Home GPUs, one
+            <span class="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-transparent">private network</span>.
+          </h2>
+        </div>
+      </div>
+      <div class="w-full h-[520px] sm:h-[620px] md:h-[720px] relative bg-[#f5f3ec] dark:bg-[#0a0d18] overflow-hidden border-y border-slate-200/50 dark:border-slate-800/50">
+        <!-- Dotted grid pattern -->
+        <div
+          class="pointer-events-none absolute inset-0 opacity-[0.07] dark:opacity-[0.18] text-slate-700 dark:text-cyan-300"
+          :style="{
+            backgroundImage: 'radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)',
+            backgroundSize: '28px 28px',
+          }"
+        />
+        <!-- Soft radial glow (only really visible in dark mode) -->
+        <div class="pointer-events-none absolute inset-0 dark:bg-[radial-gradient(ellipse_at_center,rgba(124,58,237,0.18),transparent_60%)]" />
+        <NetworkScene />
+      </div>
+    </section>
+
     <!-- Code samples - the proof -->
     <section class="relative px-4 sm:px-6 lg:px-8 pb-24">
       <div class="max-w-6xl mx-auto">

@@ -24,6 +24,7 @@ export default defineNuxtConfig({
     '@nuxt/scripts',
     '@nuxt/test-utils',
     '@pinia/nuxt',
+    '@tresjs/nuxt',
     'shadcn-nuxt',
   ],
   components: {
