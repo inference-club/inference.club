@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { TresCanvas } from '@tresjs/core'
 import { OrbitControls } from '@tresjs/cientos'
-import { onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import * as THREE from 'three'
 import { useScenePalette } from '@/composables/useScenePalette'
 
@@ -61,16 +61,79 @@ const tailscalePath = [HOME_ANCHOR, TAILNET_PILL_POS, SERVER_ANCHOR]
 const apiPath = [REMOTE_ANCHOR, API_PILL_POS, SERVER_ANCHOR]
 
 // ────────────────────────────────────────────────────────────
+// Request/response cycle
+// ────────────────────────────────────────────────────────────
+//   The animation tells one full inference round-trip:
+//     1. POST request flies   laptop  → api pill → server → tailnet pill → PC
+//     2. PC "thinks" briefly  (GPU is generating)
+//     3. Tokens stream back   PC      → tailnet pill → server → api pill → laptop
+//     4. Brief cooldown, repeat
+//
+//   Both directions reuse the same waypoints as the dashed link lines, so the
+//   moving objects visibly trace the actual API and tailnet hops.
+
+const REQUEST_PATH = [REMOTE_ANCHOR, API_PILL_POS, SERVER_ANCHOR, TAILNET_PILL_POS, HOME_ANCHOR]
+const RESPONSE_PATH = [HOME_ANCHOR, TAILNET_PILL_POS, SERVER_ANCHOR, API_PILL_POS, REMOTE_ANCHOR]
+
+const POST_DURATION = 2.4
+const THINK_PAUSE = 0.6
+const TOKEN_COUNT = 12
+const TOKEN_INTERVAL = 0.3
+const TOKEN_FLIGHT = 2.4
+const STREAM_DURATION = (TOKEN_COUNT - 1) * TOKEN_INTERVAL + TOKEN_FLIGHT
+const COOLDOWN = 0.8
+const CYCLE_DURATION = POST_DURATION + THINK_PAUSE + STREAM_DURATION + COOLDOWN
+
+// Pastel pearls — Tailwind 400-shade tints. Bright enough to read against the
+// light scene background, soft enough to feel pastel against the dark one.
+// (Pure pastels + additive blending clamp to white over a light bg, so we use
+// normal blending and pick colors with real saturation.)
+const TOKEN_COLORS = ['#fb7185', '#34d399', '#60a5fa', '#c084fc', '#fb923c', '#fde047']
+const POST_COLOR = '#3b82f6'
+
+// ────────────────────────────────────────────────────────────
+// Reactive cycle state — driven by the tick loop, consumed by template
+// ────────────────────────────────────────────────────────────
+//   The TresMesh elements in the template bind directly to these refs, so
+//   the GPU updates whenever a frame mutates them. Driving Tres declaratively
+//   sidesteps the ref-timing issues that an imperative `group.add(...)` flow
+//   can hit when refs aren't populated yet at onMounted.
+
+type Triple = [number, number, number]
+type Quad = [number, number, number, number]
+
+const postPosition = ref<Triple>([REMOTE_ANCHOR.x, REMOTE_ANCHOR.y, REMOTE_ANCHOR.z])
+const postQuaternion = ref<Quad>([0, 0, 0, 1])
+const postOpacity = ref(0)
+const postVisible = ref(false)
+
+interface TokenState {
+  position: Triple
+  opacity: number
+  visible: boolean
+  color: string
+  spawn: number
+}
+
+const tokens = reactive<TokenState[]>(
+  Array.from({ length: TOKEN_COUNT }, (_, i) => ({
+    position: [HOME_ANCHOR.x, HOME_ANCHOR.y, HOME_ANCHOR.z] as Triple,
+    opacity: 0,
+    visible: false,
+    color: TOKEN_COLORS[i % TOKEN_COLORS.length],
+    spawn: POST_DURATION + THINK_PAUSE + i * TOKEN_INTERVAL,
+  })),
+)
+
+// ────────────────────────────────────────────────────────────
 // Refs / runtime objects
 // ────────────────────────────────────────────────────────────
 
 const linksGroupRef = shallowRef<THREE.Group | null>(null)
-const pulsesGroupRef = shallowRef<THREE.Group | null>(null)
 
 // Materials we need to mutate when theme flips
 let dashTailMaterial: THREE.LineDashedMaterial | null = null
 let dashApiMaterial: THREE.LineDashedMaterial | null = null
-const pulseMaterials: THREE.MeshBasicMaterial[] = []
 
 let animFrame: number | null = null
 
@@ -204,94 +267,84 @@ onMounted(() => {
     linksGroupRef.value.add(apiLine)
   }
 
-  // Build pulses (glowing spheres traveling along each polyline)
-  type Pulse = {
-    path: THREE.Vector3[]
+  // Build the scripted request/response cycle.
+  type PathSampler = {
+    points: THREE.Vector3[]
     cumulative: number[]
     total: number
-    speed: number
-    offset: number
-    direction: 1 | -1
-    mesh: THREE.Mesh
   }
-  const pulses: Pulse[] = []
 
-  function buildCumulative(points: THREE.Vector3[]) {
-    const cum = [0]
+  function buildSampler(points: THREE.Vector3[]): PathSampler {
+    const cumulative = [0]
     for (let i = 1; i < points.length; i++) {
-      cum.push(cum[i - 1] + points[i].distanceTo(points[i - 1]))
+      cumulative.push(cumulative[i - 1] + points[i].distanceTo(points[i - 1]))
     }
-    return { cumulative: cum, total: cum[cum.length - 1] }
+    return { points, cumulative, total: cumulative[cumulative.length - 1] }
   }
 
-  function pointOnPath(points: THREE.Vector3[], cumulative: number[], total: number, t: number) {
-    const dist = t * total
-    for (let i = 1; i < points.length; i++) {
-      if (dist <= cumulative[i]) {
-        const segT = (dist - cumulative[i - 1]) / (cumulative[i] - cumulative[i - 1])
-        return new THREE.Vector3().lerpVectors(points[i - 1], points[i], segT)
+  // Returns position + segment tangent for `t` in [0, 1] along the polyline.
+  // Tangent snaps at vertices (corners) — fine for short polylines.
+  function sampleAlongPath(s: PathSampler, t: number) {
+    const dist = THREE.MathUtils.clamp(t, 0, 1) * s.total
+    for (let i = 1; i < s.points.length; i++) {
+      if (dist <= s.cumulative[i] || i === s.points.length - 1) {
+        const segLen = s.cumulative[i] - s.cumulative[i - 1]
+        const segT = segLen > 0 ? (dist - s.cumulative[i - 1]) / segLen : 0
+        const position = new THREE.Vector3().lerpVectors(s.points[i - 1], s.points[i], segT)
+        const tangent = new THREE.Vector3().subVectors(s.points[i], s.points[i - 1]).normalize()
+        return { position, tangent }
       }
     }
-    return points[points.length - 1].clone()
+    return { position: s.points[s.points.length - 1].clone(), tangent: new THREE.Vector3(1, 0, 0) }
   }
 
-  if (pulsesGroupRef.value) {
-    const tailMeta = buildCumulative(tailscalePath)
-    const apiMeta = buildCumulative(apiPath)
+  // Animation tick: advances the cycle clock and writes into the reactive
+  // postState / tokens, which TresMesh elements in the template bind to.
+  const requestSampler = buildSampler(REQUEST_PATH)
+  const responseSampler = buildSampler(RESPONSE_PATH)
+  const _capsuleAxis = new THREE.Vector3(0, 1, 0)
+  const _tmpQuat = new THREE.Quaternion()
+  const startTime = performance.now()
 
-    const configs: Array<{ path: THREE.Vector3[]; meta: { cumulative: number[]; total: number }; color: string; offset: number; direction: 1 | -1; speed: number }> = [
-      { path: tailscalePath, meta: tailMeta, color: palette.value.pulseTail, offset: 0.0, direction: 1, speed: 0.32 },
-      { path: tailscalePath, meta: tailMeta, color: palette.value.pulseTail, offset: 0.5, direction: 1, speed: 0.32 },
-      { path: tailscalePath, meta: tailMeta, color: palette.value.pulseTail, offset: 0.25, direction: -1, speed: 0.28 },
-      { path: apiPath, meta: apiMeta, color: palette.value.pulseApi, offset: 0.1, direction: 1, speed: 0.34 },
-      { path: apiPath, meta: apiMeta, color: palette.value.pulseApi, offset: 0.6, direction: 1, speed: 0.34 },
-      { path: apiPath, meta: apiMeta, color: palette.value.pulseApi, offset: 0.4, direction: -1, speed: 0.30 },
-    ]
+  const edgeFade = (t: number, slope: number) =>
+    Math.min(1, Math.min(t, 1 - t) * slope)
 
-    for (const cfg of configs) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: cfg.color,
-        transparent: true,
-        opacity: 0.95,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      })
-      pulseMaterials.push(mat)
-      const geo = new THREE.SphereGeometry(0.13, 16, 12)
-      const mesh = new THREE.Mesh(geo, mat)
-      pulsesGroupRef.value.add(mesh)
-      pulses.push({
-        path: cfg.path,
-        cumulative: cfg.meta.cumulative,
-        total: cfg.meta.total,
-        speed: cfg.speed,
-        offset: cfg.offset,
-        direction: cfg.direction,
-        mesh,
-      })
+  const tick = (now: number) => {
+    const cycleT = ((now - startTime) / 1000) % CYCLE_DURATION
+
+    // Phase 1: POST request flies the request path.
+    if (cycleT < POST_DURATION) {
+      const t = cycleT / POST_DURATION
+      const { position, tangent } = sampleAlongPath(requestSampler, t)
+      _tmpQuat.setFromUnitVectors(_capsuleAxis, tangent)
+      postPosition.value = [position.x, position.y, position.z]
+      postQuaternion.value = [_tmpQuat.x, _tmpQuat.y, _tmpQuat.z, _tmpQuat.w]
+      postOpacity.value = 0.95 * edgeFade(t, 8)
+      postVisible.value = true
+    } else {
+      postVisible.value = false
     }
 
-    let last = performance.now()
-    const tick = (now: number) => {
-      const dt = Math.min(0.05, (now - last) / 1000)
-      last = now
-      for (const p of pulses) {
-        p.offset = (p.offset + dt * p.speed * p.direction + 1) % 1
-        const pos = pointOnPath(p.path, p.cumulative, p.total, p.offset)
-        p.mesh.position.copy(pos)
+    // Phase 3: each token traverses the response path over TOKEN_FLIGHT,
+    // starting at its individual spawn time. Phases 2 (think) and 4
+    // (cooldown) are implicit gaps where nothing matches either window.
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i]
+      const t = (cycleT - tok.spawn) / TOKEN_FLIGHT
+      if (t >= 0 && t <= 1) {
+        const { position } = sampleAlongPath(responseSampler, t)
+        tok.position = [position.x, position.y, position.z]
+        tok.opacity = 0.9 * edgeFade(t, 6)
+        tok.visible = true
+      } else {
+        tok.visible = false
       }
-      updateLabelPositions()
-      animFrame = requestAnimationFrame(tick)
     }
-    animFrame = requestAnimationFrame(tick)
-  } else {
-    // Pulses group not present — still drive the label loop on its own.
-    const tick = () => {
-      updateLabelPositions()
-      animFrame = requestAnimationFrame(tick)
-    }
+
+    updateLabelPositions()
     animFrame = requestAnimationFrame(tick)
   }
+  animFrame = requestAnimationFrame(tick)
 })
 
 onBeforeUnmount(() => {
@@ -302,15 +355,14 @@ onBeforeUnmount(() => {
   }
 })
 
-// React to theme changes — update line and pulse colors
-// (per-component textures rebuild themselves via their own watchers).
+// React to theme changes — repoint dashed-line colors at the active palette.
+// The POST capsule and token spheres use fixed pastels that read in both
+// themes, so they don't need to swap. Per-component textures rebuild via
+// their own watchers.
 watch(isDark, () => {
   if (!import.meta.client) return
   if (dashTailMaterial) dashTailMaterial.color.set(palette.value.linkTailscale)
   if (dashApiMaterial) dashApiMaterial.color.set(palette.value.linkApi)
-  for (let i = 0; i < pulseMaterials.length; i++) {
-    pulseMaterials[i].color.set(i < 3 ? palette.value.pulseTail : palette.value.pulseApi)
-  }
 })
 </script>
 
@@ -414,9 +466,41 @@ watch(isDark, () => {
         </TresMesh>
       </TresGroup>
 
-      <!-- Connection lines + travelling pulses (added at runtime) -->
+      <!-- Connection lines (dashed polylines added at runtime) -->
       <TresGroup ref="linksGroupRef" />
-      <TresGroup ref="pulsesGroupRef" />
+
+      <!-- ============================================================ -->
+      <!-- Request/response cycle: a POST capsule traverses the request   -->
+      <!-- path; tokens spawn staggered along the response path.          -->
+      <!-- ============================================================ -->
+      <TresMesh
+        :position="postPosition"
+        :quaternion="postQuaternion"
+        :visible="postVisible"
+      >
+        <TresCapsuleGeometry :args="[0.16, 0.42, 4, 14]" />
+        <TresMeshBasicMaterial
+          :color="POST_COLOR"
+          :transparent="true"
+          :opacity="postOpacity"
+          :depth-write="false"
+        />
+      </TresMesh>
+
+      <TresMesh
+        v-for="(tok, i) in tokens"
+        :key="i"
+        :position="tok.position"
+        :visible="tok.visible"
+      >
+        <TresSphereGeometry :args="[0.13, 16, 12]" />
+        <TresMeshBasicMaterial
+          :color="tok.color"
+          :transparent="true"
+          :opacity="tok.opacity"
+          :depth-write="false"
+        />
+      </TresMesh>
     </TresCanvas>
 
     <!-- HTML LABEL OVERLAYS — anchored to 3D positions, projected each frame -->
