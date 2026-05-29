@@ -8,11 +8,42 @@ definePageMeta({
 
 <template>
   <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-4xl">
-    <h1 class="text-3xl font-bold mb-8">Terms of Service</h1>
+    <h1 class="text-3xl font-bold mb-2">Terms of Service</h1>
+    <p class="text-sm text-muted-foreground mb-8">Last updated: May 29, 2026</p>
 
     <p class="mb-6">
       These Terms of Service ("Terms") govern your access to and use of Inference Club's website, services, APIs, and applications (collectively, the "Service"). By accessing or using the Service, you agree to be bound by these Terms.
     </p>
+
+    <!-- Prominent up-front summary of the most important risks. -->
+    <div class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 mb-8 text-sm space-y-2">
+      <p class="font-semibold">Please read this first:</p>
+      <ul class="list-disc pl-5 space-y-1.5">
+        <li>
+          <strong>This is an experimental product.</strong> inference.club is an
+          early-stage, experimental project provided on a best-effort basis. It may be
+          unreliable, change, or lose data at any time, and it is not intended for
+          production or mission-critical use.
+        </li>
+        <li>
+          <strong>Do not share sensitive information.</strong> Do not submit personal,
+          confidential, proprietary, regulated, or otherwise sensitive information in
+          your prompts, inputs, or other Content.
+        </li>
+        <li>
+          <strong>Your data is open by default.</strong> Unless stated otherwise, your
+          prompts, generated outputs, and related metadata are public by default and
+          may be viewed by other inference.club members and by anyone on the internet.
+        </li>
+        <li>
+          <strong>Inference runs on other people's computers.</strong> When you use a
+          Provider's compute, your prompts and outputs are processed on hardware
+          operated by other members and may be accessible to those operators and other
+          members of the network. Content others generate using your compute may
+          likewise be available to you.
+        </li>
+      </ul>
+    </div>
 
     <div class="space-y-8">
       <section class="border-b pb-6 mb-6">
@@ -69,10 +100,13 @@ definePageMeta({
       </section>
 
       <section class="border-b pb-6 mb-6">
-        <h2 class="text-2xl font-semibold mb-4">8. User Content</h2>
+        <h2 class="text-2xl font-semibold mb-4">8. User Content, Public Data, and Sensitive Information</h2>
         <ul class="list-disc pl-6 space-y-2">
-          <li>You retain all rights to Content you upload. You grant Inference Club a worldwide, royalty-free license to host, store, distribute, and display your Content to provide the Service.</li>
-          <li>You are solely responsible for your Content and any consequences of uploading it.</li>
+          <li>You retain all rights to Content you upload. You grant Inference Club a worldwide, royalty-free license to host, store, distribute, and display your Content to provide and operate the Service.</li>
+          <li><strong>Public by default.</strong> Unless we expressly state otherwise, the Content you submit (including prompts and generated outputs) and related metadata (such as model and provider names, timestamps, token counts, and status) are open by default and may be displayed to other Users and to the general public, including anyone on the internet.</li>
+          <li><strong>Processing on third-party hardware.</strong> Inference may be performed on compute operated by other Users ("Providers"). Your Content may be transmitted to, processed on, stored by, and accessible to those Providers and other members of the network. We do not control, and are not responsible for, how Providers or other members handle Content on their own systems.</li>
+          <li><strong>No sensitive information.</strong> You must not submit confidential, personal, proprietary, regulated, or otherwise sensitive information through the Service. You assume all risk arising from any Content you submit.</li>
+          <li>You are solely responsible for your Content and any consequences of submitting it.</li>
         </ul>
       </section>
 
@@ -95,6 +129,7 @@ definePageMeta({
 
       <section class="border-b pb-6 mb-6">
         <h2 class="text-2xl font-semibold mb-4">11. Disclaimers</h2>
+        <p class="mb-3">The Service is experimental and is offered on a best-effort basis. Features may change, break, or be discontinued, and Content may be lost, corrupted, exposed, or made public, at any time and without notice. You should not rely on the Service for any important, time-sensitive, or production use, and you should keep your own copies of anything you care about.</p>
         <p class="italic">THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND. INFERENCE CLUB DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.</p>
       </section>
 

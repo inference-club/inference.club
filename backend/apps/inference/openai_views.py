@@ -16,7 +16,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import InferenceRequest, Provider, ProviderModel
+from .models import (
+    PROVIDER_LAST_SEEN_WINDOW,
+    InferenceRequest,
+    Provider,
+    ProviderModel,
+)
+from .serializers import _user_github_login
 from .views import _tailnet_proxies, refresh_provider_models
 
 logger = logging.getLogger("django")
@@ -24,6 +30,90 @@ logger = logging.getLogger("django")
 # Per-request budget for the upstream call. LLM responses can be slow; this is
 # generous but bounded so a hung agent doesn't pin a worker forever.
 UPSTREAM_TIMEOUT_SECONDS = 300
+
+
+def _assemble_streamed_results(chunks, fallback_model):
+    """Reconstruct an OpenAI-style result object from raw SSE stream bytes.
+
+    A streamed response only passes through as opaque bytes, so to display it
+    later we parse the ``data:`` SSE lines here: concatenate the per-token
+    deltas into the full message and capture usage / model / finish_reason
+    when present. The shape deliberately mirrors a buffered (non-streamed)
+    response — ``choices[0].message.content`` (+ ``usage``) — so the dashboard
+    renders both identically. ``usage`` is only available when the client
+    requested ``stream_options.include_usage``.
+    """
+    text_parts = []
+    reasoning_parts = []
+    usage = None
+    model = fallback_model or ""
+    finish_reason = None
+    role = "assistant"
+    is_completions = False
+
+    raw = b"".join(chunks).decode("utf-8", errors="replace")
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        data = line[len("data:"):].strip()
+        if not data or data == "[DONE]":
+            continue
+        try:
+            obj = json.loads(data)
+        except ValueError:
+            continue
+        if isinstance(obj.get("model"), str):
+            model = obj["model"]
+        if isinstance(obj.get("usage"), dict):
+            usage = obj["usage"]
+        for ch in obj.get("choices") or []:
+            if not isinstance(ch, dict):
+                continue
+            delta = ch.get("delta")
+            if isinstance(delta, dict):
+                if isinstance(delta.get("content"), str):
+                    text_parts.append(delta["content"])
+                # Reasoning models stream their thinking trace in a separate
+                # field (vLLM/SGLang: reasoning_content; OpenRouter/Nemotron:
+                # reasoning) alongside the answer in content.
+                for rk in ("reasoning", "reasoning_content"):
+                    if isinstance(delta.get(rk), str):
+                        reasoning_parts.append(delta[rk])
+                if isinstance(delta.get("role"), str):
+                    role = delta["role"]
+            elif isinstance(ch.get("text"), str):  # legacy completions stream
+                is_completions = True
+                text_parts.append(ch["text"])
+            if ch.get("finish_reason"):
+                finish_reason = ch["finish_reason"]
+
+    content = "".join(text_parts)
+    reasoning = "".join(reasoning_parts)
+    if is_completions:
+        choice = {"index": 0, "text": content, "finish_reason": finish_reason}
+        obj_type = "text_completion"
+    else:
+        message = {"role": role, "content": content}
+        if reasoning:
+            message["reasoning"] = reasoning
+        choice = {
+            "index": 0,
+            "message": message,
+            "finish_reason": finish_reason,
+        }
+        obj_type = "chat.completion"
+
+    results = {
+        "streamed": True,
+        "object": obj_type,
+        "model": model,
+        "choices": [choice],
+        "_bytes": sum(len(c) for c in chunks),
+    }
+    if usage:
+        results["usage"] = usage
+    return results
 
 
 def _online_providers(user):
@@ -34,31 +124,46 @@ def _online_providers(user):
     ]
 
 
-def _find_provider_for_model(user, model_name):
-    """Pick the first online provider serving ``model_name``.
+def _model_accessible(pm, user, github_login) -> bool:
+    """Whether the requesting user may route to this ProviderModel.
 
-    MVP routing: no load balancing, no fallback. If a provider has no models
-    cached yet (just registered), we'll do a synchronous discovery before
-    giving up — saves the user from clicking "refresh models" the first time.
+    Own models are always usable. Otherwise the model must be mapped to a
+    service whose access policy grants this user. Models with no service (e.g.
+    discovered only via live /v1/models) stay owner-only.
+    """
+    if pm.provider.user_id == user.id:
+        return True
+    if pm.service_id is None:
+        return False
+    return pm.service.grants_access_to(user, github_login)
+
+
+def _find_provider_for_model(user, model_name):
+    """Pick the first online provider serving ``model_name`` that ``user`` is
+    allowed to use — their own node, or someone else's shared service.
+
+    MVP routing: no load balancing. Own providers get a self-healing model
+    refresh if they registered but haven't reported models yet.
     """
     if not model_name:
         return None
-    pm = (
+
+    github_login = _user_github_login(user)
+    candidates = (
         ProviderModel.objects.filter(
             name=model_name,
             is_active=True,
-            provider__user=user,
             provider__is_active=True,
         )
         .exclude(provider__tailnet_hostname="")
-        .select_related("provider")
-        .first()
+        .select_related("provider", "service")
     )
-    if pm and pm.provider.is_online:
-        return pm.provider
+    for pm in candidates:
+        if _model_accessible(pm, user, github_login) and pm.provider.is_online:
+            return pm.provider
 
-    # Self-healing: if the user has online providers with no models cached,
-    # try to populate them now. Useful right after a fresh agent registers.
+    # Self-healing for the user's OWN providers: if one just registered and
+    # hasn't reported models yet, discover now.
     for provider in _online_providers(user):
         if not provider.models.filter(is_active=True).exists():
             try:
@@ -71,25 +176,22 @@ def _find_provider_for_model(user, model_name):
 
 
 class ModelsView(APIView):
-    """``GET /v1/models`` — OpenAI-format list across the user's providers.
-
-    Self-healing: any provider that's been idle long enough to have flipped
-    offline gets a synchronous refresh probe, which bumps last_seen_at on
-    success. So Open-WebUI / curl / any first call after a quiet period
-    still sees a populated dropdown.
+    """``GET /v1/models`` — OpenAI-format list of every model the requesting
+    user may use: their own providers' models, plus shared services elsewhere
+    on the network they have access to.
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        candidates = list(
+        seen = {}
+
+        # 1) The user's own providers (with self-healing model discovery so a
+        # freshly-registered or idle node still populates the dropdown).
+        own = list(
             request.user.providers.filter(is_active=True).exclude(tailnet_hostname="")
         )
-        seen = {}
-        for provider in candidates:
-            # If we haven't heard from this provider lately, or we have no
-            # models cached for it, try to wake it up. refresh_provider_models
-            # bumps last_seen_at on success.
+        for provider in own:
             if not provider.is_online or not provider.models.filter(is_active=True).exists():
                 try:
                     refresh_provider_models(provider)
@@ -109,6 +211,33 @@ class ModelsView(APIView):
                         "owned_by": provider.name,
                     },
                 )
+
+        # 2) Shared models from other members' services the user can access.
+        # Bound to recently-seen providers so we don't probe; access is checked
+        # per service in Python.
+        github_login = _user_github_login(request.user)
+        cutoff = timezone.now() - PROVIDER_LAST_SEEN_WINDOW
+        shared = (
+            ProviderModel.objects.filter(
+                is_active=True,
+                provider__is_active=True,
+                provider__last_seen_at__gte=cutoff,
+                service__isnull=False,
+            )
+            .exclude(provider__tailnet_hostname="")
+            .exclude(provider__user=request.user)
+            .select_related("provider", "service")
+        )
+        for pm in shared:
+            if pm.name in seen:
+                continue
+            if pm.service.grants_access_to(request.user, github_login):
+                seen[pm.name] = {
+                    "id": pm.name,
+                    "object": "model",
+                    "created": int(pm.provider.created_on.timestamp()),
+                    "owned_by": pm.provider.name,
+                }
         return Response({"object": "list", "data": list(seen.values())})
 
 
@@ -211,7 +340,7 @@ class _ChatOrCompletionsProxy(APIView):
                         yield chunk
             finally:
                 ir.status = "PROCESSED"
-                ir.results = {"streamed": True, "bytes": sum(len(c) for c in chunks)}
+                ir.results = _assemble_streamed_results(chunks, ir.model_name)
                 ir.latency_ms = int((time.monotonic() - started) * 1000)
                 ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
                 Provider.objects.filter(id=ir.provider_id).update(

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch, computed } from 'vue'
 import { toast } from 'vue-sonner'
+import { Globe } from 'lucide-vue-next'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
 import { usePagination } from '@/composables/usePagination'
 import PaginationControls from '@/components/PaginationControls.vue'
@@ -12,15 +13,15 @@ definePageMeta({
 
 const store = useInferenceRequestStore()
 
-const pagination = usePagination(computed(() => store.pagination.count), 10)
+const pagination = usePagination(computed(() => store.allPagination.count), 10)
 
-watch(() => store.pagination.count, () => {
-  pagination.currentPage.value = 1 // reset to first page on data change
+watch(() => store.allPagination.count, () => {
+  pagination.currentPage.value = 1
 })
 
 watch([pagination.currentPage, pagination.currentPageSize], ([page, size]) => {
   const offset = (page - 1) * size
-  store.fetchRequests(size, offset)
+  store.fetchAllRequests(size, offset)
 })
 
 const resultsTopRef = ref<HTMLElement | null>(null)
@@ -37,7 +38,7 @@ const remove = async (id: string) => {
     await store.deleteRequest(id)
     toast.success('Inference request deleted')
     const offset = (pagination.currentPage.value - 1) * pagination.currentPageSize.value
-    await store.fetchRequests(pagination.currentPageSize.value, offset)
+    await store.fetchAllRequests(pagination.currentPageSize.value, offset)
   } catch {
     toast.error('Failed to delete inference request')
   } finally {
@@ -46,7 +47,7 @@ const remove = async (id: string) => {
 }
 
 onMounted(async () => {
-  await store.fetchRequests(pagination.currentPageSize.value, 0)
+  await store.fetchAllRequests(pagination.currentPageSize.value, 0)
 })
 </script>
 
@@ -55,21 +56,25 @@ onMounted(async () => {
     <div ref="resultsTopRef" />
     <div class="flex justify-between items-center mb-6">
       <div>
-        <h1 class="text-2xl font-bold">Your Inference Requests</h1>
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+          <Globe class="h-6 w-6" />
+          All Inference Requests
+        </h1>
         <p class="text-sm text-muted-foreground mt-1">
-          {{ store.pagination.count }} request{{ store.pagination.count === 1 ? '' : 's' }}
+          {{ store.allPagination.count }} request{{ store.allPagination.count === 1 ? '' : 's' }}
+          across the network
         </p>
       </div>
       <button
         class="text-sm text-muted-foreground hover:text-foreground"
         :disabled="store.loading"
-        @click="store.fetchRequests(pagination.currentPageSize.value, (pagination.currentPage.value - 1) * pagination.currentPageSize.value)"
+        @click="store.fetchAllRequests(pagination.currentPageSize.value, (pagination.currentPage.value - 1) * pagination.currentPageSize.value)"
       >
         {{ store.loading ? 'Refreshing…' : 'Refresh' }}
       </button>
     </div>
 
-    <div v-if="store.loading && store.requests.length === 0" class="space-y-4">
+    <div v-if="store.loading && store.allRequests.length === 0" class="space-y-4">
       <Card v-for="i in 3" :key="i" class="p-4 animate-pulse">
         <div class="space-y-3 w-full">
           <div class="flex items-center gap-2">
@@ -86,8 +91,8 @@ onMounted(async () => {
       {{ store.error }}
     </div>
 
-    <div v-else-if="store.requests.length === 0" class="text-center py-12 text-muted-foreground">
-      No inference requests yet — send a chat/completions request through the proxy and it'll show up here.
+    <div v-else-if="store.allRequests.length === 0" class="text-center py-12 text-muted-foreground">
+      No inference requests on the network yet.
     </div>
 
     <div v-else class="space-y-4">
@@ -104,9 +109,10 @@ onMounted(async () => {
       />
 
       <InferenceRequestCard
-        v-for="request in store.requests"
+        v-for="request in store.allRequests"
         :key="request.id"
         :request="request"
+        show-owner
         :deleting="deletingId === String(request.id)"
         @delete="remove"
       />

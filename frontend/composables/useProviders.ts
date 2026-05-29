@@ -1,5 +1,12 @@
 import type { OwnerServiceManifest } from '@/composables/useManifest'
 
+export interface PaginatedResponse<T> {
+  count: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
+
 interface ProviderModel {
   id: number
   name: string
@@ -104,16 +111,26 @@ export const useAllProviders = () => {
   const providers = ref<PublicProvider[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+  const pagination = ref<{ count: number; next: string | null; previous: string | null }>({
+    count: 0,
+    next: null,
+    previous: null,
+  })
 
-  const fetchAllProviders = async () => {
+  const fetchAllProviders = async (limit = 10, offset = 0) => {
     isLoading.value = true
     error.value = null
     try {
-      const data = await $fetch<PublicProvider[]>(
-        `${config.public.apiBase}/api/inference/providers/all/`,
+      const data = await $fetch<PaginatedResponse<PublicProvider>>(
+        `${config.public.apiBase}/api/inference/providers/all/?limit=${limit}&offset=${offset}`,
         { credentials: 'include' },
       )
-      providers.value = data
+      providers.value = data.results
+      pagination.value = {
+        count: data.count,
+        next: data.next,
+        previous: data.previous,
+      }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to load network nodes'
     } finally {
@@ -121,5 +138,5 @@ export const useAllProviders = () => {
     }
   }
 
-  return { providers, isLoading, error, fetchAllProviders }
+  return { providers, pagination, isLoading, error, fetchAllProviders }
 }

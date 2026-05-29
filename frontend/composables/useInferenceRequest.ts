@@ -87,10 +87,90 @@ export function useInferenceRequest() {
     }
   }
 
+  const listAllInferenceRequests = async (limit: number = 10, offset: number = 0) => {
+    loading.value = true
+    error.value = null
+
+    try {
+      const response = await fetch(
+        `${config.public.apiBase}/api/inference/requests/all/?limit=${limit}&offset=${offset}`,
+        { credentials: 'include' }
+      )
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch inference requests')
+      }
+
+      return await response.json() as PaginatedResponse<InferenceRequest>
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'An error occurred'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const getInferenceRequest = async (id: string) => {
+    loading.value = true
+    error.value = null
+
+    try {
+      const response = await fetch(
+        `${config.public.apiBase}/api/inference/requests/${id}/`,
+        { credentials: 'include' }
+      )
+
+      if (!response.ok) {
+        throw new Error(
+          response.status === 404
+            ? 'Inference request not found'
+            : 'Failed to fetch inference request'
+        )
+      }
+
+      return await response.json() as InferenceRequest
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'An error occurred'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const deleteInferenceRequest = async (id: string) => {
+    loading.value = true
+    error.value = null
+
+    try {
+      const csrfToken = getCsrfToken()
+      const response = await fetch(
+        `${config.public.apiBase}/api/inference/requests/${id}/`,
+        {
+          method: 'DELETE',
+          headers: csrfToken ? { 'X-CSRFToken': csrfToken } : undefined,
+          credentials: 'include',
+        }
+      )
+
+      // DRF returns 204 No Content on a successful destroy.
+      if (!response.ok && response.status !== 204) {
+        throw new Error('Failed to delete inference request')
+      }
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'An error occurred'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     loading,
     error,
     createInferenceRequest,
     listInferenceRequests,
+    listAllInferenceRequests,
+    getInferenceRequest,
+    deleteInferenceRequest,
   }
 }

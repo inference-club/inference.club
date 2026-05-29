@@ -29,23 +29,67 @@ services:
   backend:
     build:
       context: ./backend
+    # Named so the prober sidecar below can reuse the exact same image.
+    image: inferenceclub-backend:dev
+    # GitHub OAuth creds live in backend/.env (gitignored, and excluded from
+    # the image by .dockerignore) — inject them at container start. The
+    # `environment:` block below would override env_file values, so the OAuth
+    # keys are intentionally NOT duplicated there.
+    env_file:
+      - ./backend/.env
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-localdev-not-for-production}
       DJANGO_DEBUG: "True"
       DJANGO_ALLOWED_HOSTS: "*"
       DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference
-      DJANGO_CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
-      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
-      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
-      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
-      SOCIAL_AUTH_LOGIN_REDIRECT_URL: http://localhost:3001/
+      # The compose frontend is published on :3100 — these must reference it,
+      # or the browser's cross-origin API calls (and the OAuth return) break.
+      DJANGO_CORS_ALLOWED_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100"
+      # GITHUB_OAUTH_CLIENT_ID / _SECRET are supplied via env_file (backend/.env).
+      # Send the browser back to the compose frontend (:3100) after the handshake.
+      SOCIAL_AUTH_LOGIN_REDIRECT_URL: http://localhost:3100/
+      SOCIAL_AUTH_LOGIN_ERROR_URL: http://localhost:3100/login?oauth_error=1
       PORT: "8001"
+      # Local-dev, no-Tailscale agent pathway: trust the address the agent
+      # reports at registration and reach it directly (no SOCKS, no hostname
+      # rewrite, no auth-key minting). Pairs with an agent run in AGENT_DIRECT
+      # mode (see ../inference-club-agent/docker-compose.dev.yml).
+      INFERENCE_DIRECT_AGENTS: "True"
+    extra_hosts:
+      # So the backend can reach a direct-mode agent at
+      # http://host.docker.internal:<port>/v1 on Linux too (auto on Docker
+      # Desktop for Mac/Windows).
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       # Host port 8101 so this can coexist with `manage.py runserver 8001`.
       - "8101:8001"
+
+  # Liveness prober — mirrors the prod `prober` sidecar (see
+  # infra/templates/docker-compose.yml.tpl). Hits each active provider's
+  # /healthz every 30s and bumps Provider.last_seen_at, so a healthy-but-idle
+  # agent doesn't fall outside the 120s online window and show "offline" on
+  # the dashboard between requests. Reuses the backend image, different command.
+  # No TAILNET_PROXY_URL in dev → it probes agents directly at
+  # host.docker.internal:<port> (hence extra_hosts).
+  prober:
+    image: inferenceclub-backend:dev
+    restart: unless-stopped
+    command: ["python", "manage.py", "probe_providers", "--interval", "30"]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-localdev-not-for-production}
+      DJANGO_DEBUG: "True"
+      DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
 
   frontend:
     build:

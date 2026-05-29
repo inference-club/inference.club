@@ -3,15 +3,12 @@ import type { SidebarProps } from '@/components/ui/sidebar'
 import { useRoute } from 'vue-router'
 
 import {
-  BookOpen,
-  Cpu,
   GalleryVerticalEnd,
   Moon,
-  Send,
-  Settings2,
   Sun,
 } from 'lucide-vue-next'
 import { useTheme } from '@/composables/useTheme'
+import { dashboardNav } from '@/composables/useDashboardNav'
 
 const route = useRoute()
 const { isDark, toggleTheme } = useTheme()
@@ -27,68 +24,9 @@ const teams = [
   },
 ]
 
-const navMain = [
-  {
-    title: 'Inference Requests',
-    icon: Send,
-    items: [
-      {
-        title: 'List Requests',
-        url: '/dashboard/inference/requests',
-      },
-    ],
-  },
-  {
-    title: 'Compute',
-    icon: Cpu,
-    items: [
-      {
-        title: 'My nodes',
-        url: '/dashboard/providers/my-nodes',
-      },
-      {
-        title: 'All nodes',
-        url: '/dashboard/providers/all-nodes',
-      },
-      {
-        title: 'Manifests',
-        url: '/dashboard/manifest',
-      },
-    ],
-  },
-  {
-    title: 'Documentation',
-    icon: BookOpen,
-    items: [
-      {
-        title: 'Introduction',
-        url: '/docs/introduction',
-      },
-      {
-        title: 'Get Started',
-        url: '/docs/get-started',
-      },
-    ],
-  },
-  {
-    title: 'Settings',
-    icon: Settings2,
-    items: [
-      {
-        title: 'General',
-        url: '/dashboard/settings/general',
-      },
-      {
-        title: 'Token',
-        url: '/dashboard/settings/token',
-      },
-    ],
-  },
-]
-
 const isRouteActive = (url: string) => route.path.startsWith(url)
 
-const navMainWithActive = navMain.map(item => ({
+const navMainWithActive = dashboardNav.map(item => ({
   ...item,
   isActive: item.items.some(s => isRouteActive(s.url)),
   items: item.items.map(subItem => ({

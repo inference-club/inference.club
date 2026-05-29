@@ -103,6 +103,14 @@ TAILSCALE_STATIC_AUTHKEY = os.environ.get("TAILSCALE_STATIC_AUTHKEY", "")
 # agents directly).
 TAILNET_PROXY_URL = os.environ.get("TAILNET_PROXY_URL", "")
 
+# Local-dev (no-Tailscale) mode. When True, the agent register endpoint trusts
+# the address the agent reports (host:port) and skips both the club-host-<id>
+# hostname rewrite and Tailscale key minting — the agent runs with AGENT_DIRECT
+# and the backend reaches it directly (e.g. host.docker.internal:<port>).
+# MUST stay False in production, where agents are only reachable over the
+# tailnet by their canonical club-host-<id> hostname.
+INFERENCE_DIRECT_AGENTS = _env_bool("INFERENCE_DIRECT_AGENTS", default=False)
+
 # ---- apps / middleware --------------------------------------------------
 
 INSTALLED_APPS = [

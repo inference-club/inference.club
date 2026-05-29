@@ -1,21 +1,32 @@
 import logging
 
 import requests
+from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .manifest_validator import validate as validate_manifest
-from .models import InferenceRequest, Provider, ProviderModel, ServiceManifest
+from .models import (
+    InferenceRequest,
+    Provider,
+    ProviderModel,
+    ProviderService,
+    ServiceManifest,
+)
 from .pagination import StandardResultsSetPagination
 from .serializers import (
     AgentRegisterSerializer,
+    InferenceRequestDetailSerializer,
+    InferenceRequestListSerializer,
     InferenceRequestSerializer,
     ProviderSerializer,
+    ProviderServiceSerializer,
     PublicProviderSerializer,
     ServiceManifestSerializer,
 )
@@ -24,25 +35,60 @@ from .tailscale import mint_authkey_for_provider
 logger = logging.getLogger("django")
 
 
+# Owner-attribution querysets need the user + their GitHub social_auth row.
+def _requests_with_owner():
+    return InferenceRequest.objects.select_related(
+        "provider", "user"
+    ).prefetch_related("user__social_auth")
+
+
 class InferenceRequestView(generics.ListCreateAPIView):
+    """GET lists the requesting user's own requests (powers "Your Inference
+    Requests"); POST creates a request."""
+
     permission_classes = [IsAuthenticated]
-    serializer_class = InferenceRequestSerializer
     pagination_class = StandardResultsSetPagination
 
+    def get_serializer_class(self):
+        # Slim cards on list; the write serializer accepts payload on create.
+        if self.request.method == "POST":
+            return InferenceRequestSerializer
+        return InferenceRequestListSerializer
+
     def get_queryset(self):
-        return InferenceRequest.objects.filter(user=self.request.user)
+        return _requests_with_owner().filter(user=self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
 
-class RetrieveInferenceRequestView(generics.RetrieveAPIView):
+class AllInferenceRequestView(generics.ListAPIView):
+    """Every inference request on the network (powers "All Inference
+    Requests"). Visible to any authenticated user, with owner attribution."""
+
     permission_classes = [IsAuthenticated]
-    serializer_class = InferenceRequestSerializer
+    pagination_class = StandardResultsSetPagination
+    serializer_class = InferenceRequestListSerializer
+
+    def get_queryset(self):
+        return _requests_with_owner()
+
+
+class RetrieveInferenceRequestView(generics.RetrieveDestroyAPIView):
+    """GET returns any request fully-expanded (the All view links here);
+    DELETE is restricted to the request's owner."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = InferenceRequestDetailSerializer
     lookup_field = "id"
 
     def get_queryset(self):
-        return InferenceRequest.objects.filter(user=self.request.user)
+        return _requests_with_owner()
+
+    def perform_destroy(self, instance):
+        if instance.user_id != self.request.user.id:
+            raise PermissionDenied("You can only delete your own inference requests.")
+        instance.delete()
 
 
 class AgentRegisterView(APIView):
@@ -73,20 +119,30 @@ class AgentRegisterView(APIView):
             },
         )
 
-        # Force a deterministic per-provider hostname so two agents from the
-        # same user can't collide in the tailnet.
-        canonical = f"club-host-{provider.id}"
-        if provider.tailnet_hostname != canonical:
-            provider.tailnet_hostname = canonical
-            provider.save(update_fields=["tailnet_hostname", "modified_on"])
-
-        minted = mint_authkey_for_provider(provider)
+        if settings.INFERENCE_DIRECT_AGENTS:
+            # Local-dev, no-Tailscale: the agent runs with AGENT_DIRECT and
+            # serves plain HTTP on a directly-reachable host:port (e.g.
+            # host.docker.internal:8090). Trust the address it reported (stored
+            # above) — no hostname rewrite, no auth key. The backend reaches it
+            # directly because TAILNET_PROXY_URL is unset in dev.
+            authkey = ""
+            login_server = ""
+        else:
+            # Force a deterministic per-provider hostname so two agents from the
+            # same user can't collide in the tailnet.
+            canonical = f"club-host-{provider.id}"
+            if provider.tailnet_hostname != canonical:
+                provider.tailnet_hostname = canonical
+                provider.save(update_fields=["tailnet_hostname", "modified_on"])
+            minted = mint_authkey_for_provider(provider)
+            authkey = minted.authkey
+            login_server = minted.login_server
 
         return Response(
             {
                 "provider_id": provider.id,
-                "tailscale_authkey": minted.authkey,
-                "tailscale_login_server": minted.login_server,
+                "tailscale_authkey": authkey,
+                "tailscale_login_server": login_server,
                 "tailnet_hostname": provider.tailnet_hostname,
             },
             status=status.HTTP_200_OK,
@@ -116,12 +172,46 @@ class AllProvidersListView(generics.ListAPIView):
 
     permission_classes = [IsAuthenticated]
     serializer_class = PublicProviderSerializer
+    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         return (
             Provider.objects.filter(is_active=True)
             .select_related("user")
             .prefetch_related("models", "user__social_auth")
+            .order_by("-created_on")
+        )
+
+
+class ProviderServiceListView(generics.ListAPIView):
+    """List the requesting user's services so they can manage access policies
+    (powers the Settings → Access page)."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProviderServiceSerializer
+
+    def get_queryset(self):
+        return (
+            ProviderService.objects.filter(provider__user=self.request.user)
+            .select_related("provider")
+            .prefetch_related("models")
+            .order_by("provider__name", "name")
+        )
+
+
+class ProviderServiceUpdateView(generics.RetrieveUpdateAPIView):
+    """GET / PATCH one of the requesting user's services to set its access
+    policy. Scoped to the owner — others' services 404 here."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProviderServiceSerializer
+    lookup_field = "id"
+
+    def get_queryset(self):
+        return (
+            ProviderService.objects.filter(provider__user=self.request.user)
+            .select_related("provider")
+            .prefetch_related("models")
         )
 
 
@@ -168,33 +258,115 @@ def _manifest_model_names(parsed) -> set[str]:
     return names
 
 
+def _manifest_services(parsed) -> list[dict]:
+    """Walk ``parsed.hosts[].services[]`` into a flat list of
+    ``{name, host_id, engine, model_ids}`` dicts. Defensive — the validator
+    already ran, so anything malformed is just skipped."""
+    out: list[dict] = []
+    if not isinstance(parsed, dict):
+        return out
+    for host in parsed.get("hosts") or []:
+        if not isinstance(host, dict):
+            continue
+        host_id = host.get("id") if isinstance(host.get("id"), str) else ""
+        for svc in host.get("services") or []:
+            if not isinstance(svc, dict):
+                continue
+            name = svc.get("name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            model_ids = set()
+            for m in svc.get("models") or []:
+                if isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"].strip():
+                    model_ids.add(m["id"].strip())
+            out.append(
+                {
+                    "name": name.strip(),
+                    "host_id": host_id or "",
+                    "engine": svc.get("engine") if isinstance(svc.get("engine"), str) else "",
+                    "model_ids": model_ids,
+                }
+            )
+    return out
+
+
 def sync_provider_models_from_manifest(provider, parsed) -> int:
-    """Make the provider's ProviderModel rows match the manifest exactly.
+    """Mirror the manifest into ProviderService + ProviderModel rows.
 
-    The manifest is the operator's declared source of truth for "what
-    models this agent serves" — it's what the public profile renders.
-    Mirroring it into ProviderModel keeps the dashboard's Registered
-    Compute panel and the ``/v1/models`` proxy honest, without having
-    to ask the agent (whose own ``/v1/models`` may only reflect the
-    currently-loaded subset).
+    The manifest is the operator's declared source of truth for what the agent
+    serves. We upsert one ProviderService per declared service (keyed by name)
+    and link each ProviderModel to its service. Crucially, upserting a service
+    **preserves its access_policy / allowed_github_users** so re-uploading a
+    manifest never resets who the operator has granted access to.
 
-    Returns the count of active rows after the sync.
+    Returns the count of active models after the sync.
     """
-    declared = _manifest_model_names(parsed)
-    existing = {pm.name: pm for pm in provider.models.all()}
+    services_data = _manifest_services(parsed)
+    declared_service_names = {s["name"] for s in services_data}
+    existing_services = {s.name: s for s in provider.services.all()}
 
+    service_by_name: dict[str, ProviderService] = {}
+    for sd in services_data:
+        svc = existing_services.get(sd["name"])
+        if svc is None:
+            svc = ProviderService.objects.create(
+                provider=provider,
+                name=sd["name"],
+                host_id=sd["host_id"],
+                engine=sd["engine"],
+                is_active=True,
+            )
+        else:
+            fields = []
+            if svc.host_id != sd["host_id"]:
+                svc.host_id = sd["host_id"]
+                fields.append("host_id")
+            if svc.engine != sd["engine"]:
+                svc.engine = sd["engine"]
+                fields.append("engine")
+            if not svc.is_active:
+                svc.is_active = True
+                fields.append("is_active")
+            if fields:
+                svc.save(update_fields=fields + ["modified_on"])
+        service_by_name[sd["name"]] = svc
+
+    # Deactivate services no longer in the manifest, but keep their policy in
+    # case the operator brings the service back later.
+    for name, svc in existing_services.items():
+        if name not in declared_service_names and svc.is_active:
+            svc.is_active = False
+            svc.save(update_fields=["is_active", "modified_on"])
+
+    declared_models: set[str] = set()
+    model_to_service: dict[str, ProviderService] = {}
+    for sd in services_data:
+        for mid in sd["model_ids"]:
+            declared_models.add(mid)
+            model_to_service.setdefault(mid, service_by_name[sd["name"]])
+
+    existing = {pm.name: pm for pm in provider.models.all()}
     for name, pm in existing.items():
-        if name in declared:
-            if not pm.is_active:
-                pm.is_active = True
-                pm.save(update_fields=["is_active", "modified_on"])
-        elif pm.is_active:
-            pm.is_active = False
-            pm.save(update_fields=["is_active", "modified_on"])
-    for name in declared:
+        fields = []
+        active = name in declared_models
+        if pm.is_active != active:
+            pm.is_active = active
+            fields.append("is_active")
+        svc = model_to_service.get(name)
+        if svc is not None and pm.service_id != svc.id:
+            pm.service = svc
+            fields.append("service")
+        if fields:
+            pm.save(update_fields=fields + ["modified_on"])
+    for name in declared_models:
         if name not in existing:
-            ProviderModel.objects.create(provider=provider, name=name, is_active=True)
-    return len(declared)
+            ProviderModel.objects.create(
+                provider=provider,
+                name=name,
+                is_active=True,
+                service=model_to_service.get(name),
+            )
+    return len(declared_models)
 
 
 def refresh_provider_models(provider) -> int:

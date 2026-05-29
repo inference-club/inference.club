@@ -1,15 +1,31 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, watch, ref } from 'vue'
 import { RefreshCw, Globe, Github } from 'lucide-vue-next'
 import { useAllProviders } from '@/composables/useProviders'
+import { usePagination } from '@/composables/usePagination'
+import PaginationControls from '@/components/PaginationControls.vue'
 
 definePageMeta({
   layout: 'app',
 })
 
-const { providers, isLoading, error, fetchAllProviders } = useAllProviders()
+const { providers, pagination, isLoading, error, fetchAllProviders } = useAllProviders()
 
-onMounted(fetchAllProviders)
+const pg = usePagination(computed(() => pagination.value.count), 10)
+
+const reload = () => {
+  const offset = (pg.currentPage.value - 1) * pg.currentPageSize.value
+  return fetchAllProviders(pg.currentPageSize.value, offset)
+}
+
+const resultsTopRef = ref<HTMLElement | null>(null)
+
+watch([pg.currentPage, pg.currentPageSize], () => {
+  reload()
+  resultsTopRef.value?.scrollIntoView({ behavior: 'smooth' })
+})
+
+onMounted(() => fetchAllProviders(pg.currentPageSize.value, 0))
 
 const onlineCount = computed(() => providers.value.filter(p => p.is_online).length)
 const ownerCount = computed(
@@ -34,6 +50,7 @@ const formatRelative = (iso: string | null) => {
 
 <template>
   <div class="container mx-auto p-6 space-y-6">
+    <div ref="resultsTopRef" />
     <div class="flex items-end justify-between">
       <div>
         <h1 class="text-2xl font-bold flex items-center gap-2">
@@ -47,7 +64,7 @@ const formatRelative = (iso: string | null) => {
       <button
         class="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 disabled:opacity-50"
         :disabled="isLoading"
-        @click="fetchAllProviders"
+        @click="reload"
       >
         <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': isLoading }" />
         {{ isLoading ? 'Refreshing…' : 'Refresh' }}
@@ -57,7 +74,7 @@ const formatRelative = (iso: string | null) => {
     <div class="grid gap-3 sm:grid-cols-4">
       <Card class="p-4">
         <p class="text-xs uppercase text-muted-foreground tracking-wide">Nodes</p>
-        <p class="text-2xl font-semibold mt-1">{{ providers.length }}</p>
+        <p class="text-2xl font-semibold mt-1">{{ pagination.count }}</p>
       </Card>
       <Card class="p-4">
         <p class="text-xs uppercase text-muted-foreground tracking-wide">Online</p>
@@ -96,7 +113,19 @@ const formatRelative = (iso: string | null) => {
       </p>
     </Card>
 
-    <div v-else class="grid gap-3">
+    <div v-else class="space-y-4">
+      <PaginationControls
+        :current-page="pg.currentPage.value"
+        :current-page-size="pg.currentPageSize.value"
+        :page-count="pg.pageCount.value"
+        :visible-pages="pg.visiblePages.value"
+        :is-first-page="pg.isFirstPage.value"
+        :is-last-page="pg.isLastPage.value"
+        :prev="pg.prev"
+        :next="pg.next"
+        :on-page-change="(page) => { pg.currentPage.value = page }"
+      />
+      <div class="grid gap-3">
       <Card
         v-for="provider in providers"
         :key="provider.id"
@@ -156,6 +185,18 @@ const formatRelative = (iso: string | null) => {
           </p>
         </div>
       </Card>
+      </div>
+      <PaginationControls
+        :current-page="pg.currentPage.value"
+        :current-page-size="pg.currentPageSize.value"
+        :page-count="pg.pageCount.value"
+        :visible-pages="pg.visiblePages.value"
+        :is-first-page="pg.isFirstPage.value"
+        :is-last-page="pg.isLastPage.value"
+        :prev="pg.prev"
+        :next="pg.next"
+        :on-page-change="(page) => { pg.currentPage.value = page }"
+      />
     </div>
   </div>
 </template>

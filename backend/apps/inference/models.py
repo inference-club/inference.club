@@ -84,11 +84,89 @@ class Provider(BaseModel):
         return timezone.now() - self.last_seen_at <= PROVIDER_LAST_SEEN_WINDOW
 
 
+class ProviderService(BaseModel):
+    """One OpenAI-compatible service exposed by a provider's agent (e.g. a
+    vLLM or LM Studio instance), mirrored from the uploaded manifest's
+    ``hosts[].services[]``. Services are the unit of access control: an
+    operator decides, per service, who in inference.club may route to it.
+
+    Keyed by ``(provider, name)`` — the manifest guarantees service ``name``
+    is unique within an agent. Re-uploading a manifest upserts by name and
+    *preserves* the operator's access settings.
+    """
+
+    # Who may route inference requests to this service.
+    ACCESS_PRIVATE = "PRIVATE"  # only the owner (default; preserves prior behavior)
+    ACCESS_AUTHENTICATED = "AUTHENTICATED"  # any signed-in inference.club member
+    ACCESS_RESTRICTED = "RESTRICTED"  # an explicit GitHub-username allowlist
+    ACCESS_POLICY_CHOICES = (
+        (ACCESS_PRIVATE, "Only me"),
+        (ACCESS_AUTHENTICATED, "Any inference.club member"),
+        (ACCESS_RESTRICTED, "Specific GitHub users"),
+    )
+
+    provider = models.ForeignKey(
+        Provider, on_delete=models.CASCADE, related_name="services"
+    )
+    name = models.CharField(max_length=255)
+    host_id = models.CharField(max_length=255, blank=True, help_text="Manifest host id, for display.")
+    engine = models.CharField(max_length=64, blank=True)
+    is_active = models.BooleanField(
+        default=True,
+        help_text="False when the service is no longer present in the latest manifest.",
+    )
+    access_policy = models.CharField(
+        max_length=16, choices=ACCESS_POLICY_CHOICES, default=ACCESS_PRIVATE
+    )
+    allowed_github_users = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="GitHub usernames allowed when access_policy is RESTRICTED.",
+    )
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "name"], name="unique_service_name_per_provider"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.provider}/{self.name}"
+
+    def grants_access_to(self, user, github_login: str | None) -> bool:
+        """Whether ``user`` (whose GitHub handle is ``github_login``) may route
+        to this service. The owner always can; otherwise the policy decides."""
+        if self.provider.user_id == getattr(user, "id", None):
+            return True
+        if not self.is_active:
+            return False
+        if self.access_policy == self.ACCESS_AUTHENTICATED:
+            return True
+        if self.access_policy == self.ACCESS_RESTRICTED:
+            if not github_login:
+                return False
+            allowed = {u.strip().lower() for u in (self.allowed_github_users or [])}
+            return github_login.strip().lower() in allowed
+        return False  # PRIVATE
+
+
 class ProviderModel(BaseModel):
     """An LLM model an agent reports it can serve."""
 
     provider = models.ForeignKey(
         Provider, on_delete=models.CASCADE, related_name="models"
+    )
+    service = models.ForeignKey(
+        ProviderService,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="models",
+        help_text="The service that serves this model, when known from the "
+        "manifest. Models discovered only via live /v1/models stay unlinked "
+        "and remain owner-only.",
     )
     name = models.CharField(max_length=255)
     context_window = models.PositiveIntegerField(null=True, blank=True)
