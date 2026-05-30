@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Sum
+from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -367,6 +368,122 @@ class RateLimitUsageView(APIView):
         return Response({"scopes": scopes})
 
 
+# --- OpenRouter-style model catalog --------------------------------------
+# See docs/plans/openrouter-provider-compatibility.md. We build rich per-model
+# metadata from light id heuristics + operator overrides (ProviderModel.metadata)
+# + sensible defaults, so the catalog is credible without agent changes.
+
+_QUANT_HEURISTICS = [
+    ("fp4", ("nvfp4", "mxfp4", "fp4")),
+    ("fp6", ("fp6",)),
+    ("fp8", ("fp8",)),
+    ("bf16", ("bf16",)),
+    ("fp16", ("fp16", "half")),
+    ("fp32", ("fp32",)),
+    ("int4", ("int4", "awq", "gptq", "q4", "4bit", "w4a16")),
+    ("int8", ("int8", "q8", "8bit", "w8a8")),
+]
+
+_DEFAULT_SAMPLING_PARAMS = [
+    "temperature",
+    "top_p",
+    "top_k",
+    "min_p",
+    "frequency_penalty",
+    "presence_penalty",
+    "repetition_penalty",
+    "stop",
+    "seed",
+    "max_tokens",
+]
+
+
+def _guess_quantization(model_id: str):
+    s = model_id.lower()
+    for canonical, needles in _QUANT_HEURISTICS:
+        if any(n in s for n in needles):
+            return canonical
+    return None
+
+
+def _guess_features(model_id: str) -> list[str]:
+    s = model_id.lower()
+    feats = []
+    if any(k in s for k in ("reason", "thinking", "-r1", "qwq")):
+        feats.append("reasoning")
+    return feats
+
+
+def _guess_modalities(model_id: str):
+    s = model_id.lower()
+    inp = ["text"]
+    if any(k in s for k in ("vl", "vision", "omni", "image", "multimodal")):
+        inp.append("image")
+    return inp, ["text"]
+
+
+def openrouter_model_schema(pm) -> dict:
+    """Build the OpenRouter provider `data[]` entry for a ProviderModel."""
+    meta = pm.metadata if isinstance(pm.metadata, dict) else {}
+    model_id = pm.name
+    inp_default, out_default = _guess_modalities(model_id)
+    created_dt = pm.created_on or pm.provider.created_on
+
+    out = {
+        "id": model_id,
+        "name": meta.get("name") or model_id,
+        "created": int(created_dt.timestamp()) if created_dt else 0,
+        "input_modalities": meta.get("input_modalities") or inp_default,
+        "output_modalities": meta.get("output_modalities") or out_default,
+        "context_length": (
+            meta.get("context_length")
+            if meta.get("context_length") is not None
+            else pm.context_window
+        ),
+        "max_output_length": meta.get("max_output_length"),
+        # No economic model yet — pricing is present (OpenRouter requires it)
+        # but zeroed. See §2 of the compatibility doc.
+        "pricing": meta.get("pricing")
+        or {"prompt": "0", "completion": "0", "request": "0", "image": "0"},
+        "supported_sampling_parameters": meta.get("supported_sampling_parameters")
+        or _DEFAULT_SAMPLING_PARAMS,
+        "supported_features": meta.get("supported_features") or _guess_features(model_id),
+        "is_ready": meta.get("is_ready", True),
+    }
+    quant = meta.get("quantization") or _guess_quantization(model_id)
+    if quant:
+        out["quantization"] = quant
+    if meta.get("description"):
+        out["description"] = meta["description"]
+    if meta.get("hugging_face_id"):
+        out["hugging_face_id"] = meta["hugging_face_id"]
+    return out
+
+
+class ProviderModelsCatalogView(APIView):
+    """OpenRouter-style provider models catalog for the whole network.
+
+    Emits the `{data: [...]}` schema OpenRouter expects from a provider's list-
+    models endpoint, deduped across the network's active models. See
+    docs/plans/openrouter-provider-compatibility.md.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        seen: dict[str, dict] = {}
+        qs = (
+            ProviderModel.objects.filter(is_active=True, provider__is_active=True)
+            .select_related("provider")
+            .order_by("name", "-created_on")
+        )
+        for pm in qs:
+            if pm.name in seen:
+                continue
+            seen[pm.name] = openrouter_model_schema(pm)
+        return Response({"data": list(seen.values())})
+
+
 def _tailnet_proxies():
     """Per-call proxy dict for outbound tailnet requests.
 
@@ -723,6 +840,60 @@ class ProviderManifestView(APIView):
         return Response(ServiceManifestSerializer(manifest).data)
 
 
+def _daily_series(qs, days: int = 365) -> list[dict]:
+    """Per-day request counts + tokens over the trailing window, for a
+    GitHub-style activity heatmap. Sparse — only days with activity."""
+    cutoff = timezone.now() - timedelta(days=days)
+    rows = (
+        qs.filter(created_on__gte=cutoff)
+        .annotate(day=TruncDate("created_on"))
+        .values("day")
+        .annotate(count=Count("id"), tokens=Sum("total_tokens"))
+        .order_by("day")
+    )
+    return [
+        {"date": r["day"].isoformat(), "count": r["count"], "tokens": r["tokens"] or 0}
+        for r in rows
+        if r["day"] is not None
+    ]
+
+
+def _profile_stats(user) -> dict:
+    """Public activity stats for a profile: what this user's computers have
+    served (provider) vs what this user has consumed, as lifetime totals + a
+    daily series for the heatmaps. Aggregates only — no prompt/response content.
+    """
+    consumed = InferenceRequest.objects.filter(user=user)
+    served = InferenceRequest.objects.filter(provider__user=user)
+
+    c = consumed.aggregate(
+        requests=Count("id"),
+        prompt=Sum("prompt_tokens"),
+        completion=Sum("completion_tokens"),
+        total=Sum("total_tokens"),
+    )
+    s = served.aggregate(requests=Count("id"), total=Sum("total_tokens"))
+
+    return {
+        "consumer": {
+            "lifetime": {
+                "requests": c["requests"] or 0,
+                "prompt_tokens": c["prompt"] or 0,
+                "completion_tokens": c["completion"] or 0,
+                "total_tokens": c["total"] or 0,
+            },
+            "daily": _daily_series(consumed),
+        },
+        "provider": {
+            "lifetime": {
+                "requests": s["requests"] or 0,
+                "total_tokens": s["total"] or 0,
+            },
+            "daily": _daily_series(served),
+        },
+    }
+
+
 class PublicUserProfileView(APIView):
     """GET /api/users/<github_login>/ — unauthenticated public profile.
 
@@ -783,5 +954,6 @@ class PublicUserProfileView(APIView):
                 "providers": PublicProviderSerializer(
                     providers_qs, many=True, context={"request": request}
                 ).data,
+                "stats": _profile_stats(user),
             }
         )

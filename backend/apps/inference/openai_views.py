@@ -456,11 +456,15 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
 
     def _stream_response(self, upstream, ir, started):
         chunks = []
+        first_token_at = None
 
         def gen():
+            nonlocal first_token_at
             try:
                 for chunk in upstream.iter_content(chunk_size=8192):
                     if chunk:
+                        if first_token_at is None:
+                            first_token_at = time.monotonic()
                         chunks.append(chunk)
                         yield chunk
             finally:
@@ -469,6 +473,8 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
                 ir.results = results
                 ir.prompt_tokens, ir.completion_tokens, ir.total_tokens = _usage_tokens(results)
                 ir.latency_ms = int((time.monotonic() - started) * 1000)
+                if first_token_at is not None:
+                    ir.ttft_ms = int((first_token_at - started) * 1000)
                 ir.save(
                     update_fields=[
                         "status",
@@ -477,6 +483,7 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
                         "completion_tokens",
                         "total_tokens",
                         "latency_ms",
+                        "ttft_ms",
                         "modified_on",
                     ]
                 )

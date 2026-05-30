@@ -405,6 +405,7 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
     response_text = serializers.SerializerMethodField()
     reasoning = serializers.SerializerMethodField()
     streamed = serializers.SerializerMethodField()
+    tokens_per_second = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -419,6 +420,8 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
             "github_login",
             "is_owner",
             "latency_ms",
+            "ttft_ms",
+            "tokens_per_second",
             "usage",
             "messages",
             "response_text",
@@ -445,6 +448,16 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
 
     def get_streamed(self, obj) -> bool:
         return _is_streamed(obj)
+
+    def get_tokens_per_second(self, obj):
+        # Throughput on generated tokens: completion_tokens / generation time
+        # (total latency minus time-to-first-token), the OpenRouter definition.
+        if not obj.completion_tokens or not obj.latency_ms:
+            return None
+        gen_ms = obj.latency_ms - (obj.ttft_ms or 0)
+        if gen_ms <= 0:
+            return None
+        return round(obj.completion_tokens / (gen_ms / 1000), 1)
 
 
 class ProviderServiceSerializer(serializers.ModelSerializer):

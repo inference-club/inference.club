@@ -186,9 +186,15 @@ AUTH_PASSWORD_VALIDATORS = [
 AUTH_USER_MODEL = "accounts.CustomUser"
 
 REST_FRAMEWORK = {
+    # Bearer first so unauthenticated API calls get a proper 401 with a
+    # `WWW-Authenticate: Bearer` header (DRF derives the 401-vs-403 decision
+    # from the FIRST authenticator; SessionAuthentication returns no auth
+    # header, which downgrades 401→403 and confuses OpenAI-style clients).
+    # Session still authenticates cookie-based dashboard requests (and keeps
+    # enforcing CSRF) since it's tried next.
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
         "apps.accounts.authentication.BearerTokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
     ],
     # Per-user rate limits for the OpenAI-compatible proxy (applied via
     # ScopedRateThrottle on the /v1 views; keyed by user since those require a

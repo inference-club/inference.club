@@ -176,6 +176,14 @@ class ProviderModel(BaseModel):
     name = models.CharField(max_length=255)
     context_window = models.PositiveIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Operator-set overrides for the OpenRouter-style model "
+        "catalog (e.g. name, quantization, context_length, max_output_length, "
+        "input/output_modalities, supported_features, "
+        "supported_sampling_parameters). Heuristics + defaults fill the rest.",
+    )
 
     class Meta:
         ordering = ["name"]
@@ -264,6 +272,10 @@ class InferenceRequest(BaseModel):
     )
     results = models.JSONField(null=True, blank=True)
     latency_ms = models.PositiveIntegerField(null=True, blank=True)
+    # Time to first token (streamed requests only) — an OpenRouter-style
+    # performance signal. Throughput is derived from completion_tokens and
+    # (latency_ms - ttft_ms).
+    ttft_ms = models.PositiveIntegerField(null=True, blank=True)
     # Token usage, mirrored from the response's `usage` for cheap aggregation
     # (leaderboard, quotas) without parsing the results JSON. Null when the
     # provider didn't report usage (e.g. streamed without stream_options).

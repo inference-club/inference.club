@@ -30,6 +30,8 @@ export interface InferenceRequest {
   model_name?: string
   provider?: ProviderMini | null
   latency_ms?: number | null
+  ttft_ms?: number | null
+  tokens_per_second?: number | null
   usage?: TokenUsage | null
   streamed?: boolean
   created_on: string

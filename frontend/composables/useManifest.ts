@@ -62,6 +62,28 @@ export interface ProfileProvider {
   github_login: string | null
 }
 
+export interface ActivityDay {
+  date: string
+  count: number
+  tokens: number
+}
+
+export interface ProfileStats {
+  consumer: {
+    lifetime: {
+      requests: number
+      prompt_tokens: number
+      completion_tokens: number
+      total_tokens: number
+    }
+    daily: ActivityDay[]
+  }
+  provider: {
+    lifetime: { requests: number; total_tokens: number }
+    daily: ActivityDay[]
+  }
+}
+
 export interface PublicProfile {
   github_login: string
   name: string
@@ -69,6 +91,7 @@ export interface PublicProfile {
   github_url: string
   joined: string
   providers: ProfileProvider[]
+  stats?: ProfileStats
 }
 
 // Engines the agent + server validators accept. Keep in sync with the

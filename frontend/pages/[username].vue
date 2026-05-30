@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Cpu, ExternalLink, Github, Server, Wrench } from 'lucide-vue-next'
+import { Activity, Cpu, ExternalLink, Github, Server, Wrench } from 'lucide-vue-next'
 import {
   ENGINE_LABELS,
   VENDOR_LABELS,
@@ -14,12 +14,19 @@ const auth = useAuthStore()
 
 const username = computed(() => String(route.params.username || ''))
 
+// During SSR (inside the container) the browser-facing apiBase may be
+// unreachable; use the server-only internal base when set.
+const apiBase =
+  import.meta.server && config.apiBaseInternal
+    ? config.apiBaseInternal
+    : config.public.apiBase
+
 // Don't use onResponseError — that fires inside ofetch and the thrown
 // error gets swallowed by useFetch's own error handling. Instead let
 // useFetch swallow non-2xx into ``error`` and convert it to a Nuxt
 // fatal-error after the await, so SSR returns the right status code.
 const { data, error } = await useFetch<PublicProfile>(
-  () => `${config.public.apiBase}/api/users/${encodeURIComponent(username.value)}/`,
+  () => `${apiBase}/api/users/${encodeURIComponent(username.value)}/`,
   { credentials: 'include' },
 )
 
@@ -95,6 +102,8 @@ const openRawModal = async (providerId: number) => {
 
 const engineLabel = (e: string) => ENGINE_LABELS[e] ?? e
 const vendorLabel = (v?: string) => (v ? VENDOR_LABELS[v] ?? v : '')
+
+const fmtN = (n: number | null | undefined) => (n ?? 0).toLocaleString()
 </script>
 
 <template>
@@ -132,6 +141,43 @@ const vendorLabel = (v?: string) => (v ? VENDOR_LABELS[v] ?? v : '')
         <span><strong class="text-foreground">{{ totalServices }}</strong> service{{ totalServices === 1 ? '' : 's' }}</span>
       </div>
     </header>
+
+    <!-- activity: provided compute + consumed inference -->
+    <section v-if="data.stats" class="mb-10 grid gap-5">
+      <div class="rounded-lg border bg-card p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <h2 class="font-semibold flex items-center gap-2">
+            <Cpu class="size-4 text-emerald-500" /> Compute provided
+          </h2>
+          <p class="text-sm text-muted-foreground">
+            <strong class="text-foreground">{{ fmtN(data.stats.provider.lifetime.requests) }}</strong>
+            requests served ·
+            <strong class="text-foreground">{{ fmtN(data.stats.provider.lifetime.total_tokens) }}</strong>
+            tokens
+          </p>
+        </div>
+        <ContributionHeatmap :data="data.stats.provider.daily" scheme="emerald" />
+      </div>
+
+      <div class="rounded-lg border bg-card p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <h2 class="font-semibold flex items-center gap-2">
+            <Activity class="size-4 text-sky-500" /> Inference used
+          </h2>
+          <p class="text-sm text-muted-foreground">
+            <strong class="text-foreground">{{ fmtN(data.stats.consumer.lifetime.requests) }}</strong>
+            requests ·
+            <strong class="text-foreground">{{ fmtN(data.stats.consumer.lifetime.total_tokens) }}</strong>
+            tokens
+            <span class="whitespace-nowrap">
+              ({{ fmtN(data.stats.consumer.lifetime.prompt_tokens) }} in /
+              {{ fmtN(data.stats.consumer.lifetime.completion_tokens) }} out)
+            </span>
+          </p>
+        </div>
+        <ContributionHeatmap :data="data.stats.consumer.daily" scheme="sky" />
+      </div>
+    </section>
 
     <!-- empty state -->
     <div

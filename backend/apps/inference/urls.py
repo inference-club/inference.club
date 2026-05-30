@@ -9,6 +9,7 @@ from .views import (
     ProviderListView,
     RateLimitUsageView,
     ProviderManifestView,
+    ProviderModelsCatalogView,
     ProviderServiceListView,
     ProviderServiceUpdateView,
     ProviderUpdateView,
@@ -37,6 +38,11 @@ urlpatterns = [
     path("providers/<int:id>/", ProviderUpdateView.as_view(), name="provider-detail"),
     path("leaderboard/", LeaderboardView.as_view(), name="leaderboard"),
     path("usage/", RateLimitUsageView.as_view(), name="rate-limit-usage"),
+    path(
+        "provider/models/",
+        ProviderModelsCatalogView.as_view(),
+        name="provider-models-catalog",
+    ),
     path("services/", ProviderServiceListView.as_view(), name="service-list"),
     path(
         "services/<int:id>/",

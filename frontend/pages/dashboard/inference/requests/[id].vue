@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github,
+  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge,
 } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
@@ -160,6 +160,18 @@ onMounted(() => {
               <Clock class="size-3" /> Latency
             </dt>
             <dd class="mt-0.5">{{ formatLatency(req.latency_ms) }}</dd>
+          </div>
+          <div v-if="req.ttft_ms != null">
+            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+              <Clock class="size-3" /> TTFT
+            </dt>
+            <dd class="mt-0.5">{{ req.ttft_ms }} ms</dd>
+          </div>
+          <div v-if="req.tokens_per_second != null">
+            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+              <Gauge class="size-3" /> Throughput
+            </dt>
+            <dd class="mt-0.5">{{ req.tokens_per_second }} tok/s</dd>
           </div>
           <div>
             <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">

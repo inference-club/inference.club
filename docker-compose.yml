@@ -116,6 +116,9 @@ services:
       # Browser hits backend on the host's compose port 8101 (same-origin from
       # the browser's perspective, since the browser runs on the host).
       NUXT_PUBLIC_API_BASE: http://localhost:8101
+      # SSR (inside this container) can't reach localhost:8101 — that's the
+      # frontend itself. Reach the backend by its compose service name instead.
+      NUXT_API_BASE_INTERNAL: http://backend:8001
     volumes:
       - ./frontend:/app
       # Named volume shadows the host's frontend/node_modules — the host
