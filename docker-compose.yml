@@ -26,6 +26,15 @@ services:
       # for dev tooling, and any local Postgres install.
       - "5532:5432"
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build:
       context: ./backend
@@ -56,6 +65,9 @@ services:
       # rewrite, no auth-key minting). Pairs with an agent run in AGENT_DIRECT
       # mode (see ../inference-club-agent/docker-compose.dev.yml).
       INFERENCE_DIRECT_AGENTS: "True"
+      # Shared cache so rate limits + the usage meter are consistent across
+      # the gunicorn workers (not per-worker).
+      REDIS_URL: redis://redis:6379/0
     extra_hosts:
       # So the backend can reach a direct-mode agent at
       # http://host.docker.internal:<port>/v1 on Linux too (auto on Docker
@@ -63,6 +75,8 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       # Host port 8101 so this can coexist with `manage.py runserver 8001`.

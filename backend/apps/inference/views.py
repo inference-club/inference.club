@@ -1,14 +1,20 @@
 import logging
+import time
+from datetime import timedelta
 
 import requests
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 from rest_framework.views import APIView
 
 from .manifest_validator import validate as validate_manifest
@@ -27,8 +33,11 @@ from .serializers import (
     InferenceRequestSerializer,
     ProviderSerializer,
     ProviderServiceSerializer,
+    ProviderUpdateSerializer,
     PublicProviderSerializer,
     ServiceManifestSerializer,
+    _user_github_login,
+    _user_owner,
 )
 from .tailscale import mint_authkey_for_provider
 
@@ -213,6 +222,149 @@ class ProviderServiceUpdateView(generics.RetrieveUpdateAPIView):
             .select_related("provider")
             .prefetch_related("models")
         )
+
+
+class ProviderUpdateView(generics.RetrieveUpdateAPIView):
+    """PATCH a provider's owner-editable settings (the accepting_requests
+    pause/kill switch). Scoped to the owner."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProviderUpdateSerializer
+    lookup_field = "id"
+
+    def get_queryset(self):
+        return Provider.objects.filter(user=self.request.user)
+
+
+class LeaderboardView(APIView):
+    """Top token consumers over a time window. Visible to any authenticated
+    member — it's a deliberately public, social view of network usage."""
+
+    permission_classes = [IsAuthenticated]
+
+    RANGES = {
+        "hour": timedelta(hours=1),
+        "day": timedelta(days=1),
+        "week": timedelta(days=7),
+        "month": timedelta(days=30),
+        "year": timedelta(days=365),
+        "all": None,
+    }
+
+    def get(self, request):
+        rng = request.query_params.get("range", "day")
+        if rng not in self.RANGES:
+            rng = "day"
+        delta = self.RANGES[rng]
+
+        qs = InferenceRequest.objects.all()
+        if delta is not None:
+            qs = qs.filter(created_on__gte=timezone.now() - delta)
+
+        rows = (
+            qs.values("user")
+            .annotate(
+                total_tokens=Sum("total_tokens"),
+                prompt_tokens=Sum("prompt_tokens"),
+                completion_tokens=Sum("completion_tokens"),
+                requests=Count("id"),
+            )
+            .filter(total_tokens__gt=0)
+            .order_by("-total_tokens")[:50]
+        )
+
+        User = get_user_model()
+        users = {
+            u.id: u
+            for u in User.objects.filter(
+                id__in=[r["user"] for r in rows]
+            ).prefetch_related("social_auth")
+        }
+
+        results = []
+        for i, r in enumerate(rows, start=1):
+            u = users.get(r["user"])
+            results.append(
+                {
+                    "rank": i,
+                    "owner": _user_owner(u) if u else "unknown",
+                    "github_login": _user_github_login(u) if u else None,
+                    "total_tokens": r["total_tokens"] or 0,
+                    "prompt_tokens": r["prompt_tokens"] or 0,
+                    "completion_tokens": r["completion_tokens"] or 0,
+                    "requests": r["requests"],
+                }
+            )
+        return Response({"range": rng, "results": results})
+
+
+# The throttle scopes used by the OpenAI-compatible proxy (see
+# openai_views ModelsView / _ChatOrCompletionsProxy). Surfaced read-only so
+# users can see their current rate-limit headroom.
+INFERENCE_THROTTLE_SCOPES = ["inference", "models"]
+
+
+def _parse_throttle_rate(rate):
+    """('60/min') -> (60, 60). Mirrors DRF's SimpleRateThrottle.parse_rate."""
+    if not rate:
+        return None, None
+    num, _, period = rate.partition("/")
+    try:
+        num_requests = int(num)
+    except ValueError:
+        return None, None
+    duration = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(period[:1])
+    if duration is None:
+        return None, None
+    return num_requests, duration
+
+
+def scope_usage(scope, ident):
+    """Current usage for a throttle scope + identity, read straight from the
+    throttle cache (no quota consumed). Returns None if the scope has no rate.
+
+    Mirrors DRF's SimpleRateThrottle cache key/format so it reflects exactly
+    what the throttle enforces.
+    """
+    rate = api_settings.DEFAULT_THROTTLE_RATES.get(scope)
+    num_requests, duration = _parse_throttle_rate(rate)
+    if num_requests is None:
+        return None
+    key = "throttle_%s_%s" % (scope, ident)
+    history = cache.get(key, []) or []
+    now = time.time()
+    recent = [t for t in history if t > now - duration]
+    used = len(recent)
+    # DRF stores newest-first, so min(recent) is the oldest in-window request;
+    # a slot frees when it ages past `duration`.
+    reset_in = int(max(0, duration - (now - min(recent)))) if recent else 0
+    return {
+        "scope": scope,
+        "limit": num_requests,
+        "used": used,
+        "remaining": max(0, num_requests - used),
+        "duration_seconds": duration,
+        "reset_in_seconds": reset_in,
+    }
+
+
+class RateLimitUsageView(APIView):
+    """The requesting user's current rate-limit consumption per scope.
+
+    Read-only view of the throttle cache so the dashboard can show a live
+    usage meter without itself counting against any limit.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        ident = request.user.pk
+        scopes = [
+            u
+            for u in (scope_usage(s, ident) for s in INFERENCE_THROTTLE_SCOPES)
+            if u is not None
+        ]
+        return Response({"scopes": scopes})
 
 
 def _tailnet_proxies():

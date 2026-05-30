@@ -5,10 +5,13 @@ from .views import (
     AllInferenceRequestView,
     AllProvidersListView,
     InferenceRequestView,
+    LeaderboardView,
     ProviderListView,
+    RateLimitUsageView,
     ProviderManifestView,
     ProviderServiceListView,
     ProviderServiceUpdateView,
+    ProviderUpdateView,
     RefreshProviderModelsView,
     RetrieveInferenceRequestView,
 )
@@ -31,6 +34,9 @@ urlpatterns = [
     path("agent/manifest/", AgentManifestView.as_view(), name="agent-manifest"),
     path("providers/", ProviderListView.as_view(), name="provider-list"),
     path("providers/all/", AllProvidersListView.as_view(), name="provider-list-all"),
+    path("providers/<int:id>/", ProviderUpdateView.as_view(), name="provider-detail"),
+    path("leaderboard/", LeaderboardView.as_view(), name="leaderboard"),
+    path("usage/", RateLimitUsageView.as_view(), name="rate-limit-usage"),
     path("services/", ProviderServiceListView.as_view(), name="service-list"),
     path(
         "services/<int:id>/",

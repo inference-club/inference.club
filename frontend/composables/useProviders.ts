@@ -21,6 +21,7 @@ export interface Provider {
   agent_port: number
   is_active: boolean
   is_online: boolean
+  accepting_requests: boolean
   registered_at: string | null
   last_seen_at: string | null
   models: ProviderModel[]
@@ -95,6 +96,29 @@ export const useProviders = () => {
     }
   }
 
+  const setAcceptingRequests = async (providerId: number, accepting: boolean) => {
+    error.value = null
+    const csrfToken = import.meta.client
+      ? document.cookie
+          .split('; ')
+          .find(c => c.startsWith('csrftoken='))
+          ?.split('=')[1]
+      : undefined
+    try {
+      await $fetch(`${config.public.apiBase}/api/inference/providers/${providerId}/`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
+        body: { accepting_requests: accepting },
+      })
+      const p = providers.value.find(x => x.id === providerId)
+      if (p) p.accepting_requests = accepting
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to update node'
+      throw err
+    }
+  }
+
   return {
     providers,
     onlineProviders,
@@ -103,6 +127,7 @@ export const useProviders = () => {
     error,
     fetchProviders,
     refreshModels,
+    setAcceptingRequests,
   }
 }
 

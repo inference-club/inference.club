@@ -84,12 +84,22 @@ class ProviderSerializer(serializers.ModelSerializer):
             "agent_port",
             "is_active",
             "is_online",
+            "accepting_requests",
             "registered_at",
             "last_seen_at",
             "models",
             "manifest",
             "created_on",
         ]
+
+
+class ProviderUpdateSerializer(serializers.ModelSerializer):
+    """Owner-editable provider settings — currently just the pause/kill switch."""
+
+    class Meta:
+        model = Provider
+        fields = ["id", "name", "accepting_requests"]
+        read_only_fields = ["id", "name"]
 
 
 class PublicProviderSerializer(ProviderSerializer):

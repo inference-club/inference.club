@@ -1,4 +1,4 @@
-import { BookOpen, Cpu, Send, Settings2 } from 'lucide-vue-next'
+import { BookOpen, Cpu, Send, Settings2, Trophy } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
 export interface DashboardNavItem {
@@ -24,6 +24,13 @@ export const dashboardNav: DashboardNavGroup[] = [
     ],
   },
   {
+    title: 'Leaderboard',
+    icon: Trophy,
+    items: [
+      { title: 'Token usage', url: '/dashboard/leaderboard' },
+    ],
+  },
+  {
     title: 'Compute',
     icon: Cpu,
     items: [
@@ -45,6 +52,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     icon: Settings2,
     items: [
       { title: 'General', url: '/dashboard/settings/general' },
+      { title: 'Usage', url: '/dashboard/settings/usage' },
       { title: 'Access', url: '/dashboard/settings/access' },
       { title: 'Token', url: '/dashboard/settings/token' },
     ],

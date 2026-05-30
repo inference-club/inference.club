@@ -1,13 +1,24 @@
 <script setup lang="ts">
-import { useProviders } from '@/composables/useProviders'
+import { toast } from 'vue-sonner'
+import { useProviders, type Provider } from '@/composables/useProviders'
 
 definePageMeta({
   layout: 'app',
 })
 
-const { providers, isLoading, error, fetchProviders, refreshModels } = useProviders()
+const { providers, isLoading, error, fetchProviders, refreshModels, setAcceptingRequests } = useProviders()
 
 onMounted(fetchProviders)
+
+const togglePause = async (p: Provider) => {
+  const next = !p.accepting_requests
+  try {
+    await setAcceptingRequests(p.id, next)
+    toast.success(next ? `"${p.name}" is accepting requests` : `"${p.name}" paused — no longer serving`)
+  } catch {
+    toast.error('Failed to update node')
+  }
+}
 
 const formatRelative = (iso: string | null) => {
   if (!iso) return 'never'
@@ -70,6 +81,12 @@ const formatRelative = (iso: string | null) => {
               >
                 {{ provider.is_online ? 'online' : 'offline' }}
               </span>
+              <span
+                v-if="!provider.accepting_requests"
+                class="px-2 py-0.5 text-xs rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400"
+              >
+                paused
+              </span>
             </div>
             <p class="text-sm text-muted-foreground mt-1 font-mono">
               {{ provider.tailnet_hostname || '(awaiting registration)' }}<template v-if="provider.agent_port && provider.agent_port !== 443">:{{ provider.agent_port }}</template>
@@ -80,11 +97,20 @@ const formatRelative = (iso: string | null) => {
               last seen: {{ formatRelative(provider.last_seen_at) }}
             </p>
             <button
-              class="text-xs text-muted-foreground hover:text-foreground mt-1"
+              class="text-xs text-muted-foreground hover:text-foreground mt-1 block ml-auto"
               :disabled="isLoading"
               @click="refreshModels(provider.id)"
             >
               {{ isLoading ? '…' : 'Refresh models' }}
+            </button>
+            <button
+              class="text-xs mt-1 block ml-auto"
+              :class="provider.accepting_requests
+                ? 'text-muted-foreground hover:text-amber-600'
+                : 'text-amber-600 hover:text-amber-700 font-medium'"
+              @click="togglePause(provider)"
+            >
+              {{ provider.accepting_requests ? 'Pause node' : 'Resume node' }}
             </button>
           </div>
         </div>

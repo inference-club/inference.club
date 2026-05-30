@@ -32,6 +32,19 @@ services:
       timeout: 5s
       retries: 5
 
+  # Shared cache for DRF rate limiting + the rate-limit usage meter, so limits
+  # are enforced globally across the backend's gunicorn workers rather than
+  # per-worker. Cache-only — no persistence volume, since a restart simply
+  # resets the in-flight rate-limit windows.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Tailscale userspace sidecar. Joins the inference.club tailnet as
   # `club-web` and exposes a SOCKS5 proxy on :1055 that the backend uses to
   # reach provider agents over the tailnet.
@@ -63,8 +76,12 @@ services:
       # goes direct, so the site keeps working even before Tailscale is fully
       # configured.
       TAILNET_PROXY_URL: socks5h://tailscale:1055
+      # Shared cache for accurate rate limiting + the usage meter.
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       tailscale:
         condition: service_started

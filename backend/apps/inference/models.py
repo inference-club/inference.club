@@ -33,6 +33,11 @@ class Provider(BaseModel):
         "(e.g. 'club-host-17'). Empty until the agent has registered.",
     )
     agent_port = models.PositiveIntegerField(default=443)
+    accepting_requests = models.BooleanField(
+        default=True,
+        help_text="Kill switch — when False the node is excluded from routing "
+        "for everyone (including the owner), so it serves no inference.",
+    )
     registered_at = models.DateTimeField(null=True, blank=True)
     last_seen_at = models.DateTimeField(
         null=True,
@@ -259,11 +264,19 @@ class InferenceRequest(BaseModel):
     )
     results = models.JSONField(null=True, blank=True)
     latency_ms = models.PositiveIntegerField(null=True, blank=True)
+    # Token usage, mirrored from the response's `usage` for cheap aggregation
+    # (leaderboard, quotas) without parsing the results JSON. Null when the
+    # provider didn't report usage (e.g. streamed without stream_options).
+    prompt_tokens = models.PositiveIntegerField(null=True, blank=True)
+    completion_tokens = models.PositiveIntegerField(null=True, blank=True)
+    total_tokens = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_on"]
         indexes = [
             models.Index(fields=["user", "status", "created_on"]),
+            # Powers the leaderboard's time-windowed token aggregation.
+            models.Index(fields=["created_on"], name="ir_created_on_idx"),
         ]
 
     def __str__(self):

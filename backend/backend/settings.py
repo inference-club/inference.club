@@ -190,7 +190,44 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
         "apps.accounts.authentication.BearerTokenAuthentication",
     ],
+    # Per-user rate limits for the OpenAI-compatible proxy (applied via
+    # ScopedRateThrottle on the /v1 views; keyed by user since those require a
+    # token). Override per-environment with the env vars below.
+    # NOTE: throttling uses Django's cache; with multiple worker processes and
+    # the default in-process cache the limit is enforced per-worker. Point
+    # CACHES at a shared backend (e.g. Redis) for exact global limits.
+    "DEFAULT_THROTTLE_RATES": {
+        "inference": os.environ.get("INFERENCE_RATE_LIMIT", "60/min"),
+        "models": os.environ.get("MODELS_RATE_LIMIT", "120/min"),
+    },
 }
+
+# ---- inference proxy guardrails -----------------------------------------
+# Bounds on a single inference request, to protect providers' hardware from
+# oversized or runaway jobs. See apps.inference.openai_views.
+INFERENCE_MAX_MESSAGES = int(os.environ.get("INFERENCE_MAX_MESSAGES", "200"))
+INFERENCE_MAX_INPUT_CHARS = int(os.environ.get("INFERENCE_MAX_INPUT_CHARS", "100000"))
+INFERENCE_MAX_OUTPUT_TOKENS = int(os.environ.get("INFERENCE_MAX_OUTPUT_TOKENS", "8192"))
+
+# ---- cache --------------------------------------------------------------
+# Backs DRF throttling and the rate-limit usage meter. A SHARED backend
+# (Redis) is required for accurate limits + meter across multiple gunicorn
+# workers; without REDIS_URL we fall back to a per-process cache, which is
+# fine for a single worker / local poking but enforces limits per-worker.
+_REDIS_URL = os.environ.get("REDIS_URL", "")
+if _REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": _REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
 
 AUTHENTICATION_BACKENDS = (
     "social_core.backends.github.GithubOAuth2",

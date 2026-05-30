@@ -9,11 +9,13 @@ import logging
 import time
 
 import requests
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import (
@@ -23,7 +25,7 @@ from .models import (
     ProviderModel,
 )
 from .serializers import _user_github_login
-from .views import _tailnet_proxies, refresh_provider_models
+from .views import _tailnet_proxies, refresh_provider_models, scope_usage
 
 logger = logging.getLogger("django")
 
@@ -116,10 +118,102 @@ def _assemble_streamed_results(chunks, fallback_model):
     return results
 
 
+def _usage_tokens(results):
+    """(prompt, completion, total) token counts from a result's ``usage``,
+    or (None, None, None) when the provider didn't report them."""
+    usage = results.get("usage") if isinstance(results, dict) else None
+    if not isinstance(usage, dict):
+        return None, None, None
+
+    def _i(v):
+        return v if isinstance(v, int) and v >= 0 else None
+
+    prompt, completion, total = (
+        _i(usage.get("prompt_tokens")),
+        _i(usage.get("completion_tokens")),
+        _i(usage.get("total_tokens")),
+    )
+    if total is None and (prompt is not None or completion is not None):
+        total = (prompt or 0) + (completion or 0)
+    return prompt, completion, total
+
+
+def _content_len(content) -> int:
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        return sum(
+            len(p["text"])
+            for p in content
+            if isinstance(p, dict) and isinstance(p.get("text"), str)
+        )
+    return 0
+
+
+def _request_too_large(body) -> str | None:
+    """Guardrail against oversized jobs that could pin or OOM a provider's
+    hardware. Returns an error message, or None if the request is within
+    bounds."""
+    msgs = body.get("messages")
+    total_chars = 0
+    if isinstance(msgs, list):
+        if len(msgs) > settings.INFERENCE_MAX_MESSAGES:
+            return (
+                f"Too many messages: {len(msgs)} (max "
+                f"{settings.INFERENCE_MAX_MESSAGES})."
+            )
+        for m in msgs:
+            if isinstance(m, dict):
+                total_chars += _content_len(m.get("content"))
+    prompt = body.get("prompt")
+    if isinstance(prompt, str):
+        total_chars += len(prompt)
+    elif isinstance(prompt, list):
+        total_chars += sum(len(p) for p in prompt if isinstance(p, str))
+    if total_chars > settings.INFERENCE_MAX_INPUT_CHARS:
+        return (
+            f"Input too large: {total_chars} characters (max "
+            f"{settings.INFERENCE_MAX_INPUT_CHARS})."
+        )
+    return None
+
+
+def _clamp_max_tokens(body) -> None:
+    """Clamp an explicit, excessive max_tokens down to the configured ceiling.
+    Absent max_tokens is left alone (the upstream timeout bounds runaway)."""
+    cap = settings.INFERENCE_MAX_OUTPUT_TOKENS
+    mt = body.get("max_tokens")
+    if isinstance(mt, int) and mt > cap:
+        body["max_tokens"] = cap
+
+
+class _RateLimitHeadersMixin:
+    """Adds ``X-RateLimit-{Limit,Remaining,Reset}`` headers to responses, so
+    OpenAI-style clients and scripts can see their headroom on every call.
+    Reflects state *after* this request was counted."""
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        scope = getattr(self, "throttle_scope", None)
+        user = getattr(request, "user", None)
+        if scope and user is not None and user.is_authenticated:
+            try:
+                u = scope_usage(scope, user.pk)
+                if u:
+                    response["X-RateLimit-Limit"] = str(u["limit"])
+                    response["X-RateLimit-Remaining"] = str(u["remaining"])
+                    response["X-RateLimit-Reset"] = str(u["reset_in_seconds"])
+            except Exception:  # headers are best-effort; never break the response
+                pass
+        return response
+
+
 def _online_providers(user):
     return [
         p
-        for p in user.providers.filter(is_active=True).exclude(tailnet_hostname="")
+        for p in user.providers.filter(
+            is_active=True, accepting_requests=True
+        ).exclude(tailnet_hostname="")
         if p.is_online
     ]
 
@@ -154,6 +248,7 @@ def _find_provider_for_model(user, model_name):
             name=model_name,
             is_active=True,
             provider__is_active=True,
+            provider__accepting_requests=True,
         )
         .exclude(provider__tailnet_hostname="")
         .select_related("provider", "service")
@@ -175,13 +270,15 @@ def _find_provider_for_model(user, model_name):
     return None
 
 
-class ModelsView(APIView):
+class ModelsView(_RateLimitHeadersMixin, APIView):
     """``GET /v1/models`` — OpenAI-format list of every model the requesting
     user may use: their own providers' models, plus shared services elsewhere
     on the network they have access to.
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "models"
 
     def get(self, request):
         seen = {}
@@ -189,7 +286,9 @@ class ModelsView(APIView):
         # 1) The user's own providers (with self-healing model discovery so a
         # freshly-registered or idle node still populates the dropdown).
         own = list(
-            request.user.providers.filter(is_active=True).exclude(tailnet_hostname="")
+            request.user.providers.filter(
+                is_active=True, accepting_requests=True
+            ).exclude(tailnet_hostname="")
         )
         for provider in own:
             if not provider.is_online or not provider.models.filter(is_active=True).exists():
@@ -221,6 +320,7 @@ class ModelsView(APIView):
             ProviderModel.objects.filter(
                 is_active=True,
                 provider__is_active=True,
+                provider__accepting_requests=True,
                 provider__last_seen_at__gte=cutoff,
                 service__isnull=False,
             )
@@ -241,16 +341,30 @@ class ModelsView(APIView):
         return Response({"object": "list", "data": list(seen.values())})
 
 
-class _ChatOrCompletionsProxy(APIView):
+class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
     """Shared proxy logic for /v1/chat/completions and /v1/completions."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "inference"
     upstream_path = ""  # set by subclass
     inference_type = ""  # set by subclass
 
     def post(self, request):
         body = request.data
         model_name = body.get("model")
+
+        # Guardrails: reject oversized inputs and clamp runaway output budgets
+        # before we tie up a provider's GPU.
+        too_large = _request_too_large(body) if isinstance(body, dict) else None
+        if too_large:
+            return Response(
+                {"error": {"message": too_large, "type": "request_too_large"}},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+        if isinstance(body, dict):
+            _clamp_max_tokens(body)
+
         provider = _find_provider_for_model(request.user, model_name)
         if provider is None:
             return Response(
@@ -324,8 +438,19 @@ class _ChatOrCompletionsProxy(APIView):
             data = {"raw": upstream.text}
         ir.status = "PROCESSED"
         ir.results = data
+        ir.prompt_tokens, ir.completion_tokens, ir.total_tokens = _usage_tokens(data)
         ir.latency_ms = int((time.monotonic() - started) * 1000)
-        ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+        ir.save(
+            update_fields=[
+                "status",
+                "results",
+                "prompt_tokens",
+                "completion_tokens",
+                "total_tokens",
+                "latency_ms",
+                "modified_on",
+            ]
+        )
         Provider.objects.filter(id=ir.provider_id).update(last_seen_at=timezone.now())
         return Response(data, status=upstream.status_code)
 
@@ -339,10 +464,22 @@ class _ChatOrCompletionsProxy(APIView):
                         chunks.append(chunk)
                         yield chunk
             finally:
+                results = _assemble_streamed_results(chunks, ir.model_name)
                 ir.status = "PROCESSED"
-                ir.results = _assemble_streamed_results(chunks, ir.model_name)
+                ir.results = results
+                ir.prompt_tokens, ir.completion_tokens, ir.total_tokens = _usage_tokens(results)
                 ir.latency_ms = int((time.monotonic() - started) * 1000)
-                ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+                ir.save(
+                    update_fields=[
+                        "status",
+                        "results",
+                        "prompt_tokens",
+                        "completion_tokens",
+                        "total_tokens",
+                        "latency_ms",
+                        "modified_on",
+                    ]
+                )
                 Provider.objects.filter(id=ir.provider_id).update(
                     last_seen_at=timezone.now()
                 )
