@@ -1,0 +1,54 @@
+name: tests
+
+# Backend test suite. Runs on every pull request and on pushes to main that
+# touch the backend, so regressions are caught before (and as) code lands.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/tests.yml"
+
+permissions:
+  contents: read
+
+# Don't pile up redundant runs on the same branch/PR.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # sqlite keeps CI fast and dependency-free (no Postgres service needed);
+      # Django runs the suite against an in-memory DB regardless of the name.
+      DATABASE_URL: sqlite:///test.db
+      DJANGO_SECRET_KEY: ci-test-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin to the same Poetry the Docker build uses, so the lockfile resolves
+      # identically.
+      - name: Install Poetry
+        run: pipx install poetry==2.3.4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: poetry
+          cache-dependency-path: backend/poetry.lock
+
+      - name: Install dependencies
+        run: poetry install --no-root --with test
+
+      - name: Run tests
+        run: poetry run pytest

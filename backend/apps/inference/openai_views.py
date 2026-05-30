@@ -187,6 +187,23 @@ def _clamp_max_tokens(body) -> None:
         body["max_tokens"] = cap
 
 
+def _ensure_stream_usage(body) -> None:
+    """Make the upstream emit token usage on a streamed response.
+
+    Per the OpenAI streaming spec, servers only include a final `usage` chunk
+    when the client sets `stream_options.include_usage`. Most clients (Open
+    WebUI, the default SDK stream) don't, so streamed requests would otherwise
+    report no tokens. We set it for the upstream call (without overriding an
+    explicit client choice) so token accounting works for streams too. The
+    extra usage chunk is standard OpenAI behavior and is passed through to the
+    client unchanged."""
+    so = body.get("stream_options")
+    if not isinstance(so, dict):
+        body["stream_options"] = {"include_usage": True}
+    elif "include_usage" not in so:
+        so["include_usage"] = True
+
+
 class _RateLimitHeadersMixin:
     """Adds ``X-RateLimit-{Limit,Remaining,Reset}`` headers to responses, so
     OpenAI-style clients and scripts can see their headroom on every call.
@@ -382,6 +399,9 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
 
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
         stream = bool(body.get("stream"))
+        if stream and isinstance(body, dict):
+            # Opt into streamed token usage so streams report tokens too.
+            _ensure_stream_usage(body)
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,

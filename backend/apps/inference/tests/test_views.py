@@ -58,7 +58,9 @@ class TestInferenceViews:
         data = {"inference_type": "LLM", "payload": {"prompt": "Hello, world!"}}
         response = api_client.post(url, data, format="json")
 
-        assert response.status_code == 403
+        # 401 (not 403): BearerTokenAuthentication is first in the auth classes
+        # so unauthenticated requests get a proper WWW-Authenticate challenge.
+        assert response.status_code == 401
 
     @pytest.mark.parametrize("invalid_type", ["INVALID", "WRONG", "TEST"])
     def test_create_inference_request_invalid_type(
@@ -82,17 +84,36 @@ class TestInferenceViews:
     def test_retrieve_others_inference_request(
         self, authenticated_client, other_inference_request
     ):
+        # Any signed-in member may VIEW any request (the network-wide "All
+        # requests" view). Deletion is owner-only — tested separately below.
         url = reverse("inference:inference-detail", args=[other_inference_request.id])
         response = authenticated_client.get(url)
 
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.data["id"] == other_inference_request.id
+
+    def test_delete_own_inference_request(self, authenticated_client, inference_request):
+        url = reverse("inference:inference-detail", args=[inference_request.id])
+        response = authenticated_client.delete(url)
+
+        assert response.status_code == 204
+
+    def test_delete_others_inference_request_forbidden(
+        self, authenticated_client, other_inference_request
+    ):
+        # The owner-only guard rejects deleting someone else's request.
+        url = reverse("inference:inference-detail", args=[other_inference_request.id])
+        response = authenticated_client.delete(url)
+
+        assert response.status_code == 403
 
     def test_list_inference_requests(
         self, authenticated_client, inference_request, other_inference_request
     ):
+        # "Your requests" is owner-scoped and paginated.
         url = reverse("inference:inference-requests")
         response = authenticated_client.get(url)
 
         assert response.status_code == 200
-        assert len(response.data) == 1  # Should only see own requests
-        assert response.data[0]["id"] == inference_request.id
+        assert response.data["count"] == 1  # only the requesting user's own
+        assert response.data["results"][0]["id"] == inference_request.id
