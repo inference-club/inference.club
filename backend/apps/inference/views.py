@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count, Sum
+from django.db.models import Count, Prefetch, Sum
 from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -19,6 +19,7 @@ from rest_framework.settings import api_settings
 from rest_framework.views import APIView
 
 from .manifest_validator import validate as validate_manifest
+from .hf_enrich import enrich_catalog_model
 from .models import (
     CatalogModel,
     InferenceRequest,
@@ -27,6 +28,7 @@ from .models import (
     ProviderService,
     ServiceManifest,
     link_catalog_model,
+    slugify_model_id,
 )
 from .pagination import StandardResultsSetPagination
 from .serializers import (
@@ -484,6 +486,168 @@ class ProviderModelsCatalogView(APIView):
                 continue
             seen[pm.name] = openrouter_model_schema(pm)
         return Response({"data": list(seen.values())})
+
+
+# Lazy-enrich at most this many un-synced models per catalog page view, so the
+# first visit "just works" without a slow unbounded burst of HF calls.
+_LAZY_ENRICH_CAP = 15
+
+
+class ModelCatalogView(APIView):
+    """GET /api/inference/models/ — the human-facing network model catalog.
+
+    One entry per CatalogModel that has at least one active deployment, with
+    HuggingFace-enriched metadata (modalities, context, features) and which
+    nodes serve it. Un-synced models are enriched lazily (bounded) on view;
+    `manage.py enrich_catalog` does the authoritative/bulk sync.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        active_deploys = ProviderModel.objects.filter(
+            is_active=True, provider__is_active=True
+        ).select_related("provider")
+        catalogs = list(
+            CatalogModel.objects.filter(
+                deployments__is_active=True, deployments__provider__is_active=True
+            )
+            .distinct()
+            .prefetch_related(
+                Prefetch("deployments", queryset=active_deploys, to_attr="active_deployments")
+            )
+            .order_by("slug")
+        )
+
+        # Lazy, bounded, best-effort enrichment for anything never synced.
+        for c in [c for c in catalogs if c.hf_repo_id and c.hf_synced_at is None][:_LAZY_ENRICH_CAP]:
+            try:
+                enrich_catalog_model(c)
+            except Exception:  # never let enrichment break the listing
+                logger.exception("lazy enrich failed for %s", c.slug)
+
+        data = []
+        for c in catalogs:
+            providers = {}
+            for d in getattr(c, "active_deployments", []):
+                p = d.provider
+                providers[p.id] = {"name": p.name, "online": p.is_online}
+            md = c.metadata or {}
+            data.append(
+                {
+                    "slug": c.slug,
+                    "display_name": c.display_name or c.slug,
+                    "hf_repo_id": c.hf_repo_id,
+                    "hf_url": c.hf_url,
+                    "is_custom": c.is_custom,
+                    "architecture": c.architecture,
+                    "context_length": c.native_context_length,
+                    "input_modalities": c.input_modalities or [],
+                    "output_modalities": c.output_modalities or [],
+                    "supported_features": c.supported_features or [],
+                    "pipeline_tag": md.get("pipeline_tag"),
+                    "downloads": md.get("downloads"),
+                    "likes": md.get("likes"),
+                    "provider_count": len(providers),
+                    "online_provider_count": sum(1 for v in providers.values() if v["online"]),
+                    "providers": sorted(providers.values(), key=lambda v: v["name"]),
+                }
+            )
+        return Response({"models": data})
+
+
+class NetworkStatusView(APIView):
+    """GET /api/inference/network/ — PUBLIC, unauthenticated snapshot of the
+    live network for the status page.
+
+    Aggregates only: no request content and no user data beyond public GitHub
+    handles (the same handles already exposed on public profiles).
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        now = timezone.now()
+        cutoff_24h = now - timedelta(hours=24)
+
+        providers = list(
+            Provider.objects.filter(is_active=True)
+            .exclude(tailnet_hostname="")
+            .select_related("user")
+        )
+        online = [p for p in providers if p.is_online]
+        online_ids = {p.id for p in online}
+
+        # Models available *right now* = active deployments on online nodes.
+        deploys = ProviderModel.objects.filter(
+            is_active=True, provider_id__in=online_ids
+        ).select_related("catalog_model")
+        model_providers: dict[str, set[int]] = {}
+        model_meta: dict[str, object] = {}
+        node_models: dict[int, set[str]] = {}
+        for d in deploys:
+            slug = d.catalog_model.slug if d.catalog_model_id else slugify_model_id(d.name)
+            model_providers.setdefault(slug, set()).add(d.provider_id)
+            node_models.setdefault(d.provider_id, set()).add(slug)
+            if d.catalog_model_id and slug not in model_meta:
+                model_meta[slug] = d.catalog_model
+
+        models = []
+        for slug in sorted(model_providers):
+            cat = model_meta.get(slug)
+            models.append(
+                {
+                    "slug": slug,
+                    "display_name": (getattr(cat, "display_name", "") or slug),
+                    "input_modalities": (getattr(cat, "input_modalities", None) or ["text"]),
+                    "supported_features": (getattr(cat, "supported_features", None) or []),
+                    "online_provider_count": len(model_providers[slug]),
+                }
+            )
+
+        all_ir = InferenceRequest.objects.all()
+        recent = all_ir.filter(created_on__gte=cutoff_24h)
+        tokens_total = all_ir.aggregate(t=Sum("total_tokens"))["t"] or 0
+        tokens_24h = recent.aggregate(t=Sum("total_tokens"))["t"] or 0
+
+        # Daily tokens for the last 30 days (contiguous, zero-filled).
+        start = (now - timedelta(days=29)).date()
+        rows = (
+            all_ir.filter(created_on__date__gte=start)
+            .annotate(day=TruncDate("created_on"))
+            .values("day")
+            .annotate(t=Sum("total_tokens"))
+        )
+        by_day = {r["day"]: (r["t"] or 0) for r in rows}
+        daily = [
+            {"date": (start + timedelta(days=i)).isoformat(), "tokens": by_day.get(start + timedelta(days=i), 0)}
+            for i in range(30)
+        ]
+
+        from .serializers import _user_github_login
+
+        nodes = [
+            {
+                "name": p.name,
+                "github_login": _user_github_login(p.user),
+                "model_count": len(node_models.get(p.id, set())),
+            }
+            for p in online
+        ]
+
+        return Response(
+            {
+                "generated_at": now.isoformat(),
+                "providers": {"online": len(online), "total": len(providers)},
+                "models_available": len(model_providers),
+                "tokens": {"total": tokens_total, "last_24h": tokens_24h},
+                "requests": {"total": all_ir.count(), "last_24h": recent.count()},
+                "daily_tokens": daily,
+                "models": models,
+                "nodes": nodes,
+            }
+        )
 
 
 def _tailnet_proxies():

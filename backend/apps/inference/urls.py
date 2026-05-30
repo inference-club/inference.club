@@ -6,6 +6,8 @@ from .views import (
     AllProvidersListView,
     InferenceRequestView,
     LeaderboardView,
+    ModelCatalogView,
+    NetworkStatusView,
     ProviderListView,
     RateLimitUsageView,
     ProviderManifestView,
@@ -36,6 +38,8 @@ urlpatterns = [
     path("providers/", ProviderListView.as_view(), name="provider-list"),
     path("providers/all/", AllProvidersListView.as_view(), name="provider-list-all"),
     path("providers/<int:id>/", ProviderUpdateView.as_view(), name="provider-detail"),
+    path("network/", NetworkStatusView.as_view(), name="network-status"),
+    path("models/", ModelCatalogView.as_view(), name="model-catalog"),
     path("leaderboard/", LeaderboardView.as_view(), name="leaderboard"),
     path("usage/", RateLimitUsageView.as_view(), name="rate-limit-usage"),
     path(

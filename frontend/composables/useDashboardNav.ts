@@ -1,4 +1,4 @@
-import { BookOpen, Cpu, Send, Settings2, Sparkles, Trophy } from 'lucide-vue-next'
+import { BookOpen, Boxes, Cpu, Send, Settings2, Sparkles, Trophy } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
 export interface DashboardNavItem {
@@ -20,6 +20,13 @@ export const dashboardNav: DashboardNavGroup[] = [
     icon: Sparkles,
     items: [
       { title: 'Chat', url: '/dashboard/playground' },
+    ],
+  },
+  {
+    title: 'Models',
+    icon: Boxes,
+    items: [
+      { title: 'Catalog', url: '/dashboard/models' },
     ],
   },
   {

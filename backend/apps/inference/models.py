@@ -188,11 +188,26 @@ class CatalogModel(BaseModel):
         help_text="True for models with no HuggingFace repo "
         "(custom fine-tunes / local-only weights).",
     )
+    # --- Enrichment (Phase 2), synced from the HuggingFace Hub ---------------
+    architecture = models.CharField(
+        max_length=128, blank=True, help_text="e.g. 'Qwen2_5_VLForConditionalGeneration'."
+    )
+    native_context_length = models.PositiveIntegerField(
+        null=True, blank=True, help_text="config.json max_position_embeddings (the ceiling)."
+    )
+    input_modalities = models.JSONField(default=list, blank=True)
+    output_modalities = models.JSONField(default=list, blank=True)
+    supported_features = models.JSONField(
+        default=list, blank=True, help_text="e.g. ['reasoning', 'tools']."
+    )
+    hf_synced_at = models.DateTimeField(
+        null=True, blank=True, help_text="Last successful HuggingFace enrichment."
+    )
     metadata = models.JSONField(
         default=dict,
         blank=True,
-        help_text="Reserved for catalog enrichment (modalities, native "
-        "context, recommended serving profile) in a later phase.",
+        help_text="Raw HF subset (pipeline_tag, library_name, gated, downloads, "
+        "likes, model_type) + future fields (recommended serving profile).",
     )
 
     class Meta:
@@ -200,6 +215,10 @@ class CatalogModel(BaseModel):
 
     def __str__(self):
         return self.slug
+
+    @property
+    def hf_url(self) -> str:
+        return f"https://huggingface.co/{self.hf_repo_id}" if self.hf_repo_id else ""
 
 
 class ProviderModel(BaseModel):

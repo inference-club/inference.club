@@ -15,6 +15,13 @@ export interface StreamCallbacks {
   signal?: AbortSignal
 }
 
+export interface ModelInfo {
+  id: string
+  input_modalities: string[]
+  supported_features: string[]
+  context_length: number | null
+}
+
 export function usePlayground() {
   const config = useRuntimeConfig()
 
@@ -24,13 +31,18 @@ export function usePlayground() {
       .find((c) => c.startsWith('csrftoken='))
       ?.split('=')[1]
 
-  const listModels = async (): Promise<string[]> => {
+  const listModels = async (): Promise<ModelInfo[]> => {
     const res = await fetch(`${config.public.apiBase}/v1/models`, {
       credentials: 'include',
     })
     if (!res.ok) throw new Error(`Failed to load models (HTTP ${res.status})`)
     const data = await res.json()
-    return (data.data ?? []).map((m: { id: string }) => m.id)
+    return (data.data ?? []).map((m: Partial<ModelInfo> & { id: string }) => ({
+      id: m.id,
+      input_modalities: m.input_modalities ?? ['text'],
+      supported_features: m.supported_features ?? [],
+      context_length: m.context_length ?? null,
+    }))
   }
 
   const _errorMessage = async (res: Response) => {

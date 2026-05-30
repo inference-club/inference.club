@@ -14,6 +14,12 @@
             Dashboard
           </NuxtLink>
           <NuxtLink
+            to="/status"
+            class="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Network
+          </NuxtLink>
+          <NuxtLink
             to="/docs"
             class="text-muted-foreground transition-colors hover:text-foreground"
           >

@@ -28,6 +28,21 @@ _Last updated: 2026-05-30_
 - **Dev / UX foundations** — no-Tailscale local dev pathway, GitHub OAuth dev
   wiring, rich Inference Requests UI (cards, detail, reasoning, Your/All, delete),
   dynamic breadcrumbs, dashboard footer, Privacy/Terms pages.
+- **In-app playground** — dashboard chat UI (`/dashboard/playground`,
+  `usePlayground.ts`) to try any accessible model right after signup, no external
+  client needed.
+- **Catalog-based model pooling** — providers pool under a shared catalog slug, so
+  the same model served by multiple nodes presents as one routable entry
+  (`CatalogModel`, `test_catalog_pooling.py`).
+- **OpenRouter-compatible provider surface** — `/v1/*` shape + model metadata
+  (TTFT, etc.) aligned so OpenRouter-style clients work.
+- **Public profile heatmap** — `/{github_login}` shows a contribution-style usage
+  graph (`ContributionHeatmap.vue`).
+- **Backend test suite + CI gate** — access-control, catalog, serializer,
+  streaming, and views tests run in GitHub Actions
+  (`.github/workflows/tests.yml`).
+- **Blog** — `@nuxt/content`-backed blog with GitHub-username author bylines
+  linking to member profiles.
 
 ---
 
@@ -36,12 +51,10 @@ _Last updated: 2026-05-30_
 1. **403 → 401 auth fix** — _tiny._ OpenAI clients (Open WebUI etc.) misreport a
    bad/missing key as "network problem" because DRF returns 403 (SessionAuth is
    first in `DEFAULT_AUTHENTICATION_CLASSES`). High polish, ~1 small change.
-2. **In-app playground** — a simple chat UI in the dashboard to try an available
-   model right after signup, no external client needed. Biggest friction-reducer
-   for new signups, and demoable/shareable on social.
-3. **Public profile polish** (`/{github_login}`) — shareable card of a member's
-   nodes / models / usage. On-brand for organic social growth.
-4. **Provider-side usage view** — "who used my GPU, how much" (reuses the new
+2. **Public profile polish** (`/{github_login}`) — _heatmap shipped;_ remaining: a
+   shareable card of a member's nodes / models / usage. On-brand for organic
+   social growth.
+3. **Provider-side usage view** — "who used my GPU, how much" (reuses the new
    token columns); builds provider trust now that others can route to you.
 
 ---
@@ -76,14 +89,17 @@ _Last updated: 2026-05-30_
 - Prometheus + Grafana + OpenTelemetry from vLLM metrics — _parked (complex)._
 
 ### Quality / CI
-- Backend tests: access control, cross-user routing, serializers, streaming/usage.
-- CI test gate + frontend typecheck/lint.
+- ~~Backend tests: access control, cross-user routing, serializers, streaming/usage.~~
+  Done (`backend/apps/inference/tests/`, run in CI).
+- Frontend typecheck/lint in CI (backend test gate already ships).
 
 ### Product / growth
 - Onboarding quickstart (consumer + provider) + clear "no provider / no access"
   errors.
-- **Blog** — build out with `@nuxt/content` to document progress & new features.
-- Model catalog / discovery improvements (what can I run, who serves it).
+- ~~**Blog** — build out with `@nuxt/content`.~~ Shipped (posts + GitHub-username
+  bylines); ongoing as new features land.
+- Model catalog / discovery improvements — _catalog pooling shipped;_ remaining:
+  richer discovery (what can I run, who serves it).
 - Offline notifications when a member's node drops (email via GitHub address).
 
 ---

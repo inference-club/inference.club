@@ -245,6 +245,19 @@ def _model_slug(pm) -> str:
     return slugify_model_id(pm.name)
 
 
+def _model_caps(pm) -> dict:
+    """Capability fields for a deployment's catalog model, surfaced on
+    /v1/models so clients (the playground) can adapt the UI. Extra fields are
+    ignored by standard OpenAI clients."""
+    cat = pm.catalog_model if pm.catalog_model_id else None
+    return {
+        "input_modalities": (cat.input_modalities or ["text"]) if cat else ["text"],
+        "output_modalities": (cat.output_modalities or ["text"]) if cat else ["text"],
+        "supported_features": (cat.supported_features or []) if cat else [],
+        "context_length": (cat.native_context_length if cat else None),
+    }
+
+
 def _model_accessible(pm, user, github_login) -> bool:
     """Whether the requesting user may route to this ProviderModel.
 
@@ -355,6 +368,7 @@ class ModelsView(_RateLimitHeadersMixin, APIView):
                         "object": "model",
                         "created": created,
                         "owned_by": provider.name,
+                        **_model_caps(m),
                     },
                 )
 
@@ -385,6 +399,7 @@ class ModelsView(_RateLimitHeadersMixin, APIView):
                     "object": "model",
                     "created": int(pm.provider.created_on.timestamp()),
                     "owned_by": pm.provider.name,
+                    **_model_caps(pm),
                 }
         return Response({"object": "list", "data": list(seen.values())})
 

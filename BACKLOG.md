@@ -15,10 +15,10 @@ fully working flow.
 - **`/dashboard/inference/requests/`** lists past `InferenceRequest`
   rows but the schema/columns aren't tuned (model, latency_ms, status,
   truncated request body).
-- **`/dashboard/inference/requests/create.vue`** exists but is stale —
-  there's no use case for manually creating an `InferenceRequest` from
-  the UI; either delete the page or repurpose it as a "playground"
-  (chat against your own provider from inside the dashboard).
+- ~~**Playground** — chat against an available model from inside the
+  dashboard.~~ Shipped as `/dashboard/playground/` (`usePlayground.ts`).
+  Separately, `/dashboard/inference/requests/create.vue` is still stale
+  (no use case for manually creating an `InferenceRequest`) — delete it.
 - **`/dashboard/settings/general/`** is a stub — should at least show
   the user's email and a delete-account button.
 - **`/providers/my-nodes/`** works but shows "No models reported" until
@@ -59,9 +59,8 @@ account would shorten the iteration loop.
 
 The `/v1/*` proxy works but a few things are MVP-grade.
 
-- **Streaming (`stream: true`)** end-to-end isn't validated. The path
-  is the same as buffered, but worth a real test with a long-running
-  generation.
+- ~~**Streaming (`stream: true`)** end-to-end isn't validated.~~ Now
+  covered by `backend/apps/inference/tests/test_streaming.py`.
 - **Hide diagnostic error from `/refresh-models/` response.** Currently
   the response includes `error` with full URL + proxy + exception
   detail. Useful while iterating but leaks internal infrastructure.
@@ -70,10 +69,10 @@ The `/v1/*` proxy works but a few things are MVP-grade.
   `backend/apps/inference/management/commands/probe_providers.py` and
   the `prober` service in the prod compose template. Single sidecar
   process, parallel probes every 30s, no Celery / Redis broker.
-- **Rate limits per consumer key.** None today. Add before any kind of
-  public sign-up.
-- **Quota / accounting.** `InferenceRequest` rows are written but
-  there's no aggregation, no billing surface.
+- ~~**Rate limits per consumer key.**~~ Done — per-user DRF throttles on
+  `/v1/*` (429 + `Retry-After`) plus a usage meter (`X-RateLimit-*`).
+- **Quota / accounting.** Token columns + leaderboard now exist, but
+  there's still no quota/credits enforcement or billing surface.
 - **Multi-provider routing.** If two providers serve the same model,
   pick deterministically (load-balanced or fastest-last). Today it's
   whichever ProviderModel row sorts first.
