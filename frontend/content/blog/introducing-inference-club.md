@@ -2,7 +2,7 @@
 title: "Idle GPUs, growing bills, and the case for a community LLM network"
 description: "Why we're building inference.club — a self-hosted, OpenAI-compatible LLM inference network where you bring your own GPU or use someone else's, all behind one API key."
 publishedAt: 2026-04-26
-author: Brian Caffey
+author: briancaffey
 tags: [announcements, vision, llm-inference]
 image: /images/blog/introducing-inference-club.png
 image_prompt: "Wide cinematic abstract technology illustration: a high-end graphics card GPU under a desk glowing back to life, streams of cyan and violet light flowing out of it and connecting to a constellation of small glowing nodes representing a community network, dark background, idle hardware awakening, clean futuristic minimal, soft bokeh, no text, no words, no letters"

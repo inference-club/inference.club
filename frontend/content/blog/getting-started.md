@@ -2,7 +2,7 @@
 title: "Getting started with inference.club in five minutes"
 description: "From GitHub sign-in to your first chat completion: a step-by-step quickstart for inference.club's OpenAI-compatible API, plus how to wire it into Open WebUI and the OpenAI SDK."
 publishedAt: "2026-05-30"
-author: Brian Caffey
+author: briancaffey
 tags: [quickstart, guide, llm-inference]
 image: /images/blog/getting-started.png
 image_prompt: "Wide cinematic abstract technology illustration: a single glowing API key dissolving into flowing streams of cyan and violet light that connect a small cluster of softly glowing home computer and server icons across a dark background, minimal clean futuristic aesthetic, soft bokeh depth, no text, no words, no letters"

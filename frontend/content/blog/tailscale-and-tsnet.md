@@ -2,7 +2,7 @@
 title: "Putting your home GPU on the internet with Tailscale and tsnet"
 description: "How inference.club uses an embedded Tailscale stack on the agent and a userspace sidecar on the server to route LLM traffic from a public OpenAI-compatible API into a private GPU on someone's home network — with no port forwarding, no public callback URLs, and no shared secrets per device."
 publishedAt: 2026-04-26
-author: Brian Caffey
+author: briancaffey
 tags: [architecture, tailscale, networking, deep-dive]
 image: /images/blog/tailscale-and-tsnet.png
 image_prompt: "Wide cinematic abstract illustration: a secure glowing tunnel of cyan and violet light connecting a cloud API icon to a small house containing a glowing GPU, encrypted private mesh network, subtle shield and lock motif, dark moody futuristic, soft glow, no text, no words, no letters"

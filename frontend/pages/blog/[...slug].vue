@@ -104,7 +104,13 @@ const formatDate = (iso: string) =>
       </h1>
       <p class="text-sm text-muted-foreground mt-3">
         <time :datetime="post!.publishedAt">{{ formatDate(post!.publishedAt) }}</time>
-        <template v-if="post!.author"> · {{ post!.author }}</template>
+        <template v-if="post!.author">
+          ·
+          <NuxtLink
+            :to="`/${post!.author}`"
+            class="hover:text-foreground underline-offset-4 hover:underline"
+          >@{{ post!.author }}</NuxtLink>
+        </template>
         <span class="mx-2">·</span>
         <span>{{ readingMinutes }} min read</span>
       </p>

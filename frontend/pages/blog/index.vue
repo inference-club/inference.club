@@ -57,7 +57,7 @@ const formatDate = (iso: string) =>
               {{ hero!.title }}
             </h2>
             <p class="text-sm text-muted-foreground mt-2">
-              {{ formatDate(hero!.publishedAt) }}<template v-if="hero!.author"> · {{ hero!.author }}</template>
+              {{ formatDate(hero!.publishedAt) }}<template v-if="hero!.author"> · @{{ hero!.author }}</template>
             </p>
             <p v-if="hero!.description" class="mt-4 text-muted-foreground line-clamp-3">
               {{ hero!.description }}
@@ -97,7 +97,7 @@ const formatDate = (iso: string) =>
             </div>
             <div class="p-5">
               <p class="text-xs text-muted-foreground">
-                {{ formatDate(post.publishedAt) }}<template v-if="post.author"> · {{ post.author }}</template>
+                {{ formatDate(post.publishedAt) }}<template v-if="post.author"> · @{{ post.author }}</template>
               </p>
               <h3 class="mt-1.5 text-lg font-semibold tracking-tight group-hover:text-primary transition-colors">
                 {{ post.title }}

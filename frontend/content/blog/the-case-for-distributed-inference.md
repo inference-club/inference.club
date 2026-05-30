@@ -2,7 +2,7 @@
 title: "Inference wants to be distributed — and now NVIDIA agrees"
 description: "Local models keep getting better while the grid can't build centralized data centers fast enough. Span and NVIDIA's new XFRA puts Blackwell GPUs inside homes to tap idle power — strong validation for distributing AI compute to the edge, which is exactly the bet inference.club is making."
 publishedAt: "2026-05-30"
-author: Brian Caffey
+author: briancaffey
 tags: [distributed-inference, vision, industry]
 image: /images/blog/the-case-for-distributed-inference.png
 image_prompt: "Wide cinematic abstract illustration: a distributed mesh network of glowing GPU nodes spread across stylized rooftops of houses and small buildings at dusk, connected by threads of violet, fuchsia and cyan light, edge-computing and power-grid theme, dark moody futuristic, soft glow, no text, no words, no letters"
