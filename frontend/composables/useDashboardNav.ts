@@ -1,4 +1,4 @@
-import { BookOpen, Cpu, Send, Settings2, Trophy } from 'lucide-vue-next'
+import { BookOpen, Cpu, Send, Settings2, Sparkles, Trophy } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
 export interface DashboardNavItem {
@@ -15,6 +15,13 @@ export interface DashboardNavGroup {
 // Single source of truth for the dashboard sidebar AND the breadcrumbs, so the
 // two never drift apart.
 export const dashboardNav: DashboardNavGroup[] = [
+  {
+    title: 'Playground',
+    icon: Sparkles,
+    items: [
+      { title: 'Chat', url: '/dashboard/playground' },
+    ],
+  },
   {
     title: 'Inference Requests',
     icon: Send,

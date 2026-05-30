@@ -10,6 +10,7 @@ import time
 
 import requests
 from django.conf import settings
+from django.db.models import Q
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from rest_framework import status
@@ -23,6 +24,7 @@ from .models import (
     InferenceRequest,
     Provider,
     ProviderModel,
+    slugify_model_id,
 )
 from .serializers import _user_github_login
 from .views import _tailnet_proxies, refresh_provider_models, scope_usage
@@ -235,6 +237,14 @@ def _online_providers(user):
     ]
 
 
+def _model_slug(pm) -> str:
+    """The public, poolable id for a deployment: its CatalogModel slug, or a
+    slug derived from the served name for rows not yet linked."""
+    if pm.catalog_model_id is not None:
+        return pm.catalog_model.slug
+    return slugify_model_id(pm.name)
+
+
 def _model_accessible(pm, user, github_login) -> bool:
     """Whether the requesting user may route to this ProviderModel.
 
@@ -249,12 +259,25 @@ def _model_accessible(pm, user, github_login) -> bool:
     return pm.service.grants_access_to(user, github_login)
 
 
+def _model_match_q(model_name):
+    """A deployment matches the requested model id if it's pooled under the
+    same catalog slug (the public, lowercased id) or its raw served name
+    matches (exact, or case-insensitively for not-yet-linked rows)."""
+    return (
+        Q(catalog_model__slug=slugify_model_id(model_name))
+        | Q(name=model_name)
+        | Q(name__iexact=model_name)
+    )
+
+
 def _find_provider_for_model(user, model_name):
-    """Pick the first online provider serving ``model_name`` that ``user`` is
+    """Pick the first online deployment of ``model_name`` that ``user`` is
     allowed to use — their own node, or someone else's shared service.
 
-    MVP routing: no load balancing. Own providers get a self-healing model
-    refresh if they registered but haven't reported models yet.
+    Returns the matching ``ProviderModel`` (so the caller knows the real
+    *served* name to forward upstream), or None. MVP routing: no load
+    balancing. Own providers get a self-healing model refresh if they
+    registered but haven't reported models yet.
     """
     if not model_name:
         return None
@@ -262,17 +285,17 @@ def _find_provider_for_model(user, model_name):
     github_login = _user_github_login(user)
     candidates = (
         ProviderModel.objects.filter(
-            name=model_name,
             is_active=True,
             provider__is_active=True,
             provider__accepting_requests=True,
         )
         .exclude(provider__tailnet_hostname="")
-        .select_related("provider", "service")
+        .filter(_model_match_q(model_name))
+        .select_related("provider", "service", "catalog_model")
     )
     for pm in candidates:
         if _model_accessible(pm, user, github_login) and pm.provider.is_online:
-            return pm.provider
+            return pm
 
     # Self-healing for the user's OWN providers: if one just registered and
     # hasn't reported models yet, discover now.
@@ -282,8 +305,14 @@ def _find_provider_for_model(user, model_name):
                 refresh_provider_models(provider)
             except Exception:
                 continue
-            if provider.models.filter(is_active=True, name=model_name).exists():
-                return provider
+        pm = (
+            provider.models.filter(is_active=True)
+            .filter(_model_match_q(model_name))
+            .select_related("provider", "service", "catalog_model")
+            .first()
+        )
+        if pm is not None:
+            return pm
     return None
 
 
@@ -317,11 +346,12 @@ class ModelsView(_RateLimitHeadersMixin, APIView):
             if not provider.is_online:
                 continue
             created = int(provider.created_on.timestamp())
-            for m in provider.models.filter(is_active=True):
+            for m in provider.models.filter(is_active=True).select_related("catalog_model"):
+                slug = _model_slug(m)
                 seen.setdefault(
-                    m.name,
+                    slug,
                     {
-                        "id": m.name,
+                        "id": slug,
                         "object": "model",
                         "created": created,
                         "owned_by": provider.name,
@@ -343,14 +373,15 @@ class ModelsView(_RateLimitHeadersMixin, APIView):
             )
             .exclude(provider__tailnet_hostname="")
             .exclude(provider__user=request.user)
-            .select_related("provider", "service")
+            .select_related("provider", "service", "catalog_model")
         )
         for pm in shared:
-            if pm.name in seen:
+            slug = _model_slug(pm)
+            if slug in seen:
                 continue
             if pm.service.grants_access_to(request.user, github_login):
-                seen[pm.name] = {
-                    "id": pm.name,
+                seen[slug] = {
+                    "id": slug,
                     "object": "model",
                     "created": int(pm.provider.created_on.timestamp()),
                     "owned_by": pm.provider.name,
@@ -382,8 +413,8 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         if isinstance(body, dict):
             _clamp_max_tokens(body)
 
-        provider = _find_provider_for_model(request.user, model_name)
-        if provider is None:
+        provider_model = _find_provider_for_model(request.user, model_name)
+        if provider_model is None:
             return Response(
                 {
                     "error": {
@@ -397,6 +428,16 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        provider = provider_model.provider
+        served_name = provider_model.name
+        canonical = _model_slug(provider_model)
+        # The caller addresses the model by its public slug, but the upstream
+        # backend (vLLM et al.) matches model ids case-sensitively against the
+        # exact served name. Rewrite so pooling many providers under one slug
+        # doesn't break the actual forward.
+        if isinstance(body, dict) and served_name:
+            body["model"] = served_name
+
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
         stream = bool(body.get("stream"))
         if stream and isinstance(body, dict):
@@ -405,7 +446,9 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
-            model_name=model_name or "",
+            # Record the canonical (pooled) id so dashboards/leaderboards
+            # aggregate one model across providers, not per served-name variant.
+            model_name=canonical or model_name or "",
             inference_type=self.inference_type,
             payload=body,
             status="PROCESSING",

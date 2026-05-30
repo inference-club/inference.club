@@ -168,11 +168,17 @@ def validate(parsed: dict, raw_yaml: str = "") -> list[str]:
                     errors.append(f"{sprefix}.models: must be a list if present")
                 else:
                     for m_idx, m in enumerate(models):
-                        if not isinstance(m, dict) or not isinstance(m.get("id"), str):
+                        mid = m.get("id") if isinstance(m, dict) else None
+                        hf = m.get("hf") if isinstance(m, dict) else None
+                        has_id = isinstance(mid, str) and mid.strip()
+                        has_hf = isinstance(hf, str) and hf.strip()
+                        if not isinstance(m, dict) or not (has_id or has_hf):
                             errors.append(
                                 f"{sprefix}.models[{m_idx}]: each entry needs a "
-                                "string `id`"
+                                "string `id` or `hf` (HuggingFace repo id)"
                             )
+                        elif hf is not None and not isinstance(hf, str):
+                            errors.append(f"{sprefix}.models[{m_idx}].hf: must be a string")
 
             for field in ("command",):
                 val = svc.get(field)

@@ -1,2 +1,5 @@
 .claude/
 .DS_Store
+
+# Local sqlite test DB (CI/test runs use sqlite:///test.db)
+backend/test.db

@@ -20,11 +20,13 @@ from rest_framework.views import APIView
 
 from .manifest_validator import validate as validate_manifest
 from .models import (
+    CatalogModel,
     InferenceRequest,
     Provider,
     ProviderModel,
     ProviderService,
     ServiceManifest,
+    link_catalog_model,
 )
 from .pagination import StandardResultsSetPagination
 from .serializers import (
@@ -521,10 +523,27 @@ def _manifest_model_names(parsed) -> set[str]:
                 continue
             for m in svc.get("models") or []:
                 if isinstance(m, dict):
-                    mid = m.get("id")
-                    if isinstance(mid, str) and mid.strip():
-                        names.add(mid.strip())
+                    served = _model_served_id(m)
+                    if served:
+                        names.add(served)
     return names
+
+
+def _model_served_id(m: dict) -> str:
+    """The served id for a manifest model entry: the explicit ``id`` if given,
+    else the ``hf`` repo id (vLLM serves under the HF id by default). Empty if
+    neither is usable."""
+    mid = m.get("id")
+    mid = mid.strip() if isinstance(mid, str) else ""
+    if mid:
+        return mid
+    hf = m.get("hf")
+    return hf.strip() if isinstance(hf, str) else ""
+
+
+def _model_hf_id(m: dict) -> str:
+    hf = m.get("hf")
+    return hf.strip() if isinstance(hf, str) else ""
 
 
 def _manifest_services(parsed) -> list[dict]:
@@ -544,16 +563,22 @@ def _manifest_services(parsed) -> list[dict]:
             name = svc.get("name")
             if not isinstance(name, str) or not name.strip():
                 continue
-            model_ids = set()
+            models_list: list[dict] = []
+            seen_served: set[str] = set()
             for m in svc.get("models") or []:
-                if isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"].strip():
-                    model_ids.add(m["id"].strip())
+                if not isinstance(m, dict):
+                    continue
+                served = _model_served_id(m)
+                if not served or served in seen_served:
+                    continue
+                seen_served.add(served)
+                models_list.append({"served": served, "hf": _model_hf_id(m)})
             out.append(
                 {
                     "name": name.strip(),
                     "host_id": host_id or "",
                     "engine": svc.get("engine") if isinstance(svc.get("engine"), str) else "",
-                    "model_ids": model_ids,
+                    "models": models_list,
                 }
             )
     return out
@@ -609,10 +634,14 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
 
     declared_models: set[str] = set()
     model_to_service: dict[str, ProviderService] = {}
+    model_hf: dict[str, str] = {}
     for sd in services_data:
-        for mid in sd["model_ids"]:
-            declared_models.add(mid)
-            model_to_service.setdefault(mid, service_by_name[sd["name"]])
+        for m in sd["models"]:
+            served = m["served"]
+            declared_models.add(served)
+            model_to_service.setdefault(served, service_by_name[sd["name"]])
+            if m["hf"]:
+                model_hf.setdefault(served, m["hf"])
 
     existing = {pm.name: pm for pm in provider.models.all()}
     for name, pm in existing.items():
@@ -625,16 +654,28 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
         if svc is not None and pm.service_id != svc.id:
             pm.service = svc
             fields.append("service")
+        hf = model_hf.get(name, "")
+        if hf and pm.hf_repo_id != hf:
+            pm.hf_repo_id = hf
+            fields.append("hf_repo_id")
+        # (Re)link the catalog model when the deployment is active and either
+        # unlinked or its declared identity just changed.
+        if active and (pm.catalog_model_id is None or "hf_repo_id" in fields):
+            link_catalog_model(pm)
+            fields.append("catalog_model")
         if fields:
             pm.save(update_fields=fields + ["modified_on"])
     for name in declared_models:
         if name not in existing:
-            ProviderModel.objects.create(
+            pm = ProviderModel(
                 provider=provider,
                 name=name,
+                hf_repo_id=model_hf.get(name, ""),
                 is_active=True,
                 service=model_to_service.get(name),
             )
+            link_catalog_model(pm)
+            pm.save()
     return len(declared_models)
 
 
@@ -713,11 +754,23 @@ def refresh_provider_models(provider) -> int:
             )
         refreshed = len(incoming)
 
+    # Ensure every active deployment is pooled under a CatalogModel. Manifest
+    # sync sets HF-derived links; this backfills live-discovered models (slug
+    # derived from the served name) and anything missed.
+    _link_missing_catalog(provider)
+
     # A successful round-trip is the strongest possible "online" signal —
     # bump last_seen_at so the provider isn't shown offline to /v1/models
     # callers between actual inference requests.
     Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
     return refreshed
+
+
+def _link_missing_catalog(provider) -> None:
+    """Link any active ProviderModel that has no CatalogModel yet (idempotent)."""
+    for pm in provider.models.filter(is_active=True, catalog_model__isnull=True):
+        link_catalog_model(pm)
+        pm.save(update_fields=["catalog_model", "modified_on"])
 
 
 class RefreshProviderModelsView(APIView):

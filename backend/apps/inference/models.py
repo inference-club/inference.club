@@ -157,8 +157,54 @@ class ProviderService(BaseModel):
         return False  # PRIVATE
 
 
+def slugify_model_id(value: str) -> str:
+    """Normalize an HF repo id or served model name into the public, poolable
+    model slug. Lowercasing is what collapses the *same* model served by many
+    providers (and case variants of one id) into a single catalog entry, e.g.
+    ``Qwen/Qwen3-30B-A3B`` → ``qwen/qwen3-30b-a3b``."""
+    return (value or "").strip().lower()
+
+
+class CatalogModel(BaseModel):
+    """A logical model in the network catalog, identified by its HuggingFace
+    repo id (or, for custom fine-tunes, a provider-declared name).
+
+    Many ``ProviderModel`` deployments — across different providers, with
+    different context windows / configs — point at one ``CatalogModel``. That
+    pooling is what lets "the same model" aggregate into shared capacity
+    instead of fragmenting into one catalog entry per provider.
+
+    ``slug`` is the public model id callers pass to ``/v1`` (the lowercased HF
+    id). Richer metadata (modalities, native context, recommended serving
+    profile) is filled in by later phases; Phase 0 establishes identity +
+    pooling only.
+    """
+
+    slug = models.CharField(max_length=255, unique=True)
+    hf_repo_id = models.CharField(max_length=255, blank=True)
+    display_name = models.CharField(max_length=255, blank=True)
+    is_custom = models.BooleanField(
+        default=False,
+        help_text="True for models with no HuggingFace repo "
+        "(custom fine-tunes / local-only weights).",
+    )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Reserved for catalog enrichment (modalities, native "
+        "context, recommended serving profile) in a later phase.",
+    )
+
+    class Meta:
+        ordering = ["slug"]
+
+    def __str__(self):
+        return self.slug
+
+
 class ProviderModel(BaseModel):
-    """An LLM model an agent reports it can serve."""
+    """An LLM model an agent reports it can serve — i.e. one *deployment* of a
+    CatalogModel by a specific provider."""
 
     provider = models.ForeignKey(
         Provider, on_delete=models.CASCADE, related_name="models"
@@ -173,7 +219,26 @@ class ProviderModel(BaseModel):
         "manifest. Models discovered only via live /v1/models stay unlinked "
         "and remain owner-only.",
     )
+    # ``name`` is the *served* id — the exact string this provider's backend
+    # answers to (and what we forward upstream). It stays the per-provider key.
     name = models.CharField(max_length=255)
+    hf_repo_id = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="The HuggingFace repo id this deployment serves, when "
+        "declared (e.g. 'Qwen/Qwen3-30B-A3B'). Drives the catalog slug / "
+        "pooling. Blank for live-discovered or custom models.",
+    )
+    catalog_model = models.ForeignKey(
+        "CatalogModel",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deployments",
+        help_text="The logical catalog model this deployment serves. Many "
+        "providers' deployments share one CatalogModel — that pooling is what "
+        "aggregates capacity for a model across the network.",
+    )
     context_window = models.PositiveIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     metadata = models.JSONField(
@@ -195,6 +260,36 @@ class ProviderModel(BaseModel):
 
     def __str__(self):
         return f"{self.provider}/{self.name}"
+
+
+def link_catalog_model(pm) -> "CatalogModel":
+    """Point ``pm`` (a ProviderModel) at the right CatalogModel, creating or
+    upgrading it from the declared HF id (preferred) or the served name.
+
+    Sets ``pm.catalog_model`` but does NOT save ``pm`` — the caller persists.
+    Returns the catalog model.
+    """
+    hf = (pm.hf_repo_id or "").strip()
+    slug = slugify_model_id(hf or pm.name)
+    catalog, _created = CatalogModel.objects.get_or_create(
+        slug=slug,
+        defaults={
+            "hf_repo_id": hf,
+            "display_name": hf or pm.name,
+            "is_custom": not hf,
+        },
+    )
+    # Upgrade a previously-custom entry once we learn its HF id.
+    if hf and (catalog.is_custom or not catalog.hf_repo_id):
+        catalog.hf_repo_id = hf
+        catalog.is_custom = False
+        if not catalog.display_name:
+            catalog.display_name = hf
+        catalog.save(
+            update_fields=["hf_repo_id", "is_custom", "display_name", "modified_on"]
+        )
+    pm.catalog_model = catalog
+    return catalog
 
 
 class ServiceManifest(BaseModel):
