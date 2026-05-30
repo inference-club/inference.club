@@ -6,6 +6,13 @@ import CodeTabs from '@/components/CodeTabs.vue'
 
 const { isAuthenticated } = useAuth()
 
+// Featured blog post for the homepage: the newest post flagged `featured`,
+// else the newest post overall.
+const { data: featuredPost } = await useAsyncData('home:featured', async () => {
+  const posts = await queryCollection('blog').order('publishedAt', 'DESC').all()
+  return posts.find(p => p.featured) ?? posts[0] ?? null
+})
+
 const consumerSnippets = [
   {
     label: 'curl',
@@ -404,6 +411,61 @@ const features = [
             <p class="text-sm text-muted-foreground leading-relaxed">{{ f.body }}</p>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- From the blog -->
+    <section v-if="featuredPost" class="relative px-4 sm:px-6 lg:px-8 py-20 border-t">
+      <div class="max-w-5xl mx-auto">
+        <div class="flex items-end justify-between mb-8">
+          <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">From the blog</h2>
+          <NuxtLink
+            to="/blog"
+            class="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+          >
+            All posts <ArrowRight class="h-3.5 w-3.5" />
+          </NuxtLink>
+        </div>
+        <NuxtLink
+          :to="featuredPost.path"
+          class="group block rounded-2xl border bg-card overflow-hidden shadow-sm hover:shadow-lg hover:border-primary/40 transition-all"
+        >
+          <div class="grid md:grid-cols-2">
+            <div class="relative aspect-[16/10] md:aspect-auto md:min-h-[18rem] overflow-hidden">
+              <img
+                v-if="featuredPost.image"
+                :src="featuredPost.image"
+                :alt="featuredPost.title"
+                class="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+              >
+              <div
+                v-else
+                class="absolute inset-0 bg-gradient-to-br from-violet-500/30 via-fuchsia-500/20 to-cyan-500/30"
+              />
+            </div>
+            <div class="p-6 sm:p-8 flex flex-col justify-center">
+              <p class="text-xs uppercase tracking-wide text-primary font-medium mb-2">Featured</p>
+              <h3 class="text-xl sm:text-2xl font-bold tracking-tight group-hover:text-primary transition-colors">
+                {{ featuredPost.title }}
+              </h3>
+              <p v-if="featuredPost.description" class="mt-3 text-muted-foreground line-clamp-3">
+                {{ featuredPost.description }}
+              </p>
+              <div v-if="featuredPost.tags?.length" class="mt-5 flex flex-wrap gap-1.5">
+                <span
+                  v-for="tag in featuredPost.tags"
+                  :key="tag"
+                  class="px-2 py-0.5 text-xs rounded-full bg-muted text-muted-foreground"
+                >
+                  #{{ tag }}
+                </span>
+              </div>
+              <span class="mt-6 inline-flex items-center gap-1 text-sm font-medium text-primary">
+                Read article <ArrowRight class="h-4 w-4" />
+              </span>
+            </div>
+          </div>
+        </NuxtLink>
       </div>
     </section>
 

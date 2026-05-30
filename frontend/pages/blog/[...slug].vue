@@ -88,6 +88,16 @@ const formatDate = (iso: string) =>
            prose-img:rounded-lg
            prose-a:underline-offset-4"
   >
+    <div
+      v-if="post!.image"
+      class="not-prose mb-8 sm:mb-10 rounded-xl overflow-hidden border shadow-sm"
+    >
+      <img
+        :src="post!.image"
+        :alt="post!.title"
+        class="w-full aspect-[1536/640] object-cover"
+      >
+    </div>
     <header class="not-prose mb-8 sm:mb-10">
       <h1 class="text-3xl sm:text-4xl font-bold tracking-tight">
         {{ post!.title }}

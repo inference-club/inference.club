@@ -23,6 +23,15 @@ export default defineContentConfig({
         publishedAt: z.string(),
         author: z.string().optional(),
         tags: z.array(z.string()).optional(),
+        // Header image path (e.g. /images/blog/<slug>.png). Optional — pages
+        // fall back to a gradient when absent.
+        image: z.string().optional(),
+        // Text prompt used to generate the header image. Every post should
+        // include this so a matching banner can be (re)generated on demand.
+        image_prompt: z.string().optional(),
+        // Mark one post to surface on the homepage. Newest featured wins;
+        // falls back to the newest post overall when none is flagged.
+        featured: z.boolean().optional(),
       }),
     }),
   },

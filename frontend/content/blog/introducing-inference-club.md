@@ -4,6 +4,8 @@ description: "Why we're building inference.club — a self-hosted, OpenAI-compat
 publishedAt: 2026-04-26
 author: Brian Caffey
 tags: [announcements, vision, llm-inference]
+image: /images/blog/introducing-inference-club.png
+image_prompt: "Wide cinematic abstract technology illustration: a high-end graphics card GPU under a desk glowing back to life, streams of cyan and violet light flowing out of it and connecting to a constellation of small glowing nodes representing a community network, dark background, idle hardware awakening, clean futuristic minimal, soft bokeh, no text, no words, no letters"
 ---
 
 There's a 4090 sitting in a tower under my desk that does real work for maybe two hours a day. The rest of the time it's drawing 30 watts at idle. Multiply that by everyone reading this who has a workstation with a real GPU in it — homelabs, gaming rigs, dual-purpose machines from when the crypto thing happened — and there's a meaningful amount of LLM inference capacity scattered across the internet that nobody is using.

@@ -684,20 +684,40 @@ def refresh_provider_models(provider) -> int:
         _manifest_model_names(manifest.parsed) if manifest and manifest.is_valid else set()
     )
 
-    for name, pm in existing.items():
-        if name not in incoming and name not in declared and pm.is_active:
-            pm.is_active = False
-            pm.save(update_fields=["is_active", "modified_on"])
-    for name in incoming:
-        ProviderModel.objects.update_or_create(
-            provider=provider, name=name, defaults={"is_active": True}
-        )
+    if declared:
+        # Manifest is the source of truth: the active set is EXACTLY the
+        # declared models. The agent's live /v1/models is only a liveness
+        # signal here — it may report ids that differ from the operator's
+        # declared ids (e.g. a server's own short/normalized id), and we must
+        # not surface those or leave stale ones active.
+        for name, pm in existing.items():
+            want = name in declared
+            if pm.is_active != want:
+                pm.is_active = want
+                pm.save(update_fields=["is_active", "modified_on"])
+        for name in declared:
+            if name not in existing:
+                ProviderModel.objects.create(
+                    provider=provider, name=name, is_active=True
+                )
+        refreshed = len(declared)
+    else:
+        # No manifest: reflect exactly what the agent reports live.
+        for name, pm in existing.items():
+            if name not in incoming and pm.is_active:
+                pm.is_active = False
+                pm.save(update_fields=["is_active", "modified_on"])
+        for name in incoming:
+            ProviderModel.objects.update_or_create(
+                provider=provider, name=name, defaults={"is_active": True}
+            )
+        refreshed = len(incoming)
 
     # A successful round-trip is the strongest possible "online" signal —
     # bump last_seen_at so the provider isn't shown offline to /v1/models
     # callers between actual inference requests.
     Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
-    return len(incoming)
+    return refreshed
 
 
 class RefreshProviderModelsView(APIView):

@@ -71,9 +71,17 @@ class ServiceManifestSerializer(serializers.ModelSerializer):
 
 
 class ProviderSerializer(serializers.ModelSerializer):
-    models = ProviderModelSerializer(many=True, read_only=True)
+    # Only active models — inactive rows are kept for history (e.g. a model
+    # removed from the manifest) but must not show in the dashboard / profile.
+    models = serializers.SerializerMethodField()
     is_online = serializers.BooleanField(read_only=True)
     manifest = ServiceManifestSerializer(read_only=True)
+
+    def get_models(self, obj):
+        # Filter in Python to reuse the prefetched `models` and avoid an extra
+        # query per provider.
+        active = [m for m in obj.models.all() if m.is_active]
+        return ProviderModelSerializer(active, many=True).data
 
     class Meta:
         model = Provider

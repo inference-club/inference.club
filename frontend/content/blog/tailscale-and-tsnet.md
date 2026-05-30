@@ -4,6 +4,8 @@ description: "How inference.club uses an embedded Tailscale stack on the agent a
 publishedAt: 2026-04-26
 author: Brian Caffey
 tags: [architecture, tailscale, networking, deep-dive]
+image: /images/blog/tailscale-and-tsnet.png
+image_prompt: "Wide cinematic abstract illustration: a secure glowing tunnel of cyan and violet light connecting a cloud API icon to a small house containing a glowing GPU, encrypted private mesh network, subtle shield and lock motif, dark moody futuristic, soft glow, no text, no words, no letters"
 ---
 
 The hard problem in a community-run inference network isn't the inference. There are five mature open-source LLM servers (vLLM, Ollama, LM Studio, llama.cpp, TGI) and they all speak OpenAI's HTTP shape out of the box. The hard problem is *routing* — getting a request from `api.inference.club` (a public Hetzner VPS in Nuremberg) into a 4090 sitting under someone's desk in San Francisco, with no port forwarding, no public hostname on the home end, and no shared password per device.
