@@ -863,9 +863,15 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
         # (Re)link the catalog model when the deployment is active and either
         # unlinked or its declared identity just changed.
         if active and (pm.catalog_model_id is None or "hf_repo_id" in fields):
-            catalog = link_catalog_model(pm)
-            _apply_service_type_modalities(catalog, svc)
+            link_catalog_model(pm)
             fields.append("catalog_model")
+        # (Re)seed modalities from the service type on every sync — not just on
+        # first link — so a model linked before its type was known (e.g. an
+        # image service whose catalog was created by an older agent that didn't
+        # send `type`, and which has no HF id to enrich from) still gets the
+        # right input/output modalities. Idempotent + skips HF-enriched rows.
+        if active and pm.catalog_model_id and svc is not None:
+            _apply_service_type_modalities(pm.catalog_model, svc)
         if fields:
             pm.save(update_fields=fields + ["modified_on"])
     for name in declared_models:

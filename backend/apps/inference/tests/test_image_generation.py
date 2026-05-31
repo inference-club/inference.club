@@ -108,6 +108,31 @@ class TestImageManifestAndRouting:
         assert pm.catalog_model.input_modalities == ["text", "image"]
         assert pm.catalog_model.output_modalities == ["image"]
 
+    def test_modalities_reseeded_when_type_added_later(self, user):
+        """Regression (prod): a model whose catalog was created before the
+        service type was known (older agent dropped `type`) must get correct
+        modalities on the next sync once the type is declared — even with no
+        HF id to enrich from."""
+        p = _online_provider(user)
+        # First sync without a type (simulates the old agent) → defaults to llm,
+        # no image modalities seeded.
+        manifest = {
+            "schema_version": 1, "agent": {"name": "club-host"},
+            "hosts": [{"id": "h", "services": [{
+                "name": "img", "engine": "other",
+                "url": "http://h:8000/v1", "models": [{"id": "flux-x"}],
+            }]}],
+        }
+        sync_provider_models_from_manifest(p, manifest)
+        pm = ProviderModel.objects.select_related("catalog_model").get(provider=p, name="flux-x")
+        assert pm.catalog_model.input_modalities == []  # nothing seeded yet
+        # Now the type is declared (new agent) — re-sync must fix modalities.
+        manifest["hosts"][0]["services"][0]["type"] = "image"
+        sync_provider_models_from_manifest(p, manifest)
+        pm.catalog_model.refresh_from_db()
+        assert pm.catalog_model.input_modalities == ["text", "image"]
+        assert pm.catalog_model.output_modalities == ["image"]
+
 
 # --- generations -----------------------------------------------------------
 
