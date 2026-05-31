@@ -45,6 +45,33 @@ services:
       timeout: 5s
       retries: 5
 
+  # S3-compatible object storage for media (STT input audio now; TTS/image
+  # output later). Internal only — the backend streams assets through its own
+  # authenticated route, so MinIO is never exposed through Caddy.
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: inferenceclub
+      MINIO_ROOT_PASSWORD: __MINIO_ROOT_PASSWORD__
+    volumes:
+      - /srv/inference-club/minio-data:/data
+
+  # One-shot: wait for MinIO, then create the media bucket. Exits 0 once done;
+  # `restart: "no"` so it doesn't loop.
+  minio-setup:
+    image: minio/mc:latest
+    restart: "no"
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 inferenceclub __MINIO_ROOT_PASSWORD__; do echo 'waiting for minio'; sleep 2; done;
+      mc mb -p local/inference-club-media || true;
+      echo 'minio bucket ready';
+      "
+
   # Tailscale userspace sidecar. Joins the inference.club tailnet as
   # `club-web` and exposes a SOCKS5 proxy on :1055 that the backend uses to
   # reach provider agents over the tailnet.
@@ -84,6 +111,8 @@ services:
       redis:
         condition: service_healthy
       tailscale:
+        condition: service_started
+      minio:
         condition: service_started
 
   # Long-running prober. Hits each active provider's /healthz over the

@@ -45,6 +45,14 @@ export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
         overrideSpecial: "_-",
         special: true,
     });
+    // Credentials for the self-hosted MinIO (S3-compatible object storage) that
+    // holds media: STT input audio now, TTS/image output later. Same escaping
+    // constraint as the Postgres password (lands in backend.env).
+    const minioPassword = new random.RandomPassword("minio-password", {
+        length: 32,
+        overrideSpecial: "_-",
+        special: true,
+    });
 
     const conn: command.types.input.remote.ConnectionArgs = {
         host: server.ipv4,
@@ -69,6 +77,7 @@ export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
         BACKEND_IMAGE: stackConfig.backendImage,
         FRONTEND_IMAGE: stackConfig.frontendImage,
         POSTGRES_PASSWORD: postgresPassword.result,
+        MINIO_ROOT_PASSWORD: minioPassword.result,
         DOMAIN: stackConfig.domain,
         TAILSCALE_WEB_AUTHKEY: stackConfig.tailscaleWebAuthkey,
     });
@@ -84,6 +93,7 @@ export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
         GITHUB_OAUTH_CLIENT_SECRET: stackConfig.githubOauthClientSecret,
         TAILSCALE_TAILNET: stackConfig.tailscaleTailnet,
         TAILSCALE_STATIC_AUTHKEY: stackConfig.tailscaleStaticAuthkey,
+        MINIO_ROOT_PASSWORD: minioPassword.result,
         DOMAIN: stackConfig.domain,
     });
 

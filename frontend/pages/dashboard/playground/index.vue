@@ -283,7 +283,9 @@ const setSlider = (
 onMounted(async () => {
   micSupported.value = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
   try {
-    models.value = await listModels()
+    // Chat is for text-generating (LLM) models; transcription-only (STT) and
+    // speech (TTS) models live on their own playground surfaces.
+    models.value = (await listModels()).filter((m) => m.service_type === 'llm')
     if (models.value.length) {
       // Honor a ?model=<slug> deep-link (e.g. from a public profile CTA);
       // fall back to the first available model.

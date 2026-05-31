@@ -14,6 +14,11 @@ from urllib.parse import urlparse
 
 GPU_VENDORS = {"nvidia", "amd", "apple", "intel"}
 ENGINES = {"vllm", "lmstudio", "ollama", "sglang", "llamacpp", "tgi", "other"}
+# What a service provides (orthogonal to engine). Defaults to "llm" when a
+# service omits ``type``, so manifests written before this field stay valid.
+# "tts" is accepted now — the agent and server stay in lockstep for the next
+# modality — even though no TTS endpoint ships yet.
+SERVICE_TYPES = {"llm", "stt", "tts"}
 
 # Limits — see `docs/plans/service-manifest.md` §6.
 MAX_RAW_YAML_BYTES = 64 * 1024
@@ -150,6 +155,24 @@ def validate(parsed: dict, raw_yaml: str = "") -> list[str]:
                     f"{sprefix}.engine: must be one of {sorted(ENGINES)}, "
                     f"got {engine!r}"
                 )
+
+            # ``type`` is optional and defaults to "llm"; only an explicit
+            # out-of-set value is an error.
+            svc_type = svc.get("type")
+            if svc_type is not None and svc_type not in SERVICE_TYPES:
+                errors.append(
+                    f"{sprefix}.type: must be one of {sorted(SERVICE_TYPES)}, "
+                    f"got {svc_type!r}"
+                )
+
+            # ``features`` is optional — a list of capability strings the
+            # operator declares for this deployment (e.g. ["timestamps"]).
+            features = svc.get("features")
+            if features is not None:
+                if not isinstance(features, list) or not all(
+                    isinstance(f, str) for f in features
+                ):
+                    errors.append(f"{sprefix}.features: must be a list of strings")
 
             url = svc.get("url")
             if not isinstance(url, str) or not url.strip():

@@ -20,6 +20,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     icon: Sparkles,
     items: [
       { title: 'Chat', url: '/dashboard/playground' },
+      { title: 'Transcription', url: '/dashboard/playground/transcribe' },
     ],
   },
   {

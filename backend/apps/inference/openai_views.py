@@ -254,11 +254,25 @@ def _model_caps(pm) -> dict:
     cat = pm.catalog_model if pm.catalog_model_id else None
     # Prefer the live-probed served window over the catalog's HF-derived one.
     context = pm.served_context_len or (cat.native_context_length if cat else None)
+    # The modality/endpoint kind ("llm" | "stt" | "tts") lets the playground
+    # route a model to the right surface (chat vs. transcription). Unlinked
+    # (live-discovered) models default to "llm".
+    service_type = pm.service.service_type if pm.service_id else "llm"
+    # Capabilities are the catalog's (model-identity) features UNION the
+    # operator's per-deployment declarations (e.g. an STT service launched with
+    # a ForcedAligner declares "timestamps"). Per-deployment because the same
+    # model id may or may not expose a feature depending on how it was served.
+    features = list((cat.supported_features or []) if cat else [])
+    if pm.service_id:
+        for f in pm.service.declared_features or []:
+            if f not in features:
+                features.append(f)
     return {
         "input_modalities": (cat.input_modalities or ["text"]) if cat else ["text"],
         "output_modalities": (cat.output_modalities or ["text"]) if cat else ["text"],
-        "supported_features": (cat.supported_features or []) if cat else [],
+        "supported_features": features,
         "context_length": context,
+        "service_type": service_type,
     }
 
 
@@ -287,7 +301,17 @@ def _model_match_q(model_name):
     )
 
 
-def _own_provider_match(user, model_name):
+def _service_type_q(service_type):
+    """Restrict a ProviderModel query to a service type (e.g. only STT
+    services for a transcription request). ``None`` means no restriction — the
+    LLM path stays unchanged, including live-discovered models with no linked
+    service."""
+    if not service_type:
+        return Q()
+    return Q(service__service_type=service_type)
+
+
+def _own_provider_match(user, model_name, service_type=None):
     """An online deployment of ``model_name`` on one of ``user``'s OWN nodes,
     with self-healing: if a node just registered and hasn't reported models
     yet, discover them now. Returns a ProviderModel or None."""
@@ -300,6 +324,7 @@ def _own_provider_match(user, model_name):
         pm = (
             provider.models.filter(is_active=True)
             .filter(_model_match_q(model_name))
+            .filter(_service_type_q(service_type))
             .select_related("provider", "service", "catalog_model")
             .first()
         )
@@ -308,7 +333,7 @@ def _own_provider_match(user, model_name):
     return None
 
 
-def _any_provider_match(user, model_name, github_login):
+def _any_provider_match(user, model_name, github_login, service_type=None):
     """The first online deployment of ``model_name`` the user may route to —
     own node or someone else's shared service. Returns a ProviderModel or
     None."""
@@ -320,6 +345,7 @@ def _any_provider_match(user, model_name, github_login):
         )
         .exclude(provider__tailnet_hostname="")
         .filter(_model_match_q(model_name))
+        .filter(_service_type_q(service_type))
         .select_related("provider", "service", "catalog_model")
     )
     for pm in candidates:
@@ -328,7 +354,7 @@ def _any_provider_match(user, model_name, github_login):
     return None
 
 
-def _find_provider_for_model(user, model_name):
+def _find_provider_for_model(user, model_name, service_type=None):
     """Pick an online deployment of ``model_name`` that ``user`` is allowed to
     use, honoring their global routing preference:
 
@@ -336,6 +362,10 @@ def _find_provider_for_model(user, model_name):
     - ``PREFER_OWN`` — the user's own nodes first, else any accessible node.
     - ``ANY`` (default) — any accessible node; own nodes get a self-healing
       discovery pass as a fallback.
+
+    ``service_type`` (e.g. ``"stt"``) restricts routing to services of that
+    kind, so a transcription request can only land on an STT service. ``None``
+    (the LLM default) imposes no restriction and preserves prior behavior.
 
     Returns the matching ``ProviderModel`` (so the caller knows the real
     *served* name to forward upstream), or None. MVP routing: no load
@@ -348,17 +378,17 @@ def _find_provider_for_model(user, model_name):
     github_login = _user_github_login(user)
 
     if pref == CustomUser.ROUTING_ONLY_OWN:
-        return _own_provider_match(user, model_name)
+        return _own_provider_match(user, model_name, service_type)
 
     if pref == CustomUser.ROUTING_PREFER_OWN:
-        return _own_provider_match(user, model_name) or _any_provider_match(
-            user, model_name, github_login
+        return _own_provider_match(user, model_name, service_type) or _any_provider_match(
+            user, model_name, github_login, service_type
         )
 
     # ANY (default): any accessible node, with own-node self-healing fallback.
-    return _any_provider_match(user, model_name, github_login) or _own_provider_match(
-        user, model_name
-    )
+    return _any_provider_match(
+        user, model_name, github_login, service_type
+    ) or _own_provider_match(user, model_name, service_type)
 
 
 class ModelsView(_RateLimitHeadersMixin, APIView):
@@ -391,7 +421,7 @@ class ModelsView(_RateLimitHeadersMixin, APIView):
             if not provider.is_online:
                 continue
             created = int(provider.created_on.timestamp())
-            for m in provider.models.filter(is_active=True).select_related("catalog_model"):
+            for m in provider.models.filter(is_active=True).select_related("catalog_model", "service"):
                 slug = _model_slug(m)
                 seen.setdefault(
                     slug,
@@ -625,3 +655,230 @@ class ChatCompletionsView(_ChatOrCompletionsProxy):
 class CompletionsView(_ChatOrCompletionsProxy):
     upstream_path = "/completions"
     inference_type = "LLM"
+
+
+def _store_input_audio(user, ir, upload, data: bytes):
+    """Persist the uploaded audio as an INPUT_AUDIO MediaAsset linked to the
+    request, so the playground/profile can replay it. Best-effort: a storage
+    hiccup must not fail the transcription. Returns the asset or None."""
+    from django.core.files.base import ContentFile
+
+    from .models import MediaAsset
+
+    try:
+        asset = MediaAsset(
+            user=user,
+            inference_request=ir,
+            kind=MediaAsset.INPUT_AUDIO,
+            content_type=getattr(upload, "content_type", "") or "",
+            size_bytes=len(data),
+        )
+        asset.file.save(
+            getattr(upload, "name", "audio") or "audio",
+            ContentFile(data),
+            save=False,
+        )
+        asset.save()
+        return asset
+    except Exception as e:  # storage misconfig shouldn't break inference
+        logger.warning("input-audio store failed: %s", e)
+        return None
+
+
+class AudioTranscriptionsView(_RateLimitHeadersMixin, APIView):
+    """``POST /v1/audio/transcriptions`` — OpenAI-compatible speech-to-text.
+
+    Deliberately separate from the JSON LLM proxy: the request is
+    ``multipart/form-data`` (an audio file + form fields), the response is a
+    single buffered JSON body (no streaming), and routing is restricted to
+    STT services. Shares provider routing, request logging, and rate-limit
+    headers with the LLM path; nothing else.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "inference"
+    inference_type = "STT"
+    upstream_path = "/audio/transcriptions"
+
+    def post(self, request):
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response(
+                {"error": {"message": "`file` is required.", "type": "missing_file"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if upload.size and upload.size > settings.STT_MAX_UPLOAD_BYTES:
+            return Response(
+                {
+                    "error": {
+                        "message": (
+                            f"Audio file too large: {upload.size} bytes (max "
+                            f"{settings.STT_MAX_UPLOAD_BYTES})."
+                        ),
+                        "type": "file_too_large",
+                    }
+                },
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+        ctype = (upload.content_type or "").split(";", 1)[0].strip().lower()
+        if ctype and ctype not in settings.STT_ALLOWED_CONTENT_TYPES:
+            return Response(
+                {
+                    "error": {
+                        "message": f"Unsupported audio content-type: {ctype!r}.",
+                        "type": "unsupported_media_type",
+                    }
+                },
+                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
+
+        model_name = request.data.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="stt"
+        )
+        if provider_model is None:
+            return Response(
+                {
+                    "error": {
+                        "message": (
+                            f"No online speech-to-text provider serving model "
+                            f"'{model_name}' for this user."
+                        ),
+                        "type": "no_provider",
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        provider = provider_model.provider
+        served_name = provider_model.name
+        canonical = _model_slug(provider_model)
+        caps = _model_caps(provider_model)
+        supports_ts = "timestamps" in (caps.get("supported_features") or [])
+
+        # Build the upstream form, rewriting the model id to the served name and
+        # downgrading verbose_json/timestamp requests the model can't satisfy
+        # (some ASR servers, e.g. Qwen3-ASR, 400 on verbose_json).
+        data_fields, granularities = [], []
+        for key in request.data.keys():
+            if key == "file":
+                continue
+            values = (
+                request.data.getlist(key)
+                if hasattr(request.data, "getlist")
+                else [request.data.get(key)]
+            )
+            for v in values:
+                if key in ("timestamp_granularities", "timestamp_granularities[]"):
+                    granularities.append((key, v))
+                    continue
+                if key == "model":
+                    v = served_name or v
+                if key == "response_format" and v == "verbose_json" and not supports_ts:
+                    v = "json"
+                data_fields.append((key, v))
+        if "model" not in request.data and served_name:
+            data_fields.append(("model", served_name))
+        requested_format = request.data.get("response_format") or "json"
+        if supports_ts:
+            data_fields.extend(granularities)
+
+        # Read the upload once: forward the same bytes upstream and (optionally)
+        # persist them. Bounded by STT_MAX_UPLOAD_BYTES checked above.
+        audio_bytes = upload.read()
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="STT",
+            payload={
+                "model": canonical or model_name or "",
+                "filename": getattr(upload, "name", "") or "",
+                "content_type": ctype,
+                "size_bytes": len(audio_bytes),
+                "response_format": requested_format,
+                "language": request.data.get("language") or None,
+                "prompt": request.data.get("prompt") or None,
+            },
+            status="PROCESSING",
+        )
+
+        asset = None
+        if settings.STT_STORE_INPUT_AUDIO:
+            asset = _store_input_audio(request.user, ir, upload, audio_bytes)
+            if asset is not None:
+                ir.payload["asset_id"] = asset.id
+                ir.save(update_fields=["payload", "modified_on"])
+
+        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
+        started = time.monotonic()
+        try:
+            upstream = requests.post(
+                endpoint,
+                files={"file": (getattr(upload, "name", "audio"), audio_bytes, ctype or "application/octet-stream")},
+                data=data_fields,
+                timeout=UPSTREAM_TIMEOUT_SECONDS,
+                verify=False,
+                proxies=_tailnet_proxies(),
+            )
+        except requests.RequestException as e:
+            ir.status = "REQUESTED"
+            ir.results = {"error": str(e)}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            logger.error("Upstream transcription failed: %s", e)
+            return Response(
+                {"error": {"message": str(e), "type": "upstream_error"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not upstream.ok:
+            ir.status = "REQUESTED"
+            ir.results = {"upstream_status": upstream.status_code}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            return Response(
+                upstream.json()
+                if upstream.headers.get("content-type", "").startswith("application/json")
+                else {"error": upstream.text},
+                status=upstream.status_code,
+            )
+
+        try:
+            payload = upstream.json()
+        except ValueError:
+            payload = {"text": upstream.text}
+
+        seconds = _audio_seconds(payload)
+        ir.status = "PROCESSED"
+        ir.results = payload
+        ir.audio_seconds = seconds
+        ir.latency_ms = int((time.monotonic() - started) * 1000)
+        ir.save(
+            update_fields=["status", "results", "audio_seconds", "latency_ms", "modified_on"]
+        )
+        if asset is not None and seconds is not None and asset.duration_seconds is None:
+            asset.duration_seconds = seconds
+            asset.save(update_fields=["duration_seconds", "modified_on"])
+        Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+        return Response(payload, status=upstream.status_code)
+
+
+def _audio_seconds(payload):
+    """Audio duration (seconds) from a transcription response — the metering
+    signal. OpenAI-compatible servers report it as ``usage.seconds`` (Qwen3-
+    ASR) or a top-level ``duration`` (verbose_json). Returns a float or None."""
+    if not isinstance(payload, dict):
+        return None
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        for key in ("seconds", "duration", "input_seconds"):
+            v = usage.get(key)
+            if isinstance(v, (int, float)) and v >= 0:
+                return float(v)
+    dur = payload.get("duration")
+    if isinstance(dur, (int, float)) and dur >= 0:
+        return float(dur)
+    return None

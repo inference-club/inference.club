@@ -1,4 +1,25 @@
-export type InferenceType = 'LLM' | 'IMAGE' | 'VIDEO' | 'TTS'
+export type InferenceType = 'LLM' | 'STT' | 'IMAGE' | 'VIDEO' | 'TTS'
+
+// One word in a verbose_json transcription, with its time interval.
+export interface TranscriptWord {
+  word: string
+  start?: number
+  end?: number
+}
+
+export interface TranscriptSegment {
+  id?: number
+  text: string
+  start?: number
+  end?: number
+}
+
+export interface TranscriptionExtras {
+  words?: TranscriptWord[]
+  segments?: TranscriptSegment[]
+  language?: string
+  duration?: number
+}
 
 export type InferenceStatus =
   | 'REQUESTED'
@@ -36,6 +57,11 @@ export interface InferenceRequest {
   streamed?: boolean
   created_on: string
   modified_on: string
+
+  // Audio modalities (STT now; TTS later)
+  audio_seconds?: number | null
+  audio_url?: string | null
+  transcription?: TranscriptionExtras | null
 
   // Owner attribution (present on both list and detail)
   owner?: string

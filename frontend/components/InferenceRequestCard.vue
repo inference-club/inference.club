@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import {
-  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github,
+  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines,
 } from 'lucide-vue-next'
 import type { InferenceRequest } from '@/types'
 import { statusVariant, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
@@ -18,6 +19,10 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{ (e: 'delete', id: string): void }>()
+
+const isStt = computed(() => props.request.inference_type === 'STT')
+const fmtSeconds = (s?: number | null) =>
+  s == null ? null : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`
 
 const onClick = () => {
   if (props.linkable) navigateTo(`/dashboard/inference/requests/${props.request.id}`)
@@ -85,29 +90,50 @@ const onClick = () => {
       </AlertDialog>
     </div>
 
-    <!-- Prompt preview -->
-    <div class="mt-3">
-      <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
-      <p class="text-sm line-clamp-2">{{ props.request.prompt_preview || '—' }}</p>
-    </div>
+    <!-- STT: input audio + transcript -->
+    <template v-if="isStt">
+      <div v-if="props.request.audio_url" class="mt-3" @click.stop>
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Audio</p>
+        <audio :src="props.request.audio_url" controls class="w-full h-9" />
+      </div>
+      <div class="mt-2">
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Transcript</p>
+        <p class="text-sm line-clamp-2">{{ props.request.response_preview || '—' }}</p>
+      </div>
+    </template>
 
-    <!-- Response preview -->
-    <div class="mt-2">
-      <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Response</p>
-      <p class="text-sm text-muted-foreground line-clamp-2">{{ props.request.response_preview || '—' }}</p>
-    </div>
+    <!-- LLM: prompt + response previews -->
+    <template v-else>
+      <div class="mt-3">
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
+        <p class="text-sm line-clamp-2">{{ props.request.prompt_preview || '—' }}</p>
+      </div>
+      <div class="mt-2">
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Response</p>
+        <p class="text-sm text-muted-foreground line-clamp-2">{{ props.request.response_preview || '—' }}</p>
+      </div>
+    </template>
 
     <!-- Footer metadata -->
     <div class="mt-3 pt-3 border-t flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
-      <span class="inline-flex items-center gap-1" title="Messages in this request">
-        <MessageSquare class="size-3.5" /> {{ props.request.message_count ?? 0 }} msg
+      <span
+        v-if="isStt"
+        class="inline-flex items-center gap-1"
+        title="Audio duration"
+      >
+        <AudioLines class="size-3.5" /> {{ fmtSeconds(props.request.audio_seconds) ?? '—' }} audio
       </span>
-      <span v-if="totalTokens(props.request) !== null" class="inline-flex items-center gap-1" title="Token usage">
-        <Zap class="size-3.5" /> {{ totalTokens(props.request) }} tok
-        <template v-if="props.request.usage">
-          ({{ props.request.usage.prompt_tokens ?? '?' }} in / {{ props.request.usage.completion_tokens ?? '?' }} out)
-        </template>
-      </span>
+      <template v-else>
+        <span class="inline-flex items-center gap-1" title="Messages in this request">
+          <MessageSquare class="size-3.5" /> {{ props.request.message_count ?? 0 }} msg
+        </span>
+        <span v-if="totalTokens(props.request) !== null" class="inline-flex items-center gap-1" title="Token usage">
+          <Zap class="size-3.5" /> {{ totalTokens(props.request) }} tok
+          <template v-if="props.request.usage">
+            ({{ props.request.usage.prompt_tokens ?? '?' }} in / {{ props.request.usage.completion_tokens ?? '?' }} out)
+          </template>
+        </span>
+      </template>
       <span class="inline-flex items-center gap-1" title="Latency">
         <Clock class="size-3.5" /> {{ formatLatency(props.request.latency_ms) }}
       </span>

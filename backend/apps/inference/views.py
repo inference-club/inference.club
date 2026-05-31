@@ -24,6 +24,7 @@ from .hf_enrich import enrich_catalog_model
 from .models import (
     CatalogModel,
     InferenceRequest,
+    MediaAsset,
     Provider,
     ProviderModel,
     ProviderService,
@@ -54,7 +55,7 @@ logger = logging.getLogger("django")
 def _requests_with_owner():
     return InferenceRequest.objects.select_related(
         "provider", "user"
-    ).prefetch_related("user__social_auth")
+    ).prefetch_related("user__social_auth", "assets")
 
 
 class InferenceRequestView(generics.ListCreateAPIView):
@@ -756,11 +757,21 @@ def _manifest_services(parsed) -> list[dict]:
                     continue
                 seen_served.add(served)
                 models_list.append({"served": served, "hf": _model_hf_id(m)})
+            svc_type = svc.get("type")
+            if not isinstance(svc_type, str) or svc_type not in ("llm", "stt", "tts"):
+                svc_type = "llm"
+            features = [
+                f.strip()
+                for f in (svc.get("features") or [])
+                if isinstance(f, str) and f.strip()
+            ]
             out.append(
                 {
                     "name": name.strip(),
                     "host_id": host_id or "",
                     "engine": svc.get("engine") if isinstance(svc.get("engine"), str) else "",
+                    "service_type": svc_type,
+                    "features": features,
                     "models": models_list,
                 }
             )
@@ -791,6 +802,8 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
                 name=sd["name"],
                 host_id=sd["host_id"],
                 engine=sd["engine"],
+                service_type=sd["service_type"],
+                declared_features=sd["features"],
                 is_active=True,
             )
         else:
@@ -801,6 +814,12 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
             if svc.engine != sd["engine"]:
                 svc.engine = sd["engine"]
                 fields.append("engine")
+            if svc.service_type != sd["service_type"]:
+                svc.service_type = sd["service_type"]
+                fields.append("service_type")
+            if list(svc.declared_features or []) != sd["features"]:
+                svc.declared_features = sd["features"]
+                fields.append("declared_features")
             if not svc.is_active:
                 svc.is_active = True
                 fields.append("is_active")
@@ -844,22 +863,53 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
         # (Re)link the catalog model when the deployment is active and either
         # unlinked or its declared identity just changed.
         if active and (pm.catalog_model_id is None or "hf_repo_id" in fields):
-            link_catalog_model(pm)
+            catalog = link_catalog_model(pm)
+            _apply_service_type_modalities(catalog, svc)
             fields.append("catalog_model")
         if fields:
             pm.save(update_fields=fields + ["modified_on"])
     for name in declared_models:
         if name not in existing:
+            svc = model_to_service.get(name)
             pm = ProviderModel(
                 provider=provider,
                 name=name,
                 hf_repo_id=model_hf.get(name, ""),
                 is_active=True,
-                service=model_to_service.get(name),
+                service=svc,
             )
-            link_catalog_model(pm)
+            catalog = link_catalog_model(pm)
+            _apply_service_type_modalities(catalog, svc)
             pm.save()
     return len(declared_models)
+
+
+def _apply_service_type_modalities(catalog, service) -> None:
+    """Seed sensible input/output modalities on a freshly-pooled catalog model
+    from its service type, so non-text models render correctly *before* the
+    lazy HuggingFace enrichment runs (and for models with no HF id at all).
+
+    Only fills when the catalog hasn't been HF-enriched yet — never clobbers
+    richer enriched data.
+    """
+    if service is None or catalog.hf_synced_at is not None:
+        return
+    stype = getattr(service, "service_type", "llm")
+    if stype == "stt":
+        inp, out = ["audio"], ["text"]
+    elif stype == "tts":
+        inp, out = ["text"], ["audio"]
+    else:
+        return
+    fields = []
+    if catalog.input_modalities != inp:
+        catalog.input_modalities = inp
+        fields.append("input_modalities")
+    if catalog.output_modalities != out:
+        catalog.output_modalities = out
+        fields.append("output_modalities")
+    if fields:
+        catalog.save(update_fields=fields + ["modified_on"])
 
 
 def refresh_provider_models(provider) -> int:
@@ -1282,3 +1332,33 @@ class PublicUserRequestsView(generics.ListAPIView):
         if self.request.query_params.get("scope") == "served":
             return qs.filter(provider__user=user)
         return qs.filter(user=user)
+
+
+class MediaAssetView(APIView):
+    """``GET /api/inference/assets/<id>/`` — stream a stored media asset
+    (currently STT input audio) to its owner.
+
+    Streaming through the app keeps a single auth path that works whether the
+    asset lives on local disk (dev) or in S3/MinIO (prod), without exposing a
+    public bucket. Owner-only for now.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, id):
+        from django.http import FileResponse
+
+        asset = get_object_or_404(MediaAsset, id=id)
+        if asset.user_id != request.user.id:
+            raise PermissionDenied("Not your asset.")
+        try:
+            fh = asset.file.open("rb")
+        except (FileNotFoundError, ValueError):
+            raise Http404("asset file missing")
+        resp = FileResponse(
+            fh, content_type=asset.content_type or "application/octet-stream"
+        )
+        resp["Content-Disposition"] = (
+            f'inline; filename="{(asset.file.name or "audio").rsplit("/", 1)[-1]}"'
+        )
+        return resp

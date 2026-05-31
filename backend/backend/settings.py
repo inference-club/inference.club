@@ -268,15 +268,67 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# ---- object storage (media: STT audio, future TTS/image output) ----------
+#
+# When OBJECT_STORAGE_* env vars are present we route Django's *default*
+# (media) storage to an S3-compatible backend — MinIO in our self-hosted
+# stack (set OBJECT_STORAGE_ENDPOINT to the MinIO URL), or any S3 service.
+# Absent that config we fall back to the local filesystem so a contributor
+# without MinIO still runs. Static files always stay on WhiteNoise.
+OBJECT_STORAGE_BUCKET = os.environ.get("OBJECT_STORAGE_BUCKET", "")
+OBJECT_STORAGE_ENDPOINT = os.environ.get("OBJECT_STORAGE_ENDPOINT", "")
+OBJECT_STORAGE_ACCESS_KEY = os.environ.get("OBJECT_STORAGE_ACCESS_KEY", "")
+OBJECT_STORAGE_SECRET_KEY = os.environ.get("OBJECT_STORAGE_SECRET_KEY", "")
+OBJECT_STORAGE_REGION = os.environ.get("OBJECT_STORAGE_REGION", "us-east-1")
+
+if OBJECT_STORAGE_BUCKET:
+    _default_storage = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "bucket_name": OBJECT_STORAGE_BUCKET,
+            "region_name": OBJECT_STORAGE_REGION,
+            # Path-style addressing — required for MinIO (no per-bucket DNS).
+            "addressing_style": "path",
+            # Media is served through our own authenticated route, not via
+            # public bucket ACLs, so keep objects private.
+            "default_acl": None,
+            "querystring_auth": True,
+            "file_overwrite": False,
+        },
+    }
+    if OBJECT_STORAGE_ENDPOINT:
+        _default_storage["OPTIONS"]["endpoint_url"] = OBJECT_STORAGE_ENDPOINT
+    if OBJECT_STORAGE_ACCESS_KEY:
+        _default_storage["OPTIONS"]["access_key"] = OBJECT_STORAGE_ACCESS_KEY
+        _default_storage["OPTIONS"]["secret_key"] = OBJECT_STORAGE_SECRET_KEY
+else:
+    _default_storage = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+
 # Cache-busted, gzip/brotli-compressed static asset storage for WhiteNoise.
 STORAGES = {
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    },
+    "default": _default_storage,
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# ---- speech-to-text (STT) guardrails ------------------------------------
+# Bound uploaded audio so a single request can't exhaust a worker's memory or
+# a provider's GPU. 25 MB matches OpenAI's transcription limit.
+STT_MAX_UPLOAD_BYTES = int(os.environ.get("STT_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+STT_ALLOWED_CONTENT_TYPES = {
+    "audio/wav", "audio/x-wav", "audio/wave",
+    "audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/x-m4a",
+    "audio/flac", "audio/x-flac", "audio/ogg", "audio/webm",
+    "video/mp4", "video/webm",  # webm/mp4 often carry an audio-only track
+    "application/octet-stream",  # some clients send this for files
+}
+# Persist the uploaded audio (as an INPUT_AUDIO MediaAsset) so the playground
+# and profile can replay it. Set False to transcribe-and-discard.
+STT_STORE_INPUT_AUDIO = _env_bool("STT_STORE_INPUT_AUDIO", default=True)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

@@ -100,6 +100,20 @@ class ProviderService(BaseModel):
     *preserves* the operator's access settings.
     """
 
+    # What kind of inference the service provides — the *what*, orthogonal to
+    # ``engine`` (the *how*). Drives which /v1 endpoint a request may route to:
+    # an STT (transcription) request never lands on an LLM service and vice
+    # versa. Declared in the manifest as ``services[].type``; defaults to
+    # ``llm`` so every existing manifest stays valid.
+    TYPE_LLM = "llm"
+    TYPE_STT = "stt"
+    TYPE_TTS = "tts"
+    SERVICE_TYPE_CHOICES = (
+        (TYPE_LLM, "Language model"),
+        (TYPE_STT, "Speech to text"),
+        (TYPE_TTS, "Text to speech"),
+    )
+
     # Who may route inference requests to this service.
     ACCESS_PRIVATE = "PRIVATE"  # only the owner (default; preserves prior behavior)
     ACCESS_AUTHENTICATED = "AUTHENTICATED"  # any signed-in inference.club member
@@ -116,6 +130,18 @@ class ProviderService(BaseModel):
     name = models.CharField(max_length=255)
     host_id = models.CharField(max_length=255, blank=True, help_text="Manifest host id, for display.")
     engine = models.CharField(max_length=64, blank=True)
+    service_type = models.CharField(
+        max_length=16, choices=SERVICE_TYPE_CHOICES, default=TYPE_LLM
+    )
+    declared_features = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Operator-declared capabilities of THIS deployment, from the "
+        "manifest's services[].features (e.g. ['timestamps'] when an STT "
+        "service is served with a ForcedAligner so verbose_json returns word "
+        "timings). Per-deployment because the same model may or may not expose "
+        "a feature depending on how it was launched.",
+    )
     is_active = models.BooleanField(
         default=True,
         help_text="False when the service is no longer present in the latest manifest.",
@@ -358,6 +384,7 @@ class ServiceManifest(BaseModel):
 class InferenceRequest(BaseModel):
     INFERENCE_TYPES = (
         ("LLM", "Language Model"),
+        ("STT", "Speech to Text"),
         ("IMAGE", "Image Generation"),
         ("VIDEO", "Video Generation"),
         ("TTS", "Text to Speech"),
@@ -401,6 +428,11 @@ class InferenceRequest(BaseModel):
     prompt_tokens = models.PositiveIntegerField(null=True, blank=True)
     completion_tokens = models.PositiveIntegerField(null=True, blank=True)
     total_tokens = models.PositiveIntegerField(null=True, blank=True)
+    # Audio metering for non-text modalities (STT, later TTS) — the analogue of
+    # token counts for audio. Mirrored from the response's ``usage.seconds`` (or
+    # the probed input-audio duration) for cheap aggregation without parsing
+    # the results JSON. Null for LLM requests.
+    audio_seconds = models.FloatField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_on"]
@@ -412,3 +444,66 @@ class InferenceRequest(BaseModel):
 
     def __str__(self):
         return f"{self.inference_type} request by {self.user.username} ({self.status})"
+
+
+def media_asset_upload_to(instance, filename: str) -> str:
+    """Storage key for a media asset: ``<kind>/<user_id>/<uuid>/<filename>``.
+
+    Namespaced by kind + user so a single bucket cleanly holds input audio
+    (STT), and later generated audio (TTS) and images, without collisions.
+    """
+    import uuid
+
+    safe = (filename or "asset").rsplit("/", 1)[-1][:120]
+    return f"{instance.kind.lower()}/{instance.user_id}/{uuid.uuid4().hex}/{safe}"
+
+
+class MediaAsset(BaseModel):
+    """A binary blob stored in object storage (S3/MinIO in prod, local FS in
+    dev) tied to a user and, usually, an inference request.
+
+    Built generic on purpose: STT stores the uploaded ``INPUT_AUDIO`` here so
+    the playground/profile can replay it, and the next modalities reuse the
+    same model — TTS writes ``OUTPUT_AUDIO`` and image generation
+    ``OUTPUT_IMAGE``. The ``file`` field routes through Django's default
+    storage backend, so swapping FS ↔ S3 is a settings change, not a code one.
+    """
+
+    INPUT_AUDIO = "INPUT_AUDIO"
+    OUTPUT_AUDIO = "OUTPUT_AUDIO"
+    OUTPUT_IMAGE = "OUTPUT_IMAGE"
+    KIND_CHOICES = (
+        (INPUT_AUDIO, "Input audio"),
+        (OUTPUT_AUDIO, "Output audio"),
+        (OUTPUT_IMAGE, "Output image"),
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="media_assets",
+    )
+    inference_request = models.ForeignKey(
+        InferenceRequest,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assets",
+    )
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES)
+    file = models.FileField(upload_to=media_asset_upload_to, max_length=512)
+    content_type = models.CharField(max_length=128, blank=True, default="")
+    size_bytes = models.BigIntegerField(null=True, blank=True)
+    duration_seconds = models.FloatField(
+        null=True, blank=True, help_text="Audio/video duration, when known."
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_on"]
+        indexes = [
+            models.Index(fields=["user", "kind", "created_on"]),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} asset {self.pk} for {self.user_id}"

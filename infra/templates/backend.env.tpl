@@ -20,3 +20,12 @@ GUNICORN_WORKERS=3
 TAILSCALE_TAILNET=__TAILSCALE_TAILNET__
 TAILSCALE_STATIC_AUTHKEY=__TAILSCALE_STATIC_AUTHKEY__
 TAILSCALE_HOST_TAG=tag:club-host
+
+# Object storage (MinIO) for media — STT input audio now, TTS/image output
+# later. Points at the internal `minio` service; assets are served back
+# through the backend's own authenticated /api/inference/assets/<id>/ route.
+OBJECT_STORAGE_BUCKET=inference-club-media
+OBJECT_STORAGE_ENDPOINT=http://minio:9000
+OBJECT_STORAGE_ACCESS_KEY=inferenceclub
+OBJECT_STORAGE_SECRET_KEY=__MINIO_ROOT_PASSWORD__
+OBJECT_STORAGE_REGION=us-east-1

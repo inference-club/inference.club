@@ -15,6 +15,17 @@ https://api.inference.club/v1
 
 The `/v1` namespace mirrors the OpenAI API surface. Anything that speaks OpenAI — the official SDKs, Open WebUI, OpenRouter-style routers — can use this base URL with no other changes.
 
+## Endpoints
+
+| Endpoint | Modality |
+|---|---|
+| `GET /v1/models` | List models you can reach (with capabilities). |
+| `POST /v1/chat/completions` | Text chat (and multimodal input where the model supports it). |
+| `POST /v1/completions` | Legacy text completions. |
+| `POST /v1/audio/transcriptions` | [Speech-to-text](/docs/api/audio-transcriptions) — audio in, text out. |
+
+Each model on `/v1/models` reports `input_modalities`, `output_modalities`, and `supported_features`, so a client can tell a text model from a speech-to-text one and adapt its UI. A transcription request is only routed to a service whose provider declared it as `type: stt`.
+
 ## Authentication
 
 All `/v1/*` requests require a Bearer token:

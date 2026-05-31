@@ -20,6 +20,9 @@ export interface ModelInfo {
   input_modalities: string[]
   supported_features: string[]
   context_length: number | null
+  // 'llm' | 'stt' | 'tts' — which /v1 surface this model serves. Lets the chat
+  // playground hide transcription-only models (and vice versa).
+  service_type: string
 }
 
 export function usePlayground() {
@@ -42,6 +45,7 @@ export function usePlayground() {
       input_modalities: m.input_modalities ?? ['text'],
       supported_features: m.supported_features ?? [],
       context_length: m.context_length ?? null,
+      service_type: m.service_type ?? 'llm',
     }))
   }
 

@@ -60,6 +60,9 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+# Local media root (FileSystemStorage fallback when OBJECT_STORAGE_* is unset,
+# e.g. test runs). Real media lives in MinIO/S3.
+media/
 
 # Flask stuff:
 instance/

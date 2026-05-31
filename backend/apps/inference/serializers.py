@@ -211,6 +211,10 @@ def _response_choice_text(results) -> str:
             return msg["content"]
         if isinstance(c0.get("text"), str):
             return c0["text"]
+    # Speech-to-text responses are a flat {"text": "..."} (no choices), as are
+    # some other non-chat endpoints.
+    if isinstance(results.get("text"), str):
+        return results["text"]
     if isinstance(results.get("content"), str):  # defensive fallback
         return results["content"]
     return ""
@@ -267,6 +271,42 @@ def _is_streamed(obj) -> bool:
 def _truncate(text: str, limit: int = 280) -> str:
     text = (text or "").strip()
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
+def _input_audio_url(obj, request) -> str | None:
+    """The owner-gated URL to replay this request's stored input audio (STT),
+    or None. Only exposed to the request's owner since the asset route is
+    owner-only."""
+    if request is None or not request.user.is_authenticated:
+        return None
+    if obj.user_id != request.user.id:
+        return None
+    asset = next(
+        (a for a in obj.assets.all() if a.kind == "INPUT_AUDIO"),
+        None,
+    )
+    if asset is None:
+        return None
+    path = f"/api/inference/assets/{asset.id}/"
+    return request.build_absolute_uri(path)
+
+
+def _transcription(results) -> dict | None:
+    """Structured transcription extras (segments/words/language/duration) from
+    a verbose_json STT response, for the timestamp visualization. None when the
+    response is plain text only."""
+    if not isinstance(results, dict):
+        return None
+    out = {}
+    for key in ("words", "segments"):
+        v = results.get(key)
+        if isinstance(v, list) and v:
+            out[key] = v
+    for key in ("language", "duration"):
+        v = results.get(key)
+        if v is not None:
+            out[key] = v
+    return out or None
 
 
 def _user_github_login(user):
@@ -357,6 +397,7 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
     message_count = serializers.SerializerMethodField()
     streamed = serializers.SerializerMethodField()
     has_reasoning = serializers.SerializerMethodField()
+    audio_url = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -371,6 +412,8 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
             "is_owner",
             "latency_ms",
             "usage",
+            "audio_seconds",
+            "audio_url",
             "prompt_preview",
             "response_preview",
             "message_count",
@@ -379,6 +422,9 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
             "created_on",
             "modified_on",
         ]
+
+    def get_audio_url(self, obj):
+        return _input_audio_url(obj, self.context.get("request"))
 
     def get_usage(self, obj):
         return _extract_usage(obj.results)
@@ -414,6 +460,8 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
     reasoning = serializers.SerializerMethodField()
     streamed = serializers.SerializerMethodField()
     tokens_per_second = serializers.SerializerMethodField()
+    audio_url = serializers.SerializerMethodField()
+    transcription = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -431,6 +479,9 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
             "ttft_ms",
             "tokens_per_second",
             "usage",
+            "audio_seconds",
+            "audio_url",
+            "transcription",
             "messages",
             "response_text",
             "reasoning",
@@ -441,6 +492,12 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
             "modified_on",
         ]
         read_only_fields = fields
+
+    def get_audio_url(self, obj):
+        return _input_audio_url(obj, self.context.get("request"))
+
+    def get_transcription(self, obj):
+        return _transcription(obj.results)
 
     def get_usage(self, obj):
         return _extract_usage(obj.results)

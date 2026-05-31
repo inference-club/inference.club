@@ -35,6 +35,34 @@ services:
       timeout: 3s
       retries: 10
 
+  # S3-compatible object storage for media (STT input audio; later TTS/image
+  # output). Console on :9101, API on :9100 so they coexist with anything on
+  # the default 9000/9001.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: inferenceclub
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-localdevminio}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9100:9000" # S3 API
+      - "9101:9001" # web console (http://localhost:9101)
+
+  # One-shot: create the media bucket once MinIO is up.
+  minio-setup:
+    image: minio/mc:latest
+    restart: "no"
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 inferenceclub ${MINIO_ROOT_PASSWORD:-localdevminio}; do echo 'waiting for minio'; sleep 2; done;
+      mc mb -p local/inference-club-media || true;
+      echo 'minio bucket ready';
+      "
+
   backend:
     build:
       context: ./backend
@@ -68,6 +96,13 @@ services:
       # Shared cache so rate limits + the usage meter are consistent across
       # the gunicorn workers (not per-worker).
       REDIS_URL: redis://redis:6379/0
+      # Route media (STT audio etc.) to the local MinIO instead of the
+      # container filesystem, so it behaves like prod.
+      OBJECT_STORAGE_BUCKET: inference-club-media
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_ACCESS_KEY: inferenceclub
+      OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-localdevminio}
+      OBJECT_STORAGE_REGION: us-east-1
     extra_hosts:
       # So the backend can reach a direct-mode agent at
       # http://host.docker.internal:<port>/v1 on Linux too (auto on Docker
@@ -78,6 +113,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
     ports:
       # Host port 8101 so this can coexist with `manage.py runserver 8001`.
       - "8101:8001"
@@ -135,3 +172,4 @@ services:
 volumes:
   postgres-data:
   frontend-node-modules:
+  minio-data:

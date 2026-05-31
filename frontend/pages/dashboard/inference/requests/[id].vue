@@ -19,6 +19,7 @@ const store = useInferenceRequestStore()
 const id = computed(() => String(route.params.id))
 
 const req = computed(() => store.currentRequest)
+const isStt = computed(() => req.value?.inference_type === 'STT')
 
 const finishReason = computed<string | null>(() => {
   const choices = (req.value?.results as any)?.choices
@@ -212,8 +213,25 @@ onMounted(() => {
         </template>
       </Card>
 
+      <!-- Transcription (STT) -->
+      <Card v-if="isStt" class="p-4 mb-4">
+        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+          Transcription
+          <Badge v-if="req.audio_seconds != null" variant="outline">
+            {{ req.audio_seconds.toFixed(1) }}s audio
+          </Badge>
+        </h2>
+        <TranscriptView
+          :text="req.response_text || ''"
+          :src="req.audio_url"
+          :words="req.transcription?.words"
+          :segments="req.transcription?.segments"
+          :language="req.transcription?.language"
+        />
+      </Card>
+
       <!-- Conversation -->
-      <Card class="p-4 mb-4">
+      <Card v-if="!isStt" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3">
           Conversation
           <span class="text-sm font-normal text-muted-foreground">
@@ -263,7 +281,7 @@ onMounted(() => {
       </Card>
 
       <!-- Response -->
-      <Card class="p-4 mb-4">
+      <Card v-if="!isStt" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
           Response
           <Badge v-if="req.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">

@@ -58,9 +58,22 @@ def _haystack(api, config, slug) -> str:
     return " ".join(parts)
 
 
+def _is_asr(api, config, slug) -> bool:
+    """An automatic-speech-recognition model (audio-in → text-out), detected
+    from the HF pipeline tag or strong ASR keywords in the id/tags."""
+    pipeline = (api or {}).get("pipeline_tag") if isinstance(api, dict) else None
+    if pipeline == "automatic-speech-recognition":
+        return True
+    hay = _haystack(api, config, slug)
+    return any(h in hay for h in ("asr", "whisper", "-stt", "speech-recognition"))
+
+
 def infer_modalities(api, config, slug):
-    """(input, output) modality lists. Output is text-only for now (the LLM
-    endpoints we proxy return text); input grows with vision/audio/video."""
+    """(input, output) modality lists. Output is text-only for the
+    text-generating endpoints we proxy; input grows with vision/audio/video.
+    ASR models are the exception — they take audio and return text."""
+    if _is_asr(api, config, slug):
+        return ["audio"], ["text"]
     cfg = config if isinstance(config, dict) else {}
     hay = _haystack(api, config, slug)
     inp = ["text"]
@@ -80,6 +93,11 @@ def infer_features(api, config, slug):
         feats.append("reasoning")
     if any(h in hay for h in _TOOL_HINTS):
         feats.append("tools")
+    # Whisper-family ASR servers expose word/segment timestamps via
+    # verbose_json; flag it so the playground offers the timestamp UI (and the
+    # proxy keeps verbose_json) only where it actually works.
+    if "whisper" in hay:
+        feats.append("timestamps")
     return feats
 
 
