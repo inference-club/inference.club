@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Prefetch, Sum
 from django.db.models.functions import TruncDate
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -493,6 +494,51 @@ class ProviderModelsCatalogView(APIView):
 _LAZY_ENRICH_CAP = 15
 
 
+def serialize_catalog_entry(catalog, deployments) -> dict:
+    """Build the public catalog dict for one CatalogModel given an iterable of
+    its active deployments. Shared by ModelCatalogView (network-wide) and the
+    public profile (scoped to one user's deployments)."""
+    providers = {}
+    served = []
+    for d in deployments:
+        p = d.provider
+        providers[p.id] = {"name": p.name, "online": p.is_online}
+        if d.served_context_len:
+            served.append(d.served_context_len)
+    # The real, usable context (largest served across online nodes) takes
+    # precedence over the HF-derived ceiling.
+    context_length = (max(served) if served else None) or catalog.native_context_length
+    md = catalog.metadata or {}
+    return {
+        "slug": catalog.slug,
+        "display_name": catalog.display_name or catalog.slug,
+        "hf_repo_id": catalog.hf_repo_id,
+        "hf_url": catalog.hf_url,
+        "is_custom": catalog.is_custom,
+        "architecture": catalog.architecture,
+        "context_length": context_length,
+        "input_modalities": catalog.input_modalities or [],
+        "output_modalities": catalog.output_modalities or [],
+        "supported_features": catalog.supported_features or [],
+        "pipeline_tag": md.get("pipeline_tag"),
+        "downloads": md.get("downloads"),
+        "likes": md.get("likes"),
+        "provider_count": len(providers),
+        "online_provider_count": sum(1 for v in providers.values() if v["online"]),
+        "providers": sorted(providers.values(), key=lambda v: v["name"]),
+    }
+
+
+def _lazy_enrich(catalogs) -> None:
+    """Best-effort, bounded HF enrichment for never-synced catalogs. Never lets
+    enrichment break the calling view."""
+    for c in [c for c in catalogs if c.hf_repo_id and c.hf_synced_at is None][:_LAZY_ENRICH_CAP]:
+        try:
+            enrich_catalog_model(c)
+        except Exception:  # never let enrichment break the listing
+            logger.exception("lazy enrich failed for %s", c.slug)
+
+
 class ModelCatalogView(APIView):
     """GET /api/inference/models/ — the human-facing network model catalog.
 
@@ -520,45 +566,12 @@ class ModelCatalogView(APIView):
         )
 
         # Lazy, bounded, best-effort enrichment for anything never synced.
-        for c in [c for c in catalogs if c.hf_repo_id and c.hf_synced_at is None][:_LAZY_ENRICH_CAP]:
-            try:
-                enrich_catalog_model(c)
-            except Exception:  # never let enrichment break the listing
-                logger.exception("lazy enrich failed for %s", c.slug)
+        _lazy_enrich(catalogs)
 
-        data = []
-        for c in catalogs:
-            providers = {}
-            served = []
-            for d in getattr(c, "active_deployments", []):
-                p = d.provider
-                providers[p.id] = {"name": p.name, "online": p.is_online}
-                if d.served_context_len:
-                    served.append(d.served_context_len)
-            # The real, usable context (largest served across online nodes)
-            # takes precedence over the HF-derived ceiling.
-            context_length = (max(served) if served else None) or c.native_context_length
-            md = c.metadata or {}
-            data.append(
-                {
-                    "slug": c.slug,
-                    "display_name": c.display_name or c.slug,
-                    "hf_repo_id": c.hf_repo_id,
-                    "hf_url": c.hf_url,
-                    "is_custom": c.is_custom,
-                    "architecture": c.architecture,
-                    "context_length": context_length,
-                    "input_modalities": c.input_modalities or [],
-                    "output_modalities": c.output_modalities or [],
-                    "supported_features": c.supported_features or [],
-                    "pipeline_tag": md.get("pipeline_tag"),
-                    "downloads": md.get("downloads"),
-                    "likes": md.get("likes"),
-                    "provider_count": len(providers),
-                    "online_provider_count": sum(1 for v in providers.values() if v["online"]),
-                    "providers": sorted(providers.values(), key=lambda v: v["name"]),
-                }
-            )
+        data = [
+            serialize_catalog_entry(c, getattr(c, "active_deployments", []))
+            for c in catalogs
+        ]
         return Response({"models": data})
 
 
@@ -1154,50 +1167,76 @@ def _profile_stats(user) -> dict:
     }
 
 
+def _user_by_github_login(github_login):
+    """Return ``(user, github_data)`` for a GitHub login (case-insensitive), or
+    ``(None, None)`` if no such user. Signup is GitHub-only, so every user has a
+    ``github`` social_auth row.
+
+    The match is done in Python on the JSON-stored ``login`` key so it works
+    regardless of whether ``extra_data`` is a JSONField or a legacy TextField.
+    Prefetches the data the public profile needs; the requests endpoint reuses
+    the same lookup (the extra prefetch there is negligible).
+    """
+    from social_django.models import UserSocialAuth
+
+    target = (github_login or "").lower()
+    social = (
+        UserSocialAuth.objects.filter(provider="github")
+        .select_related("user")
+        .prefetch_related(
+            "user__social_auth",
+            "user__providers__models",
+            "user__providers__manifest",
+        )
+    )
+    for sa in social:
+        login_value = (sa.extra_data or {}).get("login") or ""
+        if login_value.lower() == target:
+            return sa.user, (sa.extra_data or {})
+    return None, None
+
+
+def _user_served_models(user) -> list:
+    """The catalog models this user serves (across their active providers),
+    each with capabilities + which of *their* nodes serve it. Reuses
+    ``serialize_catalog_entry`` so the shape matches the network catalog."""
+    deploys = (
+        ProviderModel.objects.filter(
+            is_active=True, provider__user=user, provider__is_active=True
+        )
+        .select_related("provider", "catalog_model")
+    )
+    by_catalog: dict = {}
+    for d in deploys:
+        c = d.catalog_model
+        if c is None:
+            continue
+        by_catalog.setdefault(c.id, (c, []))[1].append(d)
+
+    _lazy_enrich([c for c, _ in by_catalog.values()])
+    entries = [serialize_catalog_entry(c, ds) for c, ds in by_catalog.values()]
+    entries.sort(key=lambda e: e["display_name"].lower())
+    return entries
+
+
 class PublicUserProfileView(APIView):
     """GET /api/users/<github_login>/ — unauthenticated public profile.
 
-    Looks up a user by their GitHub login (since signup is GitHub-only,
-    every user has one) via the ``social_auth`` reverse manager.
-
-    Returns display info plus active providers with their (parsed-only)
-    manifests. The raw YAML is never exposed here.
+    Returns display info, the models this user serves (with capabilities), and
+    active providers with their (parsed-only) manifests. The raw YAML is never
+    exposed here.
     """
 
     permission_classes = [AllowAny]
     authentication_classes: list = []
 
     def get(self, request, github_login):
-        # Case-insensitive match on the JSON-stored ``login`` key, done in
-        # Python so it works regardless of whether ``extra_data`` is stored
-        # as a JSONField or a legacy TextField.
-        from social_django.models import UserSocialAuth
-
-        target = github_login.lower()
-        social = (
-            UserSocialAuth.objects.filter(provider="github")
-            .select_related("user")
-            .prefetch_related(
-                "user__social_auth",
-                "user__providers__models",
-                "user__providers__manifest",
-            )
-        )
-        match = None
-        for sa in social:
-            login_value = (sa.extra_data or {}).get("login") or ""
-            if login_value.lower() == target:
-                match = sa
-                break
-
-        if match is None:
+        user, github_data = _user_by_github_login(github_login)
+        if user is None:
             return Response(
                 {"detail": f"no user with github login {github_login!r}"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-
-        user = match.user
-        github_data = match.extra_data or {}
 
         providers_qs = user.providers.filter(is_active=True)
         return Response(
@@ -1211,9 +1250,35 @@ class PublicUserProfileView(APIView):
                     else ""
                 ),
                 "joined": user.date_joined,
+                "models": _user_served_models(user),
                 "providers": PublicProviderSerializer(
                     providers_qs, many=True, context={"request": request}
                 ).data,
                 "stats": _profile_stats(user),
             }
         )
+
+
+class PublicUserRequestsView(generics.ListAPIView):
+    """GET /api/users/<github_login>/requests/ — unauthenticated, paginated
+    list of a user's inference requests for their public profile.
+
+    ``?scope=consumed`` (default) = requests this user made; ``?scope=served``
+    = requests this user's nodes served to others. Reuses the same slim card
+    serializer as the dashboard; ``is_owner`` is always False here (anonymous),
+    so no delete affordance is exposed.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+    pagination_class = StandardResultsSetPagination
+    serializer_class = InferenceRequestListSerializer
+
+    def get_queryset(self):
+        user, _ = _user_by_github_login(self.kwargs["github_login"])
+        if user is None:
+            raise Http404("no such user")
+        qs = _requests_with_owner()
+        if self.request.query_params.get("scope") == "served":
+            return qs.filter(provider__user=user)
+        return qs.filter(user=user)

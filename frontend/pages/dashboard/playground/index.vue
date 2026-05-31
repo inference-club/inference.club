@@ -4,21 +4,18 @@ import { toast } from 'vue-sonner'
 import {
   ArrowUp,
   Bot,
-  Brain,
-  Eye,
   Mic,
   Plus,
   SlidersHorizontal,
   Sparkles,
   Square,
   Trash2,
-  Type,
   User,
   Video,
-  Wrench,
   X,
 } from 'lucide-vue-next'
 import { usePlayground, type ChatUsage, type ModelInfo } from '@/composables/usePlayground'
+import { MODALITY_META } from '@/utils/modelCapabilities'
 
 definePageMeta({ layout: 'app' })
 
@@ -56,22 +53,6 @@ const mediaKinds = computed(
 const acceptAttr = computed(() =>
   mediaKinds.value.map((k) => `${k}/*`).join(',')
 )
-
-const MODALITY_META: Record<string, { icon: unknown; label: string }> = {
-  text: { icon: Type, label: 'Text' },
-  image: { icon: Eye, label: 'Image' },
-  audio: { icon: Mic, label: 'Audio' },
-  video: { icon: Video, label: 'Video' },
-}
-const FEATURE_META: Record<string, { icon: unknown; label: string }> = {
-  reasoning: { icon: Brain, label: 'Reasoning' },
-  tools: { icon: Wrench, label: 'Tools' },
-}
-
-const fmtCtx = (n: number | null | undefined) => {
-  if (!n) return null
-  return n >= 1000 ? `${Math.round(n / 1024)}K ctx` : `${n} ctx`
-}
 
 // --- generation params -----------------------------------------------------
 const system = ref('')
@@ -303,8 +284,14 @@ onMounted(async () => {
   micSupported.value = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
   try {
     models.value = await listModels()
-    if (models.value.length) model.value = models.value[0].id
-    else modelsError.value = 'No models are available to you right now.'
+    if (models.value.length) {
+      // Honor a ?model=<slug> deep-link (e.g. from a public profile CTA);
+      // fall back to the first available model.
+      const wanted = String(useRoute().query.model || '')
+      model.value = (wanted && models.value.find((m) => m.id === wanted)?.id) || models.value[0].id
+    } else {
+      modelsError.value = 'No models are available to you right now.'
+    }
   } catch (e: unknown) {
     modelsError.value = (e as { message?: string })?.message || 'Failed to load models'
   } finally {
@@ -358,29 +345,14 @@ onMounted(async () => {
     </div>
 
     <!-- Selected model capabilities -->
-    <div v-if="selected" class="flex flex-wrap items-center gap-1.5 mb-4">
-      <span class="text-xs text-muted-foreground mr-1">Capabilities:</span>
-      <span
-        v-if="fmtCtx(selected.context_length)"
-        class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs font-mono"
-      >{{ fmtCtx(selected.context_length) }}</span>
-      <span
-        v-for="mod in caps"
-        :key="mod"
-        class="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs"
-      >
-        <component :is="MODALITY_META[mod]?.icon || Type" class="size-3" />
-        {{ MODALITY_META[mod]?.label || mod }}
-      </span>
-      <span
-        v-for="f in features"
-        :key="f"
-        class="inline-flex items-center gap-1 rounded bg-primary/10 text-primary px-1.5 py-0.5 text-xs"
-      >
-        <component :is="FEATURE_META[f]?.icon || Wrench" class="size-3" />
-        {{ FEATURE_META[f]?.label || f }}
-      </span>
-    </div>
+    <ModelCapabilities
+      v-if="selected"
+      class="mb-4"
+      :context-length="selected.context_length"
+      :input-modalities="caps"
+      :supported-features="features"
+      show-label
+    />
 
     <div class="flex flex-col lg:flex-row gap-4 lg:items-start">
       <!-- Chat column -->

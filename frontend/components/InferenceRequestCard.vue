@@ -5,19 +5,30 @@ import {
 import type { InferenceRequest } from '@/types'
 import { statusVariant, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
 
-const props = defineProps<{
-  request: InferenceRequest
-  showOwner?: boolean
-  deleting?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    request: InferenceRequest
+    showOwner?: boolean
+    deleting?: boolean
+    // When false the card is display-only: no click-through to the (auth-gated)
+    // detail page, no delete button. Used on the public profile.
+    linkable?: boolean
+  }>(),
+  { linkable: true },
+)
 
 const emit = defineEmits<{ (e: 'delete', id: string): void }>()
+
+const onClick = () => {
+  if (props.linkable) navigateTo(`/dashboard/inference/requests/${props.request.id}`)
+}
 </script>
 
 <template>
   <Card
-    class="p-4 transition-colors hover:border-primary/50 hover:bg-accent/30 cursor-pointer group"
-    @click="navigateTo(`/dashboard/inference/requests/${props.request.id}`)"
+    class="p-4 transition-colors group"
+    :class="linkable ? 'hover:border-primary/50 hover:bg-accent/30 cursor-pointer' : ''"
+    @click="onClick"
   >
     <!-- Header: badges + delete -->
     <div class="flex items-start justify-between gap-3">
@@ -41,7 +52,7 @@ const emit = defineEmits<{ (e: 'delete', id: string): void }>()
         </Badge>
       </div>
 
-      <AlertDialog v-if="props.request.is_owner">
+      <AlertDialog v-if="props.linkable && props.request.is_owner">
         <AlertDialogTrigger as-child @click.stop>
           <Button
             variant="ghost"
@@ -100,9 +111,9 @@ const emit = defineEmits<{ (e: 'delete', id: string): void }>()
       <span class="inline-flex items-center gap-1" title="Latency">
         <Clock class="size-3.5" /> {{ formatLatency(props.request.latency_ms) }}
       </span>
-      <span class="ml-auto inline-flex items-center gap-1 group-hover:text-foreground">
+      <span class="ml-auto inline-flex items-center gap-1" :class="linkable ? 'group-hover:text-foreground' : ''">
         {{ formatRelative(props.request.created_on) }}
-        <ArrowRight class="size-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+        <ArrowRight v-if="linkable" class="size-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
       </span>
     </div>
   </Card>

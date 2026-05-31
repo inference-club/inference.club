@@ -110,6 +110,37 @@ export function useInferenceRequest() {
     }
   }
 
+  // Public, unauthenticated listing of a user's requests for their profile.
+  // scope: 'consumed' = requests they made, 'served' = requests their nodes served.
+  const listPublicUserRequests = async (
+    githubLogin: string,
+    scope: 'consumed' | 'served' = 'consumed',
+    limit: number = 10,
+    offset: number = 0,
+  ) => {
+    loading.value = true
+    error.value = null
+
+    try {
+      const response = await fetch(
+        `${config.public.apiBase}/api/users/${encodeURIComponent(githubLogin)}/requests/`
+          + `?scope=${scope}&limit=${limit}&offset=${offset}`,
+        { credentials: 'include' }
+      )
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch inference requests')
+      }
+
+      return await response.json() as PaginatedResponse<InferenceRequest>
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'An error occurred'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
   const getInferenceRequest = async (id: string) => {
     loading.value = true
     error.value = null
@@ -170,6 +201,7 @@ export function useInferenceRequest() {
     createInferenceRequest,
     listInferenceRequests,
     listAllInferenceRequests,
+    listPublicUserRequests,
     getInferenceRequest,
     deleteInferenceRequest,
   }

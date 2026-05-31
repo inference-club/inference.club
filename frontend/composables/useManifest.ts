@@ -4,7 +4,10 @@
 // See docs/plans/service-manifest.md in this repo for the full shape.
 
 export interface ManifestModel {
-  id: string
+  // A manifest model is identified by a served id and/or a HuggingFace repo id.
+  // The catalog slug (and /v1 model id) is `(hf || id).toLowerCase()`.
+  id?: string
+  hf?: string
 }
 
 export interface ManifestService {
@@ -84,12 +87,35 @@ export interface ProfileStats {
   }
 }
 
+// One served model on a profile — mirrors the backend's
+// serialize_catalog_entry() (apps/inference/views.py). The slug doubles as the
+// `model` id for the /v1 API and the playground ?model= deep-link.
+export interface CatalogModelInfo {
+  slug: string
+  display_name: string
+  hf_repo_id: string
+  hf_url: string
+  is_custom: boolean
+  architecture: string
+  context_length: number | null
+  input_modalities: string[]
+  output_modalities: string[]
+  supported_features: string[]
+  pipeline_tag: string | null
+  downloads: number | null
+  likes: number | null
+  provider_count: number
+  online_provider_count: number
+  providers: { name: string; online: boolean }[]
+}
+
 export interface PublicProfile {
   github_login: string
   name: string
   avatar_url: string
   github_url: string
   joined: string
+  models: CatalogModelInfo[]
   providers: ProfileProvider[]
   stats?: ProfileStats
 }
