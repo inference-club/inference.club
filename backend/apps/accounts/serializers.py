@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from rest_framework.authtoken.models import Token
 
 User = get_user_model()
 
@@ -7,6 +8,7 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
 
     github_login = serializers.SerializerMethodField()
+    api_token = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -17,7 +19,14 @@ class UserSerializer(serializers.ModelSerializer):
             "is_superuser",
             "profile_setup_complete",
             "github_login",
+            "api_token",
         )
+
+    def get_api_token(self, obj) -> str:
+        # Tokens are auto-minted on user creation; get_or_create also backfills
+        # any pre-existing user so every authenticated caller always has a key.
+        token, _ = Token.objects.get_or_create(user=obj)
+        return token.key
 
     def get_github_login(self, obj) -> str | None:
         # social_django's reverse manager. Only one GitHub social_auth row

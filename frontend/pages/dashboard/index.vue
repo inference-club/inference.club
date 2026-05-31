@@ -47,6 +47,8 @@ const formatDate = (iso: string | null) => {
       </p>
     </div>
 
+    <OnboardingChecklist />
+
     <section class="space-y-4">
       <div class="flex items-end justify-between">
         <div>

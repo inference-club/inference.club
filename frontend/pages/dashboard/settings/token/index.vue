@@ -1,29 +1,36 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import {
-  Copy,
-} from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { Copy, RefreshCw } from 'lucide-vue-next'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { useToken } from '@/composables/useToken'
+import { useAuth } from '@/composables/useAuth'
 
-const { token, tokens, isLoading, error, createToken, deleteToken, refreshTokens } = useToken()
+const { token, isLoading, error, createToken } = useToken()
+const { user, checkAuth } = useAuth()
+const config = useRuntimeConfig()
 const showCopied = ref(false)
 
-onMounted(() => {
-  refreshTokens()
-})
+// The key is auto-minted on signup and returned on /api/account/. After a
+// regenerate, the composable holds the fresh value; otherwise fall back to the
+// one carried on the user object.
+const apiKey = computed(() => token.value || user.value?.api_token || '')
 
 const copyToClipboard = async () => {
-  if (token.value) {
-    await navigator.clipboard.writeText(token.value)
-    showCopied.value = true
-    setTimeout(() => {
-      showCopied.value = false
-    }, 2000)
-  }
+  if (!apiKey.value) return
+  await navigator.clipboard.writeText(apiKey.value)
+  showCopied.value = true
+  setTimeout(() => { showCopied.value = false }, 2000)
+}
+
+const regenerate = async () => {
+  if (!confirm('Regenerate your API key? Your current key will stop working immediately.')) return
+  await createToken()
+  // Sync the store so user.api_token reflects the new key everywhere.
+  await checkAuth()
 }
 
 definePageMeta({
-  layout: 'app'
+  layout: 'app',
 })
 </script>
 
@@ -33,7 +40,7 @@ definePageMeta({
       <div class="mb-6">
         <h1 class="text-3xl font-bold mb-2">API Token</h1>
         <p class="text-muted-foreground text-lg">
-          Manage your API token for accessing the platform's API.
+          Use this key with any OpenAI-compatible client to reach inference.club.
         </p>
       </div>
 
@@ -41,7 +48,7 @@ definePageMeta({
         <CardHeader>
           <CardTitle>Your API Token</CardTitle>
           <CardDescription>
-            Keep this token secure. It provides access to your account.
+            Keep this token secret — it grants full access to your account.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -52,20 +59,12 @@ definePageMeta({
             </Alert>
           </div>
 
-          <div v-if="token" class="space-y-4">
+          <div class="space-y-4">
             <div class="flex items-center gap-2">
-              <Input
-                v-model="token"
-                readonly
-                class="font-mono"
-              />
+              <Input :model-value="apiKey" readonly class="font-mono" />
               <Popover :open="showCopied">
                 <PopoverTrigger as-child>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    @click="copyToClipboard"
-                  >
+                  <Button variant="outline" size="icon" @click="copyToClipboard">
                     <Copy class="h-4 w-4" />
                   </Button>
                 </PopoverTrigger>
@@ -75,48 +74,12 @@ definePageMeta({
               </Popover>
             </div>
             <p class="text-sm text-muted-foreground">
-              This is the only time you will see your full API token. Please copy and store it securely.
+              Set it as the API key / bearer token in your client, with base URL
+              <code class="font-mono text-foreground">{{ config.public.apiBase }}/v1</code>.
             </p>
-            <Button
-              variant="destructive"
-              :disabled="isLoading"
-              @click="deleteToken"
-            >
-              Delete Token
-            </Button>
-          </div>
-          <div v-else-if="tokens.length > 0" class="space-y-4">
-            <div class="flex flex-col gap-2">
-              <span
-                v-for="t in tokens"
-                :key="t.id"
-                class="font-mono font-bold text-muted-foreground"
-              >
-                Token prefix: {{ t.prefix }}
-              </span>
-            </div>
-            <p class="text-sm text-muted-foreground">
-              For security, the full token is only shown once when created. If you lost it, delete and create a new token.
-            </p>
-            <Button
-              variant="destructive"
-              :disabled="isLoading"
-              @click="deleteToken"
-            >
-              Delete Token
-            </Button>
-          </div>
-
-          <div v-else class="space-y-4">
-            <p class="text-sm text-muted-foreground">
-              You don't have an active API token. Create one to get started.
-            </p>
-            <Button
-              :disabled="isLoading"
-              @click="createToken"
-            >
-              <Loader2 v-if="isLoading" class="mr-2 h-4 w-4 animate-spin" />
-              Create Token
+            <Button variant="outline" :disabled="isLoading" @click="regenerate">
+              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': isLoading }" />
+              {{ isLoading ? 'Regenerating…' : 'Regenerate token' }}
             </Button>
           </div>
         </CardContent>

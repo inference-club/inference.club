@@ -1,10 +1,27 @@
 <script setup lang="ts">
+import { onMounted, ref, computed } from 'vue'
 import { Button } from '@/components/ui/button'
-import { ArrowRight, Cpu, Network, Send, Lock, Code2, Users, Zap } from 'lucide-vue-next'
+import { ArrowRight, Cpu, Network, Send, Lock, Code2, Users, Zap, Server } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
+import { useProviders } from '@/composables/useProviders'
 import CodeTabs from '@/components/CodeTabs.vue'
 
 const { isAuthenticated } = useAuth()
+
+// Nudge signed-in members who haven't put a model-serving node on the network yet.
+const { providers, fetchProviders } = useProviders()
+const nodesChecked = ref(false)
+onMounted(async () => {
+  if (!isAuthenticated.value) return
+  await fetchProviders()
+  nodesChecked.value = true
+})
+const needsNode = computed(
+  () =>
+    isAuthenticated.value &&
+    nodesChecked.value &&
+    !providers.value.some(p => p.models.some(m => m.is_active)),
+)
 
 // Featured blog post for the homepage: the newest post flagged `featured`,
 // else the newest post overall.
@@ -183,9 +200,14 @@ const features = [
                 <ArrowRight class="ml-2 h-4 w-4" />
               </Button>
             </NuxtLink>
+            <NuxtLink v-if="needsNode" to="/docs/providers/run-an-agent">
+              <Button size="lg" variant="outline" class="w-full sm:w-auto h-12 px-6 text-base">
+                Run an agent
+              </Button>
+            </NuxtLink>
           </template>
           <template v-else>
-            <NuxtLink to="/sign-up">
+            <NuxtLink to="/login">
               <Button size="lg" class="w-full sm:w-auto h-12 px-6 text-base shadow-lg shadow-violet-500/20">
                 Get an API key
                 <ArrowRight class="ml-2 h-4 w-4" />
@@ -198,6 +220,16 @@ const features = [
             </NuxtLink>
           </template>
         </div>
+
+        <NuxtLink
+          v-if="needsNode"
+          to="/dashboard"
+          class="mt-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/[0.06] px-4 py-1.5 text-sm text-foreground transition-colors hover:bg-primary/10"
+        >
+          <Server class="h-4 w-4 text-primary" />
+          You haven't put a node on the network yet — finish setup
+          <ArrowRight class="h-3.5 w-3.5" />
+        </NuxtLink>
 
         <p class="mt-6 text-xs text-muted-foreground font-mono">
           GitHub sign-in · Free during beta · No credit card
@@ -485,7 +517,7 @@ const features = [
           Bring a node whenever you have spare cycles.
         </p>
         <div class="flex flex-col sm:flex-row gap-3 justify-center">
-          <NuxtLink :to="isAuthenticated ? '/dashboard' : '/sign-up'">
+          <NuxtLink :to="isAuthenticated ? '/dashboard' : '/login'">
             <Button size="lg" class="w-full sm:w-auto h-12 px-6 text-base shadow-lg shadow-violet-500/20">
               {{ isAuthenticated ? 'Go to Dashboard' : 'Get an API key' }}
               <ArrowRight class="ml-2 h-4 w-4" />

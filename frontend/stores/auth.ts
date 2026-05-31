@@ -7,6 +7,7 @@ interface User {
   is_superuser: boolean
   profile_setup_complete: boolean
   github_login: string | null
+  api_token: string
 }
 
 interface AuthState {
