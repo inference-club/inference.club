@@ -758,7 +758,7 @@ def _manifest_services(parsed) -> list[dict]:
                 seen_served.add(served)
                 models_list.append({"served": served, "hf": _model_hf_id(m)})
             svc_type = svc.get("type")
-            if not isinstance(svc_type, str) or svc_type not in ("llm", "stt", "tts"):
+            if not isinstance(svc_type, str) or svc_type not in ("llm", "stt", "tts", "image"):
                 svc_type = "llm"
             features = [
                 f.strip()
@@ -899,6 +899,9 @@ def _apply_service_type_modalities(catalog, service) -> None:
         inp, out = ["audio"], ["text"]
     elif stype == "tts":
         inp, out = ["text"], ["audio"]
+    elif stype == "image":
+        # Text prompt always; image input for the edits endpoint.
+        inp, out = ["text", "image"], ["image"]
     else:
         return
     fields = []
@@ -1336,21 +1339,24 @@ class PublicUserRequestsView(generics.ListAPIView):
 
 class MediaAssetView(APIView):
     """``GET /api/inference/assets/<id>/`` — stream a stored media asset
-    (currently STT input audio) to its owner.
+    (STT input audio, generated/edited images) from MinIO/disk.
 
-    Streaming through the app keeps a single auth path that works whether the
-    asset lives on local disk (dev) or in S3/MinIO (prod), without exposing a
-    public bucket. Owner-only for now.
+    Streaming through the app keeps one path that works whether the asset
+    lives on local disk (dev) or S3/MinIO (prod), without exposing a public
+    bucket. Image kinds are served publicly by URL (so generated images embed
+    in <img> tags and can show on profiles); private kinds (uploaded audio)
+    stay owner-gated.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request, id):
         from django.http import FileResponse
 
         asset = get_object_or_404(MediaAsset, id=id)
-        if asset.user_id != request.user.id:
-            raise PermissionDenied("Not your asset.")
+        if asset.kind not in MediaAsset.PUBLIC_KINDS:
+            if not request.user.is_authenticated or asset.user_id != request.user.id:
+                raise PermissionDenied("Not your asset.")
         try:
             fh = asset.file.open("rb")
         except (FileNotFoundError, ValueError):
@@ -1359,6 +1365,12 @@ class MediaAssetView(APIView):
             fh, content_type=asset.content_type or "application/octet-stream"
         )
         resp["Content-Disposition"] = (
-            f'inline; filename="{(asset.file.name or "audio").rsplit("/", 1)[-1]}"'
+            f'inline; filename="{(asset.file.name or "asset").rsplit("/", 1)[-1]}"'
         )
+        # Public images are cacheable; private assets must not be cached by
+        # shared proxies.
+        if asset.kind in MediaAsset.PUBLIC_KINDS:
+            resp["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            resp["Cache-Control"] = "private, no-store"
         return resp

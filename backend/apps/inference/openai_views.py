@@ -882,3 +882,313 @@ def _audio_seconds(payload):
     if isinstance(dur, (int, float)) and dur >= 0:
         return float(dur)
     return None
+
+
+# --- image generation ------------------------------------------------------
+
+
+def _store_output_image(user, ir, b64_str, index):
+    """Decode an upstream base64 image and persist it as an OUTPUT_IMAGE
+    MediaAsset in MinIO. Returns the asset, or None on bad data."""
+    import base64
+
+    from django.core.files.base import ContentFile
+
+    from .models import MediaAsset
+
+    try:
+        raw = base64.b64decode(b64_str)
+    except (ValueError, TypeError):
+        return None
+    asset = MediaAsset(
+        user=user,
+        inference_request=ir,
+        kind=MediaAsset.OUTPUT_IMAGE,
+        content_type="image/png",
+        size_bytes=len(raw),
+    )
+    asset.file.save(f"image-{index}.png", ContentFile(raw), save=False)
+    asset.save()
+    return asset
+
+
+def _asset_url(request, asset) -> str:
+    return request.build_absolute_uri(f"/api/inference/assets/{asset.id}/")
+
+
+class _ImageProxyBase(_RateLimitHeadersMixin, APIView):
+    """Shared logic for /v1/images/* : synchronous, buffered, b64_json forced
+    upstream, outputs stored in MinIO. Deliberately separate from the JSON LLM
+    proxy and the STT view; routes only to ``image`` services."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "inference"
+    inference_type = "IMAGE"
+    upstream_path = ""  # set by subclass
+
+    def _no_provider(self, model_name):
+        return Response(
+            {
+                "error": {
+                    "message": (
+                        f"No online image provider serving model "
+                        f"'{model_name}' for this user."
+                    ),
+                    "type": "no_provider",
+                }
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    def _finalize(self, request, ir, upstream, started, requested_format):
+        """Store output images, shape the client response (url default /
+        b64_json on request), and finalize the InferenceRequest."""
+        if not upstream.ok:
+            ir.status = "REQUESTED"
+            ir.results = {"upstream_status": upstream.status_code}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            return Response(
+                upstream.json()
+                if upstream.headers.get("content-type", "").startswith("application/json")
+                else {"error": upstream.text},
+                status=upstream.status_code,
+            )
+
+        try:
+            payload = upstream.json()
+        except ValueError:
+            payload = {}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        out_data, asset_ids = [], []
+        for i, item in enumerate(data or []):
+            if not isinstance(item, dict):
+                continue
+            b64 = item.get("b64_json")
+            asset = _store_output_image(request.user, ir, b64, i) if b64 else None
+            if asset is not None:
+                asset_ids.append(asset.id)
+            entry = {}
+            if requested_format == "b64_json":
+                entry["b64_json"] = b64
+            elif asset is not None:
+                entry["url"] = _asset_url(request, asset)
+            if item.get("revised_prompt"):
+                entry["revised_prompt"] = item["revised_prompt"]
+            if entry:
+                out_data.append(entry)
+
+        ir.status = "PROCESSED"
+        ir.image_count = len(asset_ids)
+        ir.results = {
+            "created": payload.get("created") if isinstance(payload, dict) else None,
+            "image_asset_ids": asset_ids,
+            "count": len(asset_ids),
+        }
+        ir.latency_ms = int((time.monotonic() - started) * 1000)
+        ir.save(
+            update_fields=["status", "image_count", "results", "latency_ms", "modified_on"]
+        )
+        Provider.objects.filter(id=ir.provider_id).update(last_seen_at=timezone.now())
+        return Response(
+            {"created": payload.get("created") if isinstance(payload, dict) else None,
+             "data": out_data},
+            status=upstream.status_code,
+        )
+
+    def _forward_error(self, ir, started, exc):
+        ir.status = "REQUESTED"
+        ir.results = {"error": str(exc)}
+        ir.latency_ms = int((time.monotonic() - started) * 1000)
+        ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+        logger.error("Upstream image request failed: %s", exc)
+        return Response(
+            {"error": {"message": str(exc), "type": "upstream_error"}},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+class ImageGenerationsView(_ImageProxyBase):
+    """``POST /v1/images/generations`` — OpenAI-compatible text-to-image."""
+
+    upstream_path = "/images/generations"
+
+    def post(self, request):
+        body = request.data
+        if not isinstance(body, dict):
+            return Response(
+                {"error": {"message": "JSON body required.", "type": "invalid_request"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        prompt = body.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            return Response(
+                {"error": {"message": "`prompt` is required.", "type": "missing_prompt"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(prompt) > settings.IMAGE_MAX_PROMPT_CHARS:
+            return Response(
+                {"error": {"message": "Prompt too long.", "type": "request_too_large"}},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        model_name = body.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="image"
+        )
+        if provider_model is None:
+            return self._no_provider(model_name)
+
+        provider = provider_model.provider
+        served_name = provider_model.name
+        canonical = _model_slug(provider_model)
+        requested_format = body.get("response_format") or "url"
+
+        # Forward a copy: force b64_json (the only thing the server returns and
+        # what we need to store), rewrite the model id, clamp n.
+        forward = dict(body)
+        forward["response_format"] = "b64_json"
+        if served_name:
+            forward["model"] = served_name
+        n = forward.get("n")
+        if isinstance(n, int) and n > settings.IMAGE_MAX_N:
+            forward["n"] = settings.IMAGE_MAX_N
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="IMAGE",
+            payload={
+                "model": canonical or model_name or "",
+                "prompt": prompt,
+                "n": forward.get("n"),
+                "size": body.get("size"),
+                "quality": body.get("quality"),
+                "response_format": requested_format,
+            },
+            status="PROCESSING",
+        )
+
+        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
+        started = time.monotonic()
+        try:
+            upstream = requests.post(
+                endpoint, json=forward, timeout=UPSTREAM_TIMEOUT_SECONDS,
+                verify=False, proxies=_tailnet_proxies(),
+            )
+        except requests.RequestException as e:
+            return self._forward_error(ir, started, e)
+        return self._finalize(request, ir, upstream, started, requested_format)
+
+
+class ImageEditsView(_ImageProxyBase):
+    """``POST /v1/images/edits`` — edit a source image with a prompt
+    (multipart: image + prompt, optional mask)."""
+
+    upstream_path = "/images/edits"
+
+    def post(self, request):
+        upload = request.FILES.get("image")
+        if upload is None:
+            return Response(
+                {"error": {"message": "`image` file is required.", "type": "missing_file"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if upload.size and upload.size > settings.IMAGE_MAX_UPLOAD_BYTES:
+            return Response(
+                {"error": {"message": "Image too large.", "type": "file_too_large"}},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+        ctype = (upload.content_type or "").split(";", 1)[0].strip().lower()
+        if ctype and ctype not in settings.IMAGE_ALLOWED_CONTENT_TYPES:
+            return Response(
+                {"error": {"message": f"Unsupported image type: {ctype!r}.",
+                           "type": "unsupported_media_type"}},
+                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
+        prompt = request.data.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            return Response(
+                {"error": {"message": "`prompt` is required.", "type": "missing_prompt"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        model_name = request.data.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="image"
+        )
+        if provider_model is None:
+            return self._no_provider(model_name)
+
+        provider = provider_model.provider
+        served_name = provider_model.name
+        canonical = _model_slug(provider_model)
+        requested_format = request.data.get("response_format") or "url"
+
+        image_bytes = upload.read()
+        mask = request.FILES.get("mask")
+        mask_bytes = mask.read() if mask is not None else None
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="IMAGE",
+            payload={
+                "model": canonical or model_name or "",
+                "prompt": prompt,
+                "size": request.data.get("size"),
+                "n": request.data.get("n"),
+                "response_format": requested_format,
+                "edit": True,
+            },
+            status="PROCESSING",
+        )
+
+        # Store the source image (public, like outputs) so the edit is replayable.
+        from django.core.files.base import ContentFile
+
+        from .models import MediaAsset
+
+        try:
+            src = MediaAsset(
+                user=request.user, inference_request=ir, kind=MediaAsset.INPUT_IMAGE,
+                content_type=ctype or "image/png", size_bytes=len(image_bytes),
+            )
+            src.file.save(getattr(upload, "name", "source.png") or "source.png",
+                          ContentFile(image_bytes), save=False)
+            src.save()
+        except Exception as e:  # storage hiccup shouldn't fail the edit
+            logger.warning("input-image store failed: %s", e)
+
+        # Build the multipart forward.
+        files = {"image": (getattr(upload, "name", "image.png"), image_bytes,
+                           ctype or "application/octet-stream")}
+        if mask_bytes is not None:
+            files["mask"] = (getattr(mask, "name", "mask.png"), mask_bytes,
+                             (mask.content_type or "image/png"))
+        data_fields = [("prompt", prompt), ("response_format", "b64_json")]
+        if served_name:
+            data_fields.append(("model", served_name))
+        for key in ("size", "n"):
+            v = request.data.get(key)
+            if v not in (None, ""):
+                if key == "n":
+                    try:
+                        v = str(min(int(v), settings.IMAGE_MAX_N))
+                    except (TypeError, ValueError):
+                        continue
+                data_fields.append((key, v))
+
+        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
+        started = time.monotonic()
+        try:
+            upstream = requests.post(
+                endpoint, files=files, data=data_fields,
+                timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+            )
+        except requests.RequestException as e:
+            return self._forward_error(ir, started, e)
+        return self._finalize(request, ir, upstream, started, requested_format)

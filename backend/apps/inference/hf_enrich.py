@@ -68,12 +68,23 @@ def _is_asr(api, config, slug) -> bool:
     return any(h in hay for h in ("asr", "whisper", "-stt", "speech-recognition"))
 
 
+def _is_text_to_image(api, config, slug) -> bool:
+    """A text-to-image generation model (text → image out)."""
+    pipeline = (api or {}).get("pipeline_tag") if isinstance(api, dict) else None
+    if pipeline in ("text-to-image", "image-to-image"):
+        return True
+    hay = _haystack(api, config, slug)
+    return any(h in hay for h in ("text-to-image", "stable-diffusion", "-sdxl", "flux.1", "diffusion-image"))
+
+
 def infer_modalities(api, config, slug):
     """(input, output) modality lists. Output is text-only for the
     text-generating endpoints we proxy; input grows with vision/audio/video.
-    ASR models are the exception — they take audio and return text."""
+    ASR (audio→text) and image-generation (text→image) are the exceptions."""
     if _is_asr(api, config, slug):
         return ["audio"], ["text"]
+    if _is_text_to_image(api, config, slug):
+        return ["text", "image"], ["image"]
     cfg = config if isinstance(config, dict) else {}
     hay = _haystack(api, config, slug)
     inp = ["text"]

@@ -18,7 +18,7 @@ ENGINES = {"vllm", "lmstudio", "ollama", "sglang", "llamacpp", "tgi", "other"}
 # service omits ``type``, so manifests written before this field stay valid.
 # "tts" is accepted now — the agent and server stay in lockstep for the next
 # modality — even though no TTS endpoint ships yet.
-SERVICE_TYPES = {"llm", "stt", "tts"}
+SERVICE_TYPES = {"llm", "stt", "tts", "image"}
 
 # Limits — see `docs/plans/service-manifest.md` §6.
 MAX_RAW_YAML_BYTES = 64 * 1024

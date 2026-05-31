@@ -291,6 +291,18 @@ def _input_audio_url(obj, request) -> str | None:
     return request.build_absolute_uri(path)
 
 
+def _asset_urls(obj, request, kind: str) -> list[str]:
+    """Absolute URLs for this request's assets of ``kind`` (e.g. OUTPUT_IMAGE).
+    Image assets are public, so no owner gate."""
+    if request is None:
+        return []
+    out = []
+    for a in obj.assets.all():
+        if a.kind == kind:
+            out.append(request.build_absolute_uri(f"/api/inference/assets/{a.id}/"))
+    return out
+
+
 def _transcription(results) -> dict | None:
     """Structured transcription extras (segments/words/language/duration) from
     a verbose_json STT response, for the timestamp visualization. None when the
@@ -398,6 +410,7 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
     streamed = serializers.SerializerMethodField()
     has_reasoning = serializers.SerializerMethodField()
     audio_url = serializers.SerializerMethodField()
+    image_urls = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -414,6 +427,8 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
             "usage",
             "audio_seconds",
             "audio_url",
+            "image_count",
+            "image_urls",
             "prompt_preview",
             "response_preview",
             "message_count",
@@ -426,6 +441,11 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
     def get_audio_url(self, obj):
         return _input_audio_url(obj, self.context.get("request"))
 
+    def get_image_urls(self, obj):
+        if obj.inference_type != "IMAGE":
+            return []
+        return _asset_urls(obj, self.context.get("request"), "OUTPUT_IMAGE")
+
     def get_usage(self, obj):
         return _extract_usage(obj.results)
 
@@ -436,6 +456,10 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
         return _is_streamed(obj)
 
     def get_prompt_preview(self, obj) -> str:
+        # Image (and other non-chat) requests carry a flat `prompt` field.
+        if isinstance(obj.payload, dict) and isinstance(obj.payload.get("prompt"), str):
+            if not _extract_messages(obj.payload):
+                return _truncate(obj.payload["prompt"])
         msgs = _extract_messages(obj.payload)
         for m in reversed(msgs):
             if m["role"] == "user":
@@ -462,6 +486,8 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
     tokens_per_second = serializers.SerializerMethodField()
     audio_url = serializers.SerializerMethodField()
     transcription = serializers.SerializerMethodField()
+    image_urls = serializers.SerializerMethodField()
+    input_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -482,6 +508,9 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
             "audio_seconds",
             "audio_url",
             "transcription",
+            "image_count",
+            "image_urls",
+            "input_image_url",
             "messages",
             "response_text",
             "reasoning",
@@ -498,6 +527,15 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
 
     def get_transcription(self, obj):
         return _transcription(obj.results)
+
+    def get_image_urls(self, obj):
+        if obj.inference_type != "IMAGE":
+            return []
+        return _asset_urls(obj, self.context.get("request"), "OUTPUT_IMAGE")
+
+    def get_input_image_url(self, obj):
+        urls = _asset_urls(obj, self.context.get("request"), "INPUT_IMAGE")
+        return urls[0] if urls else None
 
     def get_usage(self, obj):
         return _extract_usage(obj.results)

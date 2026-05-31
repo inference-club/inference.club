@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import {
-  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines,
+  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon,
 } from 'lucide-vue-next'
 import type { InferenceRequest } from '@/types'
 import { statusVariant, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
@@ -20,7 +20,9 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (e: 'delete', id: string): void }>()
 
+const lightbox = useImageLightbox()
 const isStt = computed(() => props.request.inference_type === 'STT')
+const isImage = computed(() => props.request.inference_type === 'IMAGE')
 const fmtSeconds = (s?: number | null) =>
   s == null ? null : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`
 
@@ -102,6 +104,24 @@ const onClick = () => {
       </div>
     </template>
 
+    <!-- IMAGE: prompt + thumbnails -->
+    <template v-else-if="isImage">
+      <div class="mt-3">
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
+        <p class="text-sm line-clamp-2">{{ props.request.prompt_preview || '—' }}</p>
+      </div>
+      <div v-if="props.request.image_urls?.length" class="mt-2 flex flex-wrap gap-2">
+        <img
+          v-for="(url, i) in props.request.image_urls.slice(0, 4)"
+          :key="i"
+          :src="url"
+          class="size-24 cursor-zoom-in rounded-lg border object-cover transition-opacity hover:opacity-90"
+          loading="lazy"
+          @click.stop="lightbox.open(url)"
+        />
+      </div>
+    </template>
+
     <!-- LLM: prompt + response previews -->
     <template v-else>
       <div class="mt-3">
@@ -122,6 +142,13 @@ const onClick = () => {
         title="Audio duration"
       >
         <AudioLines class="size-3.5" /> {{ fmtSeconds(props.request.audio_seconds) ?? '—' }} audio
+      </span>
+      <span
+        v-else-if="isImage"
+        class="inline-flex items-center gap-1"
+        title="Images generated"
+      >
+        <ImageIcon class="size-3.5" /> {{ props.request.image_count ?? 0 }} image{{ (props.request.image_count ?? 0) === 1 ? '' : 's' }}
       </span>
       <template v-else>
         <span class="inline-flex items-center gap-1" title="Messages in this request">

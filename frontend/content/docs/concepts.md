@@ -55,6 +55,7 @@ A model isn't always a chat model. Each service an agent exposes declares a **ty
 
 - `llm` (default) — text in, text out: `/v1/chat/completions`, `/v1/completions`.
 - `stt` — speech-to-text: audio in, text out: [`/v1/audio/transcriptions`](/docs/api/audio-transcriptions).
+- `image` — image generation: text in, image out: [`/v1/images/generations`](/docs/api/images) and `/v1/images/edits`.
 - `tts` — text-to-speech (reserved; not serving yet).
 
 The type is set in the agent's manifest. Omit it and it defaults to `llm`, so existing setups are unaffected:

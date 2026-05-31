@@ -63,6 +63,11 @@ export interface InferenceRequest {
   audio_url?: string | null
   transcription?: TranscriptionExtras | null
 
+  // Image generation
+  image_count?: number | null
+  image_urls?: string[]
+  input_image_url?: string | null
+
   // Owner attribution (present on both list and detail)
   owner?: string
   github_login?: string | null

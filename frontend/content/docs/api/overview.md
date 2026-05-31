@@ -23,8 +23,10 @@ The `/v1` namespace mirrors the OpenAI API surface. Anything that speaks OpenAI 
 | `POST /v1/chat/completions` | Text chat (and multimodal input where the model supports it). |
 | `POST /v1/completions` | Legacy text completions. |
 | `POST /v1/audio/transcriptions` | [Speech-to-text](/docs/api/audio-transcriptions) — audio in, text out. |
+| `POST /v1/images/generations` | [Image generation](/docs/api/images) — text in, image out. |
+| `POST /v1/images/edits` | [Image edits](/docs/api/images) — image + prompt in, image out. |
 
-Each model on `/v1/models` reports `input_modalities`, `output_modalities`, and `supported_features`, so a client can tell a text model from a speech-to-text one and adapt its UI. A transcription request is only routed to a service whose provider declared it as `type: stt`.
+Each model on `/v1/models` reports `input_modalities`, `output_modalities`, `supported_features`, and a `service_type` (`llm`/`stt`/`image`), so a client can tell the modalities apart and adapt its UI. A request is only routed to a service whose provider declared the matching `type` — a transcription never lands on a chat model, an image request never on a text model.
 
 ## Authentication
 

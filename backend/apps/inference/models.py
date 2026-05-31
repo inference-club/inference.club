@@ -108,10 +108,12 @@ class ProviderService(BaseModel):
     TYPE_LLM = "llm"
     TYPE_STT = "stt"
     TYPE_TTS = "tts"
+    TYPE_IMAGE = "image"
     SERVICE_TYPE_CHOICES = (
         (TYPE_LLM, "Language model"),
         (TYPE_STT, "Speech to text"),
         (TYPE_TTS, "Text to speech"),
+        (TYPE_IMAGE, "Image generation"),
     )
 
     # Who may route inference requests to this service.
@@ -433,6 +435,9 @@ class InferenceRequest(BaseModel):
     # the probed input-audio duration) for cheap aggregation without parsing
     # the results JSON. Null for LLM requests.
     audio_seconds = models.FloatField(null=True, blank=True)
+    # Image metering — how many images this request produced. The analogue of
+    # tokens/seconds for image generation; null for non-image requests.
+    image_count = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_on"]
@@ -471,12 +476,18 @@ class MediaAsset(BaseModel):
 
     INPUT_AUDIO = "INPUT_AUDIO"
     OUTPUT_AUDIO = "OUTPUT_AUDIO"
+    INPUT_IMAGE = "INPUT_IMAGE"
     OUTPUT_IMAGE = "OUTPUT_IMAGE"
     KIND_CHOICES = (
         (INPUT_AUDIO, "Input audio"),
         (OUTPUT_AUDIO, "Output audio"),
+        (INPUT_IMAGE, "Input image"),
         (OUTPUT_IMAGE, "Output image"),
     )
+    # Kinds served publicly (by URL, no auth) so generated images embed in
+    # <img> tags and show on profiles. Private kinds (uploaded audio) stay
+    # owner-gated. The user opted images "open by default".
+    PUBLIC_KINDS = {INPUT_IMAGE, OUTPUT_IMAGE}
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

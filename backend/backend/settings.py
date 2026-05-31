@@ -330,6 +330,16 @@ STT_ALLOWED_CONTENT_TYPES = {
 # and profile can replay it. Set False to transcribe-and-discard.
 STT_STORE_INPUT_AUDIO = _env_bool("STT_STORE_INPUT_AUDIO", default=True)
 
+# ---- image generation guardrails ----------------------------------------
+IMAGE_MAX_PROMPT_CHARS = int(os.environ.get("IMAGE_MAX_PROMPT_CHARS", "4000"))
+IMAGE_MAX_N = int(os.environ.get("IMAGE_MAX_N", "4"))
+# Source image (and mask) upload cap for /v1/images/edits.
+IMAGE_MAX_UPLOAD_BYTES = int(os.environ.get("IMAGE_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+IMAGE_ALLOWED_CONTENT_TYPES = {
+    "image/png", "image/jpeg", "image/jpg", "image/webp",
+    "application/octet-stream",
+}
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---- proxy/headers ------------------------------------------------------

@@ -20,6 +20,8 @@ const id = computed(() => String(route.params.id))
 
 const req = computed(() => store.currentRequest)
 const isStt = computed(() => req.value?.inference_type === 'STT')
+const isImage = computed(() => req.value?.inference_type === 'IMAGE')
+const lightbox = useImageLightbox()
 
 const finishReason = computed<string | null>(() => {
   const choices = (req.value?.results as any)?.choices
@@ -230,8 +232,39 @@ onMounted(() => {
         />
       </Card>
 
+      <!-- Image generation -->
+      <Card v-if="isImage" class="p-4 mb-4">
+        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+          Images
+          <Badge v-if="req.image_count != null" variant="outline">{{ req.image_count }}</Badge>
+        </h2>
+        <div v-if="req.payload?.prompt" class="text-sm mb-3">
+          <span class="text-muted-foreground">Prompt:</span> {{ req.payload.prompt }}
+        </div>
+        <div class="flex flex-wrap gap-3">
+          <div v-if="req.input_image_url" class="relative">
+            <img
+              :src="req.input_image_url"
+              class="max-h-72 cursor-zoom-in rounded-lg border opacity-80 transition-opacity hover:opacity-100"
+              @click="lightbox.open(req.input_image_url)"
+            />
+            <Badge class="absolute top-1.5 left-1.5" variant="secondary">source</Badge>
+          </div>
+          <img
+            v-for="(url, i) in req.image_urls"
+            :key="i"
+            :src="url"
+            class="max-h-72 cursor-zoom-in rounded-lg border transition-opacity hover:opacity-90"
+            @click="lightbox.open(url)"
+          />
+        </div>
+        <div v-if="!req.image_urls?.length" class="text-sm text-muted-foreground">
+          No images stored for this request.
+        </div>
+      </Card>
+
       <!-- Conversation -->
-      <Card v-if="!isStt" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3">
           Conversation
           <span class="text-sm font-normal text-muted-foreground">
@@ -281,7 +314,7 @@ onMounted(() => {
       </Card>
 
       <!-- Response -->
-      <Card v-if="!isStt" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
           Response
           <Badge v-if="req.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">
