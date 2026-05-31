@@ -8,6 +8,7 @@ interface User {
   profile_setup_complete: boolean
   github_login: string | null
   api_token: string
+  routing_preference: 'ANY' | 'PREFER_OWN' | 'ONLY_OWN'
 }
 
 interface LoginCredentials {
@@ -206,12 +207,25 @@ export const useAuth = () => {
     }
   }
 
+  const updateAccount = async (payload: Partial<Pick<User, 'routing_preference'>>) => {
+    const csrfToken = getCsrfToken()
+    const data = await $fetch<User>(`${config.public.apiBase}/api/account/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
+      body: payload,
+    })
+    authStore.setUser(data)
+    return data
+  }
+
   return {
     login,
     register,
     logout,
     checkAuth,
     setupCsrf,
+    updateAccount,
     user: computed(() => authStore.user),
     isAuthenticated: computed(() => authStore.isAuthenticated)
   }

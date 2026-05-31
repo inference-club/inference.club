@@ -23,7 +23,7 @@ from rest_framework.views import APIView
 
 from social_django.utils import psa
 
-from .serializers import UserSerializer
+from .serializers import AccountUpdateSerializer, UserSerializer
 
 # from .utils.social.oauth import get_access_token_from_code
 
@@ -39,6 +39,15 @@ class Profile(APIView):
         user = request.user
         serialized_user = UserSerializer(user)
         return Response(serialized_user.data)
+
+    def patch(self, request, format=None):
+        """Update the caller's tunable account preferences (e.g. routing)."""
+        serializer = AccountUpdateSerializer(
+            request.user, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(UserSerializer(request.user).data)
 
 
 @require_POST

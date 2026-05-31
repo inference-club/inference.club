@@ -20,6 +20,7 @@ class UserSerializer(serializers.ModelSerializer):
             "profile_setup_complete",
             "github_login",
             "api_token",
+            "routing_preference",
         )
 
     def get_api_token(self, obj) -> str:
@@ -36,3 +37,11 @@ class UserSerializer(serializers.ModelSerializer):
             if sa.provider == "github":
                 return (sa.extra_data or {}).get("login") or None
         return None
+
+
+class AccountUpdateSerializer(serializers.ModelSerializer):
+    """Writable subset of user-tunable account preferences."""
+
+    class Meta:
+        model = User
+        fields = ("routing_preference",)

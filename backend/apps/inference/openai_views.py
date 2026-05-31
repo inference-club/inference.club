@@ -19,6 +19,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from apps.accounts.models import CustomUser
+
 from .models import (
     PROVIDER_LAST_SEEN_WINDOW,
     InferenceRequest,
@@ -285,35 +287,10 @@ def _model_match_q(model_name):
     )
 
 
-def _find_provider_for_model(user, model_name):
-    """Pick the first online deployment of ``model_name`` that ``user`` is
-    allowed to use — their own node, or someone else's shared service.
-
-    Returns the matching ``ProviderModel`` (so the caller knows the real
-    *served* name to forward upstream), or None. MVP routing: no load
-    balancing. Own providers get a self-healing model refresh if they
-    registered but haven't reported models yet.
-    """
-    if not model_name:
-        return None
-
-    github_login = _user_github_login(user)
-    candidates = (
-        ProviderModel.objects.filter(
-            is_active=True,
-            provider__is_active=True,
-            provider__accepting_requests=True,
-        )
-        .exclude(provider__tailnet_hostname="")
-        .filter(_model_match_q(model_name))
-        .select_related("provider", "service", "catalog_model")
-    )
-    for pm in candidates:
-        if _model_accessible(pm, user, github_login) and pm.provider.is_online:
-            return pm
-
-    # Self-healing for the user's OWN providers: if one just registered and
-    # hasn't reported models yet, discover now.
+def _own_provider_match(user, model_name):
+    """An online deployment of ``model_name`` on one of ``user``'s OWN nodes,
+    with self-healing: if a node just registered and hasn't reported models
+    yet, discover them now. Returns a ProviderModel or None."""
     for provider in _online_providers(user):
         if not provider.models.filter(is_active=True).exists():
             try:
@@ -329,6 +306,59 @@ def _find_provider_for_model(user, model_name):
         if pm is not None:
             return pm
     return None
+
+
+def _any_provider_match(user, model_name, github_login):
+    """The first online deployment of ``model_name`` the user may route to —
+    own node or someone else's shared service. Returns a ProviderModel or
+    None."""
+    candidates = (
+        ProviderModel.objects.filter(
+            is_active=True,
+            provider__is_active=True,
+            provider__accepting_requests=True,
+        )
+        .exclude(provider__tailnet_hostname="")
+        .filter(_model_match_q(model_name))
+        .select_related("provider", "service", "catalog_model")
+    )
+    for pm in candidates:
+        if _model_accessible(pm, user, github_login) and pm.provider.is_online:
+            return pm
+    return None
+
+
+def _find_provider_for_model(user, model_name):
+    """Pick an online deployment of ``model_name`` that ``user`` is allowed to
+    use, honoring their global routing preference:
+
+    - ``ONLY_OWN``   — only the user's own nodes; no fallback to the network.
+    - ``PREFER_OWN`` — the user's own nodes first, else any accessible node.
+    - ``ANY`` (default) — any accessible node; own nodes get a self-healing
+      discovery pass as a fallback.
+
+    Returns the matching ``ProviderModel`` (so the caller knows the real
+    *served* name to forward upstream), or None. MVP routing: no load
+    balancing within a tier.
+    """
+    if not model_name:
+        return None
+
+    pref = getattr(user, "routing_preference", None) or CustomUser.ROUTING_ANY
+    github_login = _user_github_login(user)
+
+    if pref == CustomUser.ROUTING_ONLY_OWN:
+        return _own_provider_match(user, model_name)
+
+    if pref == CustomUser.ROUTING_PREFER_OWN:
+        return _own_provider_match(user, model_name) or _any_provider_match(
+            user, model_name, github_login
+        )
+
+    # ANY (default): any accessible node, with own-node self-healing fallback.
+    return _any_provider_match(user, model_name, github_login) or _own_provider_match(
+        user, model_name
+    )
 
 
 class ModelsView(_RateLimitHeadersMixin, APIView):
@@ -432,13 +462,18 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
 
         provider_model = _find_provider_for_model(request.user, model_name)
         if provider_model is None:
+            message = (
+                f"No online provider serving model '{model_name}' for this user."
+            )
+            if getattr(request.user, "routing_preference", None) == CustomUser.ROUTING_ONLY_OWN:
+                message += (
+                    " Your routing preference is set to use only your own nodes; "
+                    "no online node of yours serves this model."
+                )
             return Response(
                 {
                     "error": {
-                        "message": (
-                            f"No online provider serving model '{model_name}' "
-                            "for this user."
-                        ),
+                        "message": message,
                         "type": "no_provider",
                     }
                 },

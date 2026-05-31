@@ -8,6 +8,7 @@ interface User {
   profile_setup_complete: boolean
   github_login: string | null
   api_token: string
+  routing_preference: 'ANY' | 'PREFER_OWN' | 'ONLY_OWN'
 }
 
 interface AuthState {

@@ -66,6 +66,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     icon: Settings2,
     items: [
       { title: 'General', url: '/dashboard/settings/general' },
+      { title: 'Routing', url: '/dashboard/settings/routing' },
       { title: 'Usage', url: '/dashboard/settings/usage' },
       { title: 'Access', url: '/dashboard/settings/access' },
       { title: 'Token', url: '/dashboard/settings/token' },
