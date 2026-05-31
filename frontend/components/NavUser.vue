@@ -24,6 +24,7 @@ import {
   KeyRound,
   LogOut,
   Settings,
+  UserRound,
 } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { NuxtLink } from '#components'
@@ -32,12 +33,12 @@ import { useAuth } from '@/composables/useAuth'
 const { user, logout } = useAuth()
 const { isMobile } = useSidebar()
 
-const email = computed(() => user.value?.email ?? '')
+const githubLogin = computed(() => user.value?.github_login ?? '')
+const displayName = computed(() => githubLogin.value || user.value?.email || 'Not signed in')
+const profilePath = computed(() => (githubLogin.value ? `/${githubLogin.value}` : null))
 const initials = computed(() => {
-  const e = email.value
-  if (!e) return '?'
-  const local = e.split('@')[0] ?? ''
-  return (local.slice(0, 2) || '?').toUpperCase()
+  const source = githubLogin.value || (user.value?.email?.split('@')[0] ?? '')
+  return (source.slice(0, 2) || '?').toUpperCase()
 })
 </script>
 
@@ -56,7 +57,7 @@ const initials = computed(() => {
               </AvatarFallback>
             </Avatar>
             <div class="grid flex-1 text-left text-sm leading-tight">
-              <span class="truncate text-xs">{{ email || 'Not signed in' }}</span>
+              <span class="truncate text-xs">{{ displayName }}</span>
             </div>
             <ChevronsUpDown class="ml-auto size-4" />
           </SidebarMenuButton>
@@ -75,12 +76,19 @@ const initials = computed(() => {
                 </AvatarFallback>
               </Avatar>
               <div class="grid flex-1 text-left text-sm leading-tight">
-                <span class="truncate text-xs">{{ email }}</span>
+                <span class="truncate font-medium">{{ displayName }}</span>
+                <span v-if="user?.email" class="truncate text-xs text-muted-foreground">{{ user.email }}</span>
               </div>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
+            <DropdownMenuItem v-if="profilePath" as-child>
+              <NuxtLink :to="profilePath">
+                <UserRound />
+                Public profile
+              </NuxtLink>
+            </DropdownMenuItem>
             <DropdownMenuItem as-child>
               <NuxtLink to="/dashboard/settings/general">
                 <Settings />

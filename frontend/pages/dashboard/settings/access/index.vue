@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { toast } from 'vue-sonner'
-import { ShieldCheck, Server, Lock, Globe, Users } from 'lucide-vue-next'
+import { ShieldCheck, Server, Lock, Globe, Users, Pause, Play } from 'lucide-vue-next'
 import { useServices, type ProviderServiceItem, type AccessPolicy } from '@/composables/useServices'
+import { useProviders, type Provider } from '@/composables/useProviders'
 
 definePageMeta({
   layout: 'app',
 })
 
 const { services, loading, error, fetchServices, updateService } = useServices()
+const { providers, fetchProviders, setAcceptingRequests } = useProviders()
 
 const savingId = ref<number | null>(null)
+const pausingId = ref<number | null>(null)
 
 const POLICY_LABELS: Record<AccessPolicy, string> = {
   PRIVATE: 'Only me',
@@ -18,11 +21,20 @@ const POLICY_LABELS: Record<AccessPolicy, string> = {
   RESTRICTED: 'Specific GitHub users',
 }
 
-// Group services by their node (provider) for display.
+const providerById = computed(() => {
+  const m = new Map<number, Provider>()
+  for (const p of providers.value) m.set(p.id, p)
+  return m
+})
+
+// Group only currently-active services by their node (provider). Services that
+// have dropped out of the agent's config (is_active === false) are stale and
+// excluded entirely, which in turn hides any node left with nothing live.
 const grouped = computed(() => {
-  const map = new Map<number, { name: string; services: ProviderServiceItem[] }>()
+  const map = new Map<number, { id: number; name: string; services: ProviderServiceItem[] }>()
   for (const s of services.value) {
-    const g = map.get(s.provider.id) ?? { name: s.provider.name, services: [] }
+    if (!s.is_active) continue
+    const g = map.get(s.provider.id) ?? { id: s.provider.id, name: s.provider.name, services: [] }
     g.services.push(s)
     map.set(s.provider.id, g)
   }
@@ -46,7 +58,25 @@ const save = async (svc: ProviderServiceItem) => {
   }
 }
 
-onMounted(fetchServices)
+const togglePause = async (providerId: number) => {
+  const p = providerById.value.get(providerId)
+  if (!p) return
+  const next = !p.accepting_requests
+  pausingId.value = providerId
+  try {
+    await setAcceptingRequests(providerId, next)
+    toast.success(next ? `"${p.name}" is accepting requests` : `"${p.name}" paused — no longer serving`)
+  } catch {
+    toast.error('Failed to update node')
+  } finally {
+    pausingId.value = null
+  }
+}
+
+onMounted(() => {
+  fetchServices()
+  fetchProviders()
+})
 </script>
 
 <template>
@@ -64,14 +94,14 @@ onMounted(fetchServices)
     </div>
 
     <div v-if="loading && services.length === 0" class="space-y-3">
-      <Card v-for="i in 2" :key="i" class="p-5 animate-pulse h-32" />
+      <Card v-for="i in 2" :key="i" class="p-4 animate-pulse h-24" />
     </div>
 
     <div v-else-if="error" class="p-4 bg-destructive/10 text-destructive rounded text-sm">
       {{ error }}
     </div>
 
-    <Card v-else-if="services.length === 0" class="p-6">
+    <Card v-else-if="grouped.length === 0" class="p-6">
       <h3 class="font-semibold mb-2">No services yet</h3>
       <p class="text-sm text-muted-foreground">
         Register an agent and upload an <code>agent.yaml</code> manifest, and your
@@ -80,32 +110,45 @@ onMounted(fetchServices)
     </Card>
 
     <div v-else class="space-y-6">
-      <div v-for="node in grouped" :key="node.name">
-        <h2 class="text-sm font-semibold text-muted-foreground flex items-center gap-1.5 mb-2">
-          <Server class="size-4" /> {{ node.name }}
-        </h2>
+      <div v-for="node in grouped" :key="node.id">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <h2 class="text-sm font-semibold text-muted-foreground flex items-center gap-1.5 min-w-0">
+            <Server class="size-4 shrink-0" />
+            <span class="truncate">{{ node.name }}</span>
+            <Badge
+              v-if="providerById.get(node.id) && !providerById.get(node.id)!.accepting_requests"
+              variant="outline"
+              class="text-amber-600 border-amber-600/40"
+            >paused</Badge>
+          </h2>
+          <Button
+            v-if="providerById.get(node.id)"
+            variant="ghost"
+            size="sm"
+            class="h-7 shrink-0"
+            :disabled="pausingId === node.id"
+            @click="togglePause(node.id)"
+          >
+            <Pause v-if="providerById.get(node.id)!.accepting_requests" class="size-3.5" />
+            <Play v-else class="size-3.5" />
+            {{ providerById.get(node.id)!.accepting_requests ? 'Pause' : 'Resume' }}
+          </Button>
+        </div>
 
-        <div class="space-y-3">
-          <Card v-for="svc in node.services" :key="svc.id" class="p-5">
-            <div class="flex items-start justify-between gap-3 mb-3">
-              <div class="min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <h3 class="font-semibold">{{ svc.name }}</h3>
-                  <Badge v-if="svc.engine" variant="secondary" class="font-mono">{{ svc.engine }}</Badge>
-                  <Badge v-if="!svc.is_active" variant="outline">inactive</Badge>
-                </div>
-                <div v-if="svc.models.length" class="flex flex-wrap gap-1.5 mt-2">
-                  <span
-                    v-for="m in svc.models"
-                    :key="m"
-                    class="px-1.5 py-0.5 text-xs rounded bg-muted font-mono"
-                  >{{ m }}</span>
-                </div>
-                <p v-else class="text-xs text-muted-foreground italic mt-2">No active models.</p>
-              </div>
+        <div class="space-y-2">
+          <Card v-for="svc in node.services" :key="svc.id" class="p-4">
+            <div class="flex flex-wrap items-center gap-2">
+              <h3 class="font-semibold">{{ svc.name }}</h3>
+              <Badge v-if="svc.engine" variant="secondary" class="font-mono">{{ svc.engine }}</Badge>
+              <span
+                v-for="m in svc.models"
+                :key="m"
+                class="px-1.5 py-0.5 text-xs rounded bg-muted font-mono"
+              >{{ m }}</span>
+              <span v-if="!svc.models.length" class="text-xs text-muted-foreground italic">No active models.</span>
             </div>
 
-            <div class="border-t pt-4 space-y-3">
+            <div class="border-t mt-3 pt-3 space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                 <label class="text-sm font-medium w-40 shrink-0">Who can use this</label>
                 <Select v-model="svc.access_policy">

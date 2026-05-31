@@ -5,6 +5,15 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineNuxtConfig({
   compatibilityDate: '2024-11-01',
   devtools: { enabled: true },
+  app: {
+    head: {
+      title: 'inference.club',
+      link: [
+        { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' },
+        { rel: 'alternate icon', href: '/favicon.ico' },
+      ],
+    },
+  },
   runtimeConfig: {
     // Server-only base for SSR data fetches (NUXT_API_BASE_INTERNAL). The
     // browser uses public.apiBase; but during SSR inside a container that

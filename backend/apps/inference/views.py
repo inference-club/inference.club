@@ -529,9 +529,15 @@ class ModelCatalogView(APIView):
         data = []
         for c in catalogs:
             providers = {}
+            served = []
             for d in getattr(c, "active_deployments", []):
                 p = d.provider
                 providers[p.id] = {"name": p.name, "online": p.is_online}
+                if d.served_context_len:
+                    served.append(d.served_context_len)
+            # The real, usable context (largest served across online nodes)
+            # takes precedence over the HF-derived ceiling.
+            context_length = (max(served) if served else None) or c.native_context_length
             md = c.metadata or {}
             data.append(
                 {
@@ -541,7 +547,7 @@ class ModelCatalogView(APIView):
                     "hf_url": c.hf_url,
                     "is_custom": c.is_custom,
                     "architecture": c.architecture,
-                    "context_length": c.native_context_length,
+                    "context_length": context_length,
                     "input_modalities": c.input_modalities or [],
                     "output_modalities": c.output_modalities or [],
                     "supported_features": c.supported_features or [],
@@ -923,6 +929,9 @@ def refresh_provider_models(provider) -> int:
     # derived from the served name) and anything missed.
     _link_missing_catalog(provider)
 
+    # Store probed context windows (max_model_len) reported by the agent.
+    _apply_context_lengths(provider, incoming)
+
     # A successful round-trip is the strongest possible "online" signal —
     # bump last_seen_at so the provider isn't shown offline to /v1/models
     # callers between actual inference requests.
@@ -935,6 +944,20 @@ def _link_missing_catalog(provider) -> None:
     for pm in provider.models.filter(is_active=True, catalog_model__isnull=True):
         link_catalog_model(pm)
         pm.save(update_fields=["catalog_model", "modified_on"])
+
+
+def _apply_context_lengths(provider, incoming: dict) -> None:
+    """Store each model's probed ``max_model_len`` (from the agent's live
+    /v1/models rows) on its ProviderModel. Best-effort: rows without the field
+    are left unchanged, so the surface falls back to the catalog/HF value."""
+    for pm in provider.models.filter(is_active=True):
+        row = incoming.get(pm.name)
+        if not isinstance(row, dict):
+            continue
+        ml = row.get("max_model_len")
+        if isinstance(ml, int) and ml > 0 and pm.served_context_len != ml:
+            pm.served_context_len = ml
+            pm.save(update_fields=["served_context_len", "modified_on"])
 
 
 class RefreshProviderModelsView(APIView):

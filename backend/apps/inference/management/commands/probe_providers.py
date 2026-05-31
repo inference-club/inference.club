@@ -58,6 +58,16 @@ class Command(BaseCommand):
             help="Concurrent probes per round.",
         )
         parser.add_argument(
+            "--refresh-every",
+            type=int,
+            default=10,
+            help=(
+                "Run a full model refresh (re-reads each agent's /v1/models to "
+                "pick up model-list changes + probed context windows) every N "
+                "liveness rounds. 0 disables. Default 10 (~5 min at 30s)."
+            ),
+        )
+        parser.add_argument(
             "--once",
             action="store_true",
             help="Run a single probe round and exit (for tests / cron).",
@@ -67,6 +77,7 @@ class Command(BaseCommand):
         interval = options["interval"]
         timeout = options["timeout"]
         workers = options["workers"]
+        refresh_every = options["refresh_every"]
         once = options["once"]
 
         stopping = {"v": False}
@@ -80,15 +91,21 @@ class Command(BaseCommand):
 
         if once:
             self._round(timeout=timeout, workers=workers)
+            if refresh_every:
+                self._refresh_round()
             return
 
         self.stdout.write(
             f"probe_providers running (interval={interval}s, "
-            f"timeout={timeout}s, workers={workers})"
+            f"timeout={timeout}s, workers={workers}, refresh_every={refresh_every})"
         )
+        round_num = 0
         while not stopping["v"]:
+            round_num += 1
             try:
                 self._round(timeout=timeout, workers=workers)
+                if refresh_every and round_num % refresh_every == 0:
+                    self._refresh_round()
             except Exception:
                 # A bug here must not take the loop down — log and try again
                 # next tick. Loud + recoverable beats silent crash-loops.
@@ -123,6 +140,27 @@ class Command(BaseCommand):
             ok,
             len(providers),
         )
+
+    def _refresh_round(self) -> None:
+        """Re-read each agent's /v1/models so model-list changes and probed
+        context windows (max_model_len) land in the DB without manual action.
+        Best-effort and isolated: one failing provider never blocks the rest."""
+        from apps.inference.views import RefreshError, refresh_provider_models
+
+        providers = list(
+            Provider.objects.filter(is_active=True).exclude(tailnet_hostname="")
+        )
+        ok = 0
+        for p in providers:
+            try:
+                refresh_provider_models(p)
+                ok += 1
+            except RefreshError as e:
+                logger.debug("probe_providers: refresh %s skipped: %s", p, e)
+            except Exception:
+                logger.exception("probe_providers: refresh failed for %s", p)
+        if providers:
+            logger.info("probe_providers: refreshed %d/%d providers", ok, len(providers))
 
     def _probe(self, provider: Provider, timeout: float, proxies) -> bool:
         url = f"http://{provider.tailnet_hostname}:{provider.agent_port}/healthz"

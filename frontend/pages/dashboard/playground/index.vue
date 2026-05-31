@@ -68,6 +68,11 @@ const FEATURE_META: Record<string, { icon: unknown; label: string }> = {
   tools: { icon: Wrench, label: 'Tools' },
 }
 
+const fmtCtx = (n: number | null | undefined) => {
+  if (!n) return null
+  return n >= 1000 ? `${Math.round(n / 1024)}K ctx` : `${n} ctx`
+}
+
 // --- generation params -----------------------------------------------------
 const system = ref('')
 const stream = ref(true)
@@ -355,6 +360,10 @@ onMounted(async () => {
     <!-- Selected model capabilities -->
     <div v-if="selected" class="flex flex-wrap items-center gap-1.5 mb-4">
       <span class="text-xs text-muted-foreground mr-1">Capabilities:</span>
+      <span
+        v-if="fmtCtx(selected.context_length)"
+        class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs font-mono"
+      >{{ fmtCtx(selected.context_length) }}</span>
       <span
         v-for="mod in caps"
         :key="mod"

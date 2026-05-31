@@ -250,11 +250,13 @@ def _model_caps(pm) -> dict:
     /v1/models so clients (the playground) can adapt the UI. Extra fields are
     ignored by standard OpenAI clients."""
     cat = pm.catalog_model if pm.catalog_model_id else None
+    # Prefer the live-probed served window over the catalog's HF-derived one.
+    context = pm.served_context_len or (cat.native_context_length if cat else None)
     return {
         "input_modalities": (cat.input_modalities or ["text"]) if cat else ["text"],
         "output_modalities": (cat.output_modalities or ["text"]) if cat else ["text"],
         "supported_features": (cat.supported_features or []) if cat else [],
-        "context_length": (cat.native_context_length if cat else None),
+        "context_length": context,
     }
 
 

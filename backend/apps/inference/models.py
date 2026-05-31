@@ -259,6 +259,11 @@ class ProviderModel(BaseModel):
         "aggregates capacity for a model across the network.",
     )
     context_window = models.PositiveIntegerField(null=True, blank=True)
+    # The served context window (vLLM's max_model_len), probed live from the
+    # running server by the agent and reported via /v1/models. This is the
+    # *real* per-deployment limit; surfaces ahead of the catalog's HF-derived
+    # native length, and falls back to it (then blank) when unknown.
+    served_context_len = models.PositiveIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     metadata = models.JSONField(
         default=dict,

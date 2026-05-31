@@ -2,27 +2,12 @@
 import type { SidebarProps } from '@/components/ui/sidebar'
 import { useRoute } from 'vue-router'
 
-import {
-  GalleryVerticalEnd,
-  Moon,
-  Sun,
-} from 'lucide-vue-next'
-import { useTheme } from '@/composables/useTheme'
 import { dashboardNav } from '@/composables/useDashboardNav'
 
 const route = useRoute()
-const { isDark, toggleTheme } = useTheme()
 const props = withDefaults(defineProps<SidebarProps>(), {
   collapsible: 'icon',
 })
-
-const teams = [
-  {
-    name: 'inference.club',
-    logo: GalleryVerticalEnd,
-    plan: 'free account',
-  },
-]
 
 const isRouteActive = (url: string) => route.path.startsWith(url)
 
@@ -39,24 +24,27 @@ const navMainWithActive = dashboardNav.map(item => ({
 <template>
   <Sidebar v-bind="props">
     <SidebarHeader>
-      <TeamSwitcher :teams="teams" />
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            size="lg"
+            class="cursor-default hover:bg-transparent active:bg-transparent"
+          >
+            <div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+              <AppLogo class="size-4" />
+            </div>
+            <div class="grid flex-1 text-left text-sm leading-tight">
+              <span class="truncate font-semibold">inference.club</span>
+              <span class="truncate text-xs text-muted-foreground">free account</span>
+            </div>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
     </SidebarHeader>
     <SidebarContent>
       <NavMain :items="navMainWithActive" />
     </SidebarContent>
     <SidebarFooter>
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            :tooltip="isDark ? 'Switch to light' : 'Switch to dark'"
-            @click="toggleTheme"
-          >
-            <Sun v-if="isDark" />
-            <Moon v-else />
-            <span>{{ isDark ? 'Light mode' : 'Dark mode' }}</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
       <NavUser />
     </SidebarFooter>
     <SidebarRail />
