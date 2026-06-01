@@ -61,6 +61,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     items: [
       { title: 'Introduction', url: '/docs/introduction' },
       { title: 'Get Started', url: '/docs/get-started' },
+      { title: 'API reference', url: '/api-reference' },
     ],
   },
   {

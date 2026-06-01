@@ -15,6 +15,7 @@ If you have an OpenAI client (the official SDK, Open WebUI, your own scripts, an
 - **[Quickstart](/docs/quickstart)** — get an API key, point a client at the API, run your first request. Five minutes.
 - **[Concepts](/docs/concepts)** — the model in your head: users, providers, agents, models, API keys.
 - **[API reference](/docs/api/overview)** — the OpenAI-compatible endpoints, request shapes, error codes.
+- **[Interactive API explorer](/api-reference)** — the OpenAPI/Swagger reference; authorize with your key and try requests live.
 - **[Run an agent](/docs/providers/run-an-agent)** — install `inference-club-agent`, point it at your local LLM server, register it with inference.club.
 - **[FAQ](/docs/faq)** — common questions and gotchas.
 

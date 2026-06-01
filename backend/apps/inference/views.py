@@ -1343,6 +1343,46 @@ class PublicUserRequestsView(generics.ListAPIView):
         return qs.filter(user=user)
 
 
+import os as _os
+
+_OPENAPI_PATH = _os.path.join(_os.path.dirname(__file__), "openapi.yaml")
+_openapi_cache: dict = {}
+
+
+def _openapi_yaml_text() -> str:
+    if "yaml" not in _openapi_cache:
+        with open(_OPENAPI_PATH, encoding="utf-8") as f:
+            _openapi_cache["yaml"] = f.read()
+    return _openapi_cache["yaml"]
+
+
+def _openapi_spec() -> dict:
+    if "spec" not in _openapi_cache:
+        import yaml
+
+        _openapi_cache["spec"] = yaml.safe_load(_openapi_yaml_text())
+    return _openapi_cache["spec"]
+
+
+class OpenAPISchemaView(APIView):
+    """``GET /openapi.json`` / ``/openapi.yaml`` — the public OpenAPI 3.1 spec
+    for the OpenAI-compatible inference endpoints. Unauthenticated so the docs
+    page (and any external tool) can load it; CORS headers are added by the
+    corsheaders middleware for allowed origins. Set ``as_yaml=True`` in the URL
+    conf to serve raw YAML."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+    as_yaml = False
+
+    def get(self, request):
+        from django.http import HttpResponse, JsonResponse
+
+        if self.as_yaml:
+            return HttpResponse(_openapi_yaml_text(), content_type="application/yaml")
+        return JsonResponse(_openapi_spec())
+
+
 class MediaAssetView(APIView):
     """``GET /api/inference/assets/<id>/`` — stream a stored media asset
     (STT input audio, generated/edited images) from MinIO/disk.

@@ -15,6 +15,8 @@ https://api.inference.club/v1
 
 The `/v1` namespace mirrors the OpenAI API surface. Anything that speaks OpenAI — the official SDKs, Open WebUI, OpenRouter-style routers — can use this base URL with no other changes.
 
+> Prefer an interactive reference? The **[API explorer](/api-reference)** renders the full OpenAPI spec with an "Authorize → Try it out" flow. The machine-readable spec is at [`api.inference.club/openapi.json`](https://api.inference.club/openapi.json).
+
 ## Endpoints
 
 | Endpoint | Modality |
