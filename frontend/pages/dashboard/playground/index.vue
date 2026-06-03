@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   ArrowUp,
   Bot,
+  Loader2,
   Mic,
+  Pause,
+  Play,
   Plus,
   SlidersHorizontal,
   Sparkles,
@@ -12,9 +15,11 @@ import {
   Trash2,
   User,
   Video,
+  Volume2,
   X,
 } from 'lucide-vue-next'
 import { usePlayground, type ChatUsage, type ModelInfo } from '@/composables/usePlayground'
+import { useTextToSpeech } from '@/composables/useTextToSpeech'
 import { MODALITY_META } from '@/utils/modelCapabilities'
 
 definePageMeta({ layout: 'app' })
@@ -39,6 +44,7 @@ interface Msg {
 }
 
 const { listModels, sendChat } = usePlayground()
+const { listTtsModels, synthesize } = useTextToSpeech()
 
 const models = ref<ModelInfo[]>([])
 const model = ref('')
@@ -93,7 +99,20 @@ const canSend = computed(
 const uid = () =>
   (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`)
 
-const scrollDown = async () => {
+// Stick the view to the newest tokens only while the user is already reading at
+// the bottom. The moment they scroll up to revisit earlier output, we stop
+// yanking them back down (autoScroll flips off) until they return to the bottom.
+const autoScroll = ref(true)
+const nearBottom = () => {
+  const el = document.documentElement
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+}
+const onScroll = () => {
+  autoScroll.value = nearBottom()
+}
+
+const scrollDown = async (force = false) => {
+  if (!force && !autoScroll.value) return
   await nextTick()
   bottomAnchor.value?.scrollIntoView({ block: 'end' })
   // Fall back to the window so the message clears the sticky composer at rest.
@@ -228,7 +247,9 @@ const send = async () => {
   messages.value.push(assistant)
   sending.value = true
   controller = new AbortController()
-  await scrollDown()
+  // A fresh send always re-anchors to the bottom, even if they'd scrolled up.
+  autoScroll.value = true
+  await scrollDown(true)
 
   const start = performance.now()
   try {
@@ -258,8 +279,98 @@ const send = async () => {
 }
 
 const stop = () => controller?.abort()
+
+// --- narrate (text-to-speech) ---------------------------------------------
+// A tiny play/pause/stop control on each finished assistant message. We lazily
+// resolve the (single) available TTS model on first use, synthesize with the
+// default voice, cache the audio per message, and play it back. No inference
+// record is created on our side — this is just listening.
+const ttsModel = ref('')
+const ttsResolved = ref(false)
+const narration = reactive<{ index: number | null; status: 'idle' | 'loading' | 'playing' | 'paused' }>(
+  { index: null, status: 'idle' },
+)
+let narrationAudio: HTMLAudioElement | null = null
+const narrationUrls = new Map<number, string>()
+
+const isNarrating = (i: number) => narration.index === i && narration.status !== 'idle'
+const narrStatus = (i: number) => (narration.index === i ? narration.status : 'idle')
+
+const resolveTtsModel = async () => {
+  if (ttsResolved.value) return
+  try {
+    const ms = await listTtsModels()
+    ttsModel.value = ms[0]?.id || ''
+  } catch {
+    ttsModel.value = ''
+  } finally {
+    ttsResolved.value = true
+  }
+}
+
+const stopNarration = () => {
+  if (narrationAudio) {
+    narrationAudio.pause()
+    narrationAudio.onended = null
+    narrationAudio = null
+  }
+  narration.index = null
+  narration.status = 'idle'
+}
+
+const narrate = async (i: number, text: string) => {
+  // Toggling the message that's already active: pause / resume / no-op.
+  if (narration.index === i) {
+    if (narration.status === 'playing') {
+      narrationAudio?.pause()
+      narration.status = 'paused'
+      return
+    }
+    if (narration.status === 'paused') {
+      await narrationAudio?.play()
+      narration.status = 'playing'
+      return
+    }
+    if (narration.status === 'loading') return
+  }
+
+  // Starting a different message stops whatever was playing.
+  stopNarration()
+  await resolveTtsModel()
+  if (!ttsModel.value) {
+    toast.error('No text-to-speech model is available right now.')
+    return
+  }
+
+  narration.index = i
+  narration.status = 'loading'
+  try {
+    let url = narrationUrls.get(i)
+    if (!url) {
+      const audio = await synthesize({ model: ttsModel.value, input: text })
+      url = audio.url
+      narrationUrls.set(i, url)
+    }
+    // The user may have started another narration while we were synthesizing.
+    if (narration.index !== i) return
+    narrationAudio = new Audio(url)
+    narrationAudio.onended = () => {
+      if (narration.index === i) stopNarration()
+    }
+    await narrationAudio.play()
+    narration.status = 'playing'
+  } catch (e: unknown) {
+    if (narration.index === i) stopNarration()
+    const err = e as { name?: string; message?: string }
+    if (err?.name !== 'AbortError') toast.error(err?.message || 'Narration failed')
+  }
+}
+
 const clear = () => {
   if (!sending.value) {
+    stopNarration()
+    narrationUrls.forEach((u) => URL.revokeObjectURL(u))
+    narrationUrls.clear()
     messages.value = []
     attachments.value = []
   }
@@ -281,6 +392,7 @@ const setSlider = (
 }
 
 onMounted(async () => {
+  window.addEventListener('scroll', onScroll, { passive: true })
   micSupported.value = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
   try {
     // Chat is for text-generating (LLM) models; transcription-only (STT) and
@@ -300,6 +412,13 @@ onMounted(async () => {
     loadingModels.value = false
   }
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', onScroll)
+  stopNarration()
+  narrationUrls.forEach((u) => URL.revokeObjectURL(u))
+  narrationUrls.clear()
+})
 </script>
 
 <template>
@@ -315,28 +434,22 @@ onMounted(async () => {
         </p>
       </div>
       <div class="flex items-center gap-2">
-        <Select v-model="model" :disabled="loadingModels || !models.length">
-          <SelectTrigger class="w-[18rem] font-mono text-xs">
-            <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="m in models" :key="m.id" :value="m.id" class="font-mono text-xs">
-              <span class="flex items-center gap-2">
-                <span class="truncate">{{ m.id }}</span>
-                <component
-                  :is="MODALITY_META[mod]?.icon"
-                  v-for="mod in m.input_modalities.filter((x) => x !== 'text')"
-                  :key="mod"
-                  class="size-3 text-muted-foreground shrink-0"
-                />
-              </span>
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        <Button variant="outline" size="icon" class="lg:hidden" @click="showParams = !showParams">
+        <Button
+          variant="outline"
+          size="icon"
+          class="lg:hidden"
+          title="Model & parameters"
+          @click="showParams = !showParams"
+        >
           <SlidersHorizontal class="size-4" />
         </Button>
-        <Button variant="outline" size="icon" :disabled="!messages.length || sending" @click="clear">
+        <Button
+          variant="outline"
+          size="icon"
+          :disabled="!messages.length || sending"
+          title="Clear conversation"
+          @click="clear"
+        >
           <Trash2 class="size-4" />
         </Button>
       </div>
@@ -411,14 +524,40 @@ onMounted(async () => {
               >{{ m.content || (m.role === 'assistant' && sending ? '…' : '') }}</pre>
               <MarkdownRenderer v-else :content="m.content" />
 
-              <!-- Usage -->
+              <!-- Footer: usage stats + narrate (text-to-speech) -->
               <div
-                v-if="m.done && m.usage"
-                class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground"
+                v-if="m.done && m.role === 'assistant' && !m.error && m.content"
+                class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground"
               >
-                <span v-if="m.usage.prompt_tokens != null">↑ {{ m.usage.prompt_tokens }} in</span>
-                <span v-if="m.usage.completion_tokens != null">↓ {{ m.usage.completion_tokens }} out</span>
+                <span v-if="m.usage?.prompt_tokens != null">↑ {{ m.usage.prompt_tokens }} in</span>
+                <span v-if="m.usage?.completion_tokens != null">↓ {{ m.usage.completion_tokens }} out</span>
                 <span v-if="m.tps">{{ m.tps.toFixed(1) }} tok/s</span>
+
+                <span class="inline-flex items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="size-6 text-muted-foreground hover:text-foreground"
+                    :title="narrStatus(i) === 'playing' ? 'Pause narration'
+                      : narrStatus(i) === 'paused' ? 'Resume narration' : 'Narrate this reply'"
+                    @click="narrate(i, m.content)"
+                  >
+                    <Loader2 v-if="narrStatus(i) === 'loading'" class="size-3.5 animate-spin" />
+                    <Pause v-else-if="narrStatus(i) === 'playing'" class="size-3.5" />
+                    <Play v-else-if="narrStatus(i) === 'paused'" class="size-3.5" />
+                    <Volume2 v-else class="size-3.5" />
+                  </Button>
+                  <Button
+                    v-if="isNarrating(i)"
+                    variant="ghost"
+                    size="icon"
+                    class="size-6 text-muted-foreground hover:text-foreground"
+                    title="Stop narration"
+                    @click="stopNarration"
+                  >
+                    <Square class="size-3" />
+                  </Button>
+                </span>
               </div>
             </div>
           </div>
@@ -527,6 +666,27 @@ onMounted(async () => {
       >
         <Card class="p-4 space-y-5">
           <div>
+            <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Model</Label>
+            <Select v-model="model" :disabled="loadingModels || !models.length">
+              <SelectTrigger class="mt-1.5 w-full font-mono text-xs">
+                <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="m in models" :key="m.id" :value="m.id" class="font-mono text-xs">
+                  <span class="flex items-center gap-2">
+                    <span class="truncate">{{ m.id }}</span>
+                    <component
+                      :is="MODALITY_META[mod]?.icon"
+                      v-for="mod in m.input_modalities.filter((x) => x !== 'text')"
+                      :key="mod"
+                      class="size-3 text-muted-foreground shrink-0"
+                    />
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="border-t pt-4">
             <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">System prompt</Label>
             <Textarea v-model="system" rows="3" placeholder="You are a helpful assistant…" class="mt-1.5 resize-none text-sm" />
           </div>

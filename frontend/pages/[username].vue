@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  Activity, BookOpen, Boxes, Cpu, ExternalLink, Github, KeyRound, Server, Sparkles, Wrench,
+  Activity, BookOpen, Boxes, Cpu, ExternalLink, Github, Image as ImageIcon, KeyRound, Server, Sparkles, Wrench,
 } from 'lucide-vue-next'
 import {
   ENGINE_LABELS,
@@ -59,6 +59,24 @@ const loadRequests = async () => {
 watch(reqScope, () => { reqPager.currentPage.value = 1 })
 watch([reqScope, reqPager.currentPage], () => { loadRequests() })
 onMounted(loadRequests)
+
+// Recently generated images — a quick visual strip at the top of the profile.
+const lightbox = useImageLightbox()
+const recentImages = ref<{ url: string; id: string; prompt: string }[]>([])
+const loadRecentImages = async () => {
+  if (!username.value) return
+  try {
+    const res = await listPublicUserRequests(username.value, 'consumed', 12, 0, { type: 'IMAGE' })
+    recentImages.value = res.results
+      .flatMap((r) => (r.image_urls ?? []).map((url) => ({
+        url, id: String(r.id), prompt: r.prompt_preview || '',
+      })))
+      .slice(0, 20)
+  } catch {
+    // non-fatal — the strip just stays hidden if this fails
+  }
+}
+onMounted(loadRecentImages)
 
 // During SSR (inside the container) the browser-facing apiBase may be
 // unreachable; use the server-only internal base when set.
@@ -261,42 +279,23 @@ console.log(resp.choices[0].message.content)`,
       </div>
     </header>
 
-    <!-- use these models: CTA + served models with capabilities -->
-    <section v-if="models.length" class="mb-10 rounded-lg border bg-card p-5">
-      <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
-        <div>
-          <h2 class="font-semibold flex items-center gap-2">
-            <Boxes class="size-4 text-primary" />
-            Models @{{ data.github_login }} is serving
-          </h2>
-          <p class="text-sm text-muted-foreground mt-1">
-            Run them free in the playground or from your own code via the OpenAI-compatible API.
-          </p>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <NuxtLink
-            v-if="firstModel"
-            :to="playgroundLink(firstModel.slug)"
-            class="inline-flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium hover:bg-primary/90"
-          >
-            <Sparkles class="size-4" /> Open in Playground
-          </NuxtLink>
-          <NuxtLink
-            to="/dashboard/settings/token"
-            class="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-          >
-            <KeyRound class="size-4" /> Get an API key
-          </NuxtLink>
-          <NuxtLink
-            to="/docs/quickstart"
-            class="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-          >
-            <BookOpen class="size-4" /> Docs
-          </NuxtLink>
-        </div>
+    <!-- recently generated images: a quick visual strip -->
+    <section v-if="recentImages.length" class="mb-10">
+      <h2 class="font-semibold flex items-center gap-2 mb-3">
+        <ImageIcon class="size-4 text-fuchsia-500" /> Recently generated
+      </h2>
+      <div class="flex gap-3 overflow-x-auto pb-2">
+        <img
+          v-for="(img, i) in recentImages"
+          :key="i"
+          :src="img.url"
+          :alt="img.prompt"
+          :title="img.prompt"
+          loading="lazy"
+          class="h-40 w-auto shrink-0 cursor-zoom-in rounded-lg border object-cover transition-opacity hover:opacity-90"
+          @click="lightbox.open(img.url)"
+        />
       </div>
-
-      <CodeTabs :snippets="snippets" filename="POST /chat/completions" />
     </section>
 
     <!-- empty state: no nodes -->
@@ -492,7 +491,7 @@ console.log(resp.choices[0].message.content)`,
           v-for="r in requests"
           :key="r.id"
           :request="r"
-          :linkable="false"
+          :linkable="true"
           :show-owner="reqScope === 'served'"
         />
         <PaginationControls
@@ -545,6 +544,44 @@ console.log(resp.choices[0].message.content)`,
         </div>
         <ContributionHeatmap :data="data.stats.consumer.daily" scheme="sky" />
       </div>
+    </section>
+
+    <!-- use these models: CTA + API usage snippets (moved to the bottom) -->
+    <section v-if="models.length" class="mb-10 rounded-lg border bg-card p-5">
+      <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+        <div>
+          <h2 class="font-semibold flex items-center gap-2">
+            <Boxes class="size-4 text-primary" />
+            Models @{{ data.github_login }} is serving
+          </h2>
+          <p class="text-sm text-muted-foreground mt-1">
+            Run them free in the playground or from your own code via the OpenAI-compatible API.
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <NuxtLink
+            v-if="firstModel"
+            :to="playgroundLink(firstModel.slug)"
+            class="inline-flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium hover:bg-primary/90"
+          >
+            <Sparkles class="size-4" /> Open in Playground
+          </NuxtLink>
+          <NuxtLink
+            to="/dashboard/settings/token"
+            class="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            <KeyRound class="size-4" /> Get an API key
+          </NuxtLink>
+          <NuxtLink
+            to="/docs/quickstart"
+            class="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            <BookOpen class="size-4" /> Docs
+          </NuxtLink>
+        </div>
+      </div>
+
+      <CodeTabs :snippets="snippets" filename="POST /chat/completions" />
     </section>
 
     <!-- owner-only raw YAML modal -->

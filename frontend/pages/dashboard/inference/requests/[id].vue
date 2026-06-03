@@ -255,11 +255,11 @@ onMounted(() => {
         <div v-if="req.payload?.prompt" class="text-sm mb-3">
           <span class="text-muted-foreground">Prompt:</span> {{ req.payload.prompt }}
         </div>
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-wrap items-start gap-3">
           <div v-if="req.input_image_url" class="relative">
             <img
               :src="req.input_image_url"
-              class="max-h-72 cursor-zoom-in rounded-lg border opacity-80 transition-opacity hover:opacity-100"
+              class="max-h-[75vh] w-auto cursor-zoom-in rounded-lg border object-contain opacity-80 transition-opacity hover:opacity-100"
               @click="lightbox.open(req.input_image_url)"
             />
             <Badge class="absolute top-1.5 left-1.5" variant="secondary">source</Badge>
@@ -268,7 +268,7 @@ onMounted(() => {
             v-for="(url, i) in req.image_urls"
             :key="i"
             :src="url"
-            class="max-h-72 cursor-zoom-in rounded-lg border transition-opacity hover:opacity-90"
+            class="max-h-[75vh] w-auto cursor-zoom-in rounded-lg border object-contain transition-opacity hover:opacity-90"
             @click="lightbox.open(url)"
           />
         </div>

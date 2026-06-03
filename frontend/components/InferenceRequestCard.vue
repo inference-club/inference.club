@@ -93,58 +93,73 @@ const onClick = () => {
       </AlertDialog>
     </div>
 
-    <!-- STT: input audio + transcript -->
-    <template v-if="isStt">
-      <div v-if="props.request.audio_url" class="mt-3" @click.stop>
+    <!-- Body: input on the left, output on the right -->
+    <!-- STT: input audio → transcript -->
+    <div v-if="isStt" class="mt-3 grid gap-4 sm:grid-cols-2">
+      <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Audio</p>
-        <audio :src="props.request.audio_url" controls class="w-full h-9" />
+        <audio v-if="props.request.audio_url" :src="props.request.audio_url" controls class="w-full h-9" @click.stop />
+        <p v-else class="text-sm text-muted-foreground">—</p>
       </div>
-      <div class="mt-2">
+      <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Transcript</p>
-        <p class="text-sm line-clamp-2">{{ props.request.response_preview || '—' }}</p>
+        <p class="text-sm line-clamp-3">{{ props.request.response_preview || '—' }}</p>
       </div>
-    </template>
+    </div>
 
-    <!-- TTS: input text + audio player -->
-    <template v-else-if="isTts">
-      <div class="mt-3">
+    <!-- TTS: input text → audio output -->
+    <div v-else-if="isTts" class="mt-3 grid gap-4 sm:grid-cols-2">
+      <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Text</p>
-        <p class="text-sm line-clamp-2">{{ props.request.prompt_preview || '—' }}</p>
+        <p class="text-sm line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
       </div>
-      <div v-if="props.request.output_audio_url" class="mt-2" @click.stop>
-        <audio :src="props.request.output_audio_url" controls class="w-full h-9" />
+      <div class="min-w-0">
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Speech</p>
+        <audio
+          v-if="props.request.output_audio_url"
+          :src="props.request.output_audio_url"
+          controls
+          class="w-full h-9"
+          @click.stop
+        />
+        <p v-else class="text-sm text-muted-foreground">—</p>
       </div>
-    </template>
+    </div>
 
-    <!-- IMAGE: prompt + thumbnails -->
-    <template v-else-if="isImage">
-      <div class="mt-3">
+    <!-- IMAGE: prompt → generated images (images feature large on the right) -->
+    <div v-else-if="isImage" class="mt-3 grid gap-4 sm:grid-cols-2 sm:items-stretch">
+      <div class="min-w-0 flex flex-col">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
-        <p class="text-sm line-clamp-2">{{ props.request.prompt_preview || '—' }}</p>
+        <p class="text-sm line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
       </div>
-      <div v-if="props.request.image_urls?.length" class="mt-2 flex flex-wrap gap-2">
+      <div
+        v-if="props.request.image_urls?.length"
+        class="grid gap-1.5"
+        :class="props.request.image_urls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'"
+      >
         <img
           v-for="(url, i) in props.request.image_urls.slice(0, 4)"
           :key="i"
           :src="url"
-          class="size-24 cursor-zoom-in rounded-lg border object-cover transition-opacity hover:opacity-90"
+          class="h-full max-h-80 min-h-32 w-full cursor-zoom-in rounded-lg border object-cover transition-opacity hover:opacity-90"
           loading="lazy"
           @click.stop="lightbox.open(url)"
         />
       </div>
-    </template>
+      <p v-else class="text-sm text-muted-foreground">—</p>
+    </div>
 
-    <!-- LLM: prompt + response previews -->
-    <template v-else>
-      <div class="mt-3">
+    <!-- LLM: prompt → response -->
+    <div v-else class="mt-3 grid gap-4 sm:grid-cols-2">
+      <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
-        <p class="text-sm line-clamp-2">{{ props.request.prompt_preview || '—' }}</p>
+        <p class="text-sm line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
       </div>
-      <div class="mt-2">
+      <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Response</p>
-        <p class="text-sm text-muted-foreground line-clamp-2">{{ props.request.response_preview || '—' }}</p>
+        <p class="text-sm text-muted-foreground line-clamp-3">{{ props.request.response_preview || '—' }}</p>
       </div>
-    </template>
+    </div>
 
     <!-- Footer metadata -->
     <div class="mt-3 pt-3 border-t flex items-center gap-4 flex-wrap text-xs text-muted-foreground">

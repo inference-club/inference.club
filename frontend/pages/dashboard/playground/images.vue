@@ -24,9 +24,24 @@ const loadingModels = ref(true)
 const modelsError = ref('')
 
 const prompt = ref('')
-const size = ref('1024x1024')
 const n = ref(1)
-const SIZES = ['256x256', '512x512', '768x768', '1024x1024']
+
+// Aspect-ratio presets — each maps to a concrete WxH the API receives via the
+// `size` param. Sizes are ~1MP, SDXL-friendly dimensions (multiples of 64).
+interface AspectPreset { label: string; ratio: string; w: number; h: number }
+const ASPECT_PRESETS: AspectPreset[] = [
+  { label: 'Square', ratio: '1:1', w: 1024, h: 1024 },
+  { label: 'Landscape', ratio: '3:2', w: 1216, h: 832 },
+  { label: 'Portrait', ratio: '2:3', w: 832, h: 1216 },
+  { label: 'Widescreen', ratio: '16:9', w: 1344, h: 768 },
+  { label: 'Tall', ratio: '9:16', w: 768, h: 1344 },
+  { label: 'Landscape', ratio: '4:3', w: 1152, h: 896 },
+  { label: 'Portrait', ratio: '3:4', w: 896, h: 1152 },
+]
+const size = ref(`${ASPECT_PRESETS[0].w}x${ASPECT_PRESETS[0].h}`)
+const currentPreset = computed(
+  () => ASPECT_PRESETS.find((p) => `${p.w}x${p.h}` === size.value) ?? ASPECT_PRESETS[0],
+)
 
 // Optional source image → switches to the edit endpoint.
 interface SourceImage { blob: Blob; name: string; url: string }
@@ -107,6 +122,15 @@ const run = async () => {
 }
 const stop = () => controller?.abort()
 
+// ⌘/Ctrl+Enter generates (or edits) — so you can tweak options then fire
+// without reaching for the button.
+const onPromptKeydown = (e: KeyboardEvent) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault()
+    run()
+  }
+}
+
 const download = (url: string, i: number) => {
   const a = document.createElement('a')
   a.href = url
@@ -173,8 +197,9 @@ onBeforeUnmount(() => {
           <Textarea
             v-model="prompt"
             rows="3"
-            placeholder="A watercolor fox in a misty forest at dawn…"
+            placeholder="A watercolor fox in a misty forest at dawn…  (⌘/Ctrl+Enter to generate)"
             class="resize-none text-sm"
+            @keydown="onPromptKeydown"
           />
 
           <!-- Suggested prompts (collapsible) -->
@@ -251,11 +276,11 @@ onBeforeUnmount(() => {
             <span class="inline-flex items-center gap-1"><Clock class="size-3" /> {{ r.latencyMs }} ms</span>
             <span class="truncate flex-1">{{ r.prompt }}</span>
           </div>
-          <div class="flex flex-wrap gap-3">
+          <div class="flex flex-wrap items-start gap-3">
             <div v-if="r.sourceUrl" class="relative">
               <img
                 :src="r.sourceUrl"
-                class="max-h-64 cursor-zoom-in rounded-lg border opacity-80 transition-opacity hover:opacity-100"
+                class="max-h-[70vh] w-auto cursor-zoom-in rounded-lg border object-contain opacity-80 transition-opacity hover:opacity-100"
                 @click="lightbox.open(r.sourceUrl)"
               />
               <Badge class="absolute top-1.5 left-1.5" variant="secondary">source</Badge>
@@ -264,7 +289,7 @@ onBeforeUnmount(() => {
               <img
                 v-if="img.url"
                 :src="img.url"
-                class="max-h-64 cursor-zoom-in rounded-lg border transition-opacity hover:opacity-90"
+                class="max-h-[70vh] w-auto cursor-zoom-in rounded-lg border object-contain transition-opacity hover:opacity-90"
                 @click="lightbox.open(img.url)"
               />
               <Button
@@ -287,13 +312,36 @@ onBeforeUnmount(() => {
           <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Options</Label>
         </div>
         <div>
-          <Label class="text-xs text-muted-foreground">Size</Label>
+          <Label class="text-xs text-muted-foreground">Aspect ratio</Label>
           <Select v-model="size">
             <SelectTrigger class="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem v-for="s in SIZES" :key="s" :value="s" class="text-sm">{{ s }}</SelectItem>
+              <SelectItem
+                v-for="p in ASPECT_PRESETS"
+                :key="`${p.w}x${p.h}`"
+                :value="`${p.w}x${p.h}`"
+                class="text-sm"
+              >
+                {{ p.label }} · {{ p.ratio }}
+              </SelectItem>
             </SelectContent>
           </Select>
+
+          <!-- Live shape preview -->
+          <div class="mt-2 flex h-32 items-center justify-center rounded-lg border bg-muted/30 p-3">
+            <div
+              class="rounded border-2 border-primary/50 bg-primary/10"
+              :style="{
+                aspectRatio: `${currentPreset.w} / ${currentPreset.h}`,
+                maxWidth: '100%',
+                maxHeight: '100%',
+                ...(currentPreset.w >= currentPreset.h ? { width: '100%' } : { height: '100%' }),
+              }"
+            />
+          </div>
+          <p class="mt-1 text-center text-[11px] text-muted-foreground tabular-nums">
+            {{ currentPreset.w }} × {{ currentPreset.h }}
+          </p>
         </div>
         <div>
           <Label class="text-xs text-muted-foreground">Number of images</Label>

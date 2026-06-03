@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count, Prefetch, Sum
+from django.db.models import Count, Prefetch, Q, Sum
 from django.db.models.functions import TruncDate
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -58,6 +58,31 @@ def _requests_with_owner():
     ).prefetch_related("user__social_auth", "assets")
 
 
+# Valid inference_type values, used to validate the ?type= query param.
+_INFERENCE_TYPES = {t[0] for t in InferenceRequest.INFERENCE_TYPES}
+
+
+def _apply_request_filters(qs, params):
+    """Shared list-filtering for the request endpoints.
+
+    ``?type=IMAGE`` narrows to a single modality (powers the image gallery and
+    the profile "recent images" strip). ``?search=`` matches the stored prompt
+    (image/TTS payloads carry it directly) and the model name, case-insensitive.
+    Both are optional and compose.
+    """
+    itype = (params.get("type") or "").upper().strip()
+    if itype in _INFERENCE_TYPES:
+        qs = qs.filter(inference_type=itype)
+
+    search = (params.get("search") or "").strip()
+    if search:
+        qs = qs.filter(
+            Q(payload__prompt__icontains=search)
+            | Q(model_name__icontains=search)
+        )
+    return qs
+
+
 class InferenceRequestView(generics.ListCreateAPIView):
     """GET lists the requesting user's own requests (powers "Your Inference
     Requests"); POST creates a request."""
@@ -72,7 +97,8 @@ class InferenceRequestView(generics.ListCreateAPIView):
         return InferenceRequestListSerializer
 
     def get_queryset(self):
-        return _requests_with_owner().filter(user=self.request.user)
+        qs = _requests_with_owner().filter(user=self.request.user)
+        return _apply_request_filters(qs, self.request.query_params)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -87,7 +113,7 @@ class AllInferenceRequestView(generics.ListAPIView):
     serializer_class = InferenceRequestListSerializer
 
     def get_queryset(self):
-        return _requests_with_owner()
+        return _apply_request_filters(_requests_with_owner(), self.request.query_params)
 
 
 class RetrieveInferenceRequestView(generics.RetrieveDestroyAPIView):
@@ -1339,8 +1365,10 @@ class PublicUserRequestsView(generics.ListAPIView):
             raise Http404("no such user")
         qs = _requests_with_owner()
         if self.request.query_params.get("scope") == "served":
-            return qs.filter(provider__user=user)
-        return qs.filter(user=user)
+            qs = qs.filter(provider__user=user)
+        else:
+            qs = qs.filter(user=user)
+        return _apply_request_filters(qs, self.request.query_params)
 
 
 import os as _os

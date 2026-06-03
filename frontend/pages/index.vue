@@ -149,7 +149,7 @@ const features = [
 </script>
 
 <template>
-  <div class="relative overflow-hidden">
+  <div class="relative overflow-x-clip">
     <!-- Ambient background effects -->
     <div class="pointer-events-none absolute inset-0 -z-10">
       <div class="absolute inset-x-0 top-0 h-[800px] bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.18),transparent_55%)]" />

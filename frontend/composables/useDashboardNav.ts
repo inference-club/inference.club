@@ -38,6 +38,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     items: [
       { title: 'Your requests', url: '/dashboard/inference/requests' },
       { title: 'All requests', url: '/dashboard/inference/requests/all' },
+      { title: 'Gallery', url: '/dashboard/inference/gallery' },
     ],
   },
   {
@@ -62,7 +63,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     items: [
       { title: 'Introduction', url: '/docs/introduction' },
       { title: 'Get Started', url: '/docs/get-started' },
-      { title: 'API reference', url: '/api-reference' },
+      { title: 'API reference', url: '/dashboard/api-reference' },
     ],
   },
   {

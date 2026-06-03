@@ -62,13 +62,27 @@ export function useInferenceRequest() {
     }
   }
 
-  const listInferenceRequests = async (limit: number = 10, offset: number = 0) => {
+  // Optional filters shared by the list endpoints: ?type=IMAGE narrows to a
+  // modality, ?search= matches the stored prompt / model name.
+  interface ListFilters { type?: string; search?: string }
+  const buildQuery = (limit: number, offset: number, filters: ListFilters = {}) => {
+    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+    if (filters.type) qs.set('type', filters.type)
+    if (filters.search) qs.set('search', filters.search)
+    return qs.toString()
+  }
+
+  const listInferenceRequests = async (
+    limit: number = 10,
+    offset: number = 0,
+    filters: ListFilters = {},
+  ) => {
     loading.value = true
     error.value = null
 
     try {
       const response = await fetch(
-        `${config.public.apiBase}/api/inference/requests/?limit=${limit}&offset=${offset}`,
+        `${config.public.apiBase}/api/inference/requests/?${buildQuery(limit, offset, filters)}`,
         {
           credentials: 'include',
         }
@@ -87,13 +101,17 @@ export function useInferenceRequest() {
     }
   }
 
-  const listAllInferenceRequests = async (limit: number = 10, offset: number = 0) => {
+  const listAllInferenceRequests = async (
+    limit: number = 10,
+    offset: number = 0,
+    filters: ListFilters = {},
+  ) => {
     loading.value = true
     error.value = null
 
     try {
       const response = await fetch(
-        `${config.public.apiBase}/api/inference/requests/all/?limit=${limit}&offset=${offset}`,
+        `${config.public.apiBase}/api/inference/requests/all/?${buildQuery(limit, offset, filters)}`,
         { credentials: 'include' }
       )
 
@@ -117,6 +135,7 @@ export function useInferenceRequest() {
     scope: 'consumed' | 'served' = 'consumed',
     limit: number = 10,
     offset: number = 0,
+    filters: ListFilters = {},
   ) => {
     loading.value = true
     error.value = null
@@ -124,7 +143,7 @@ export function useInferenceRequest() {
     try {
       const response = await fetch(
         `${config.public.apiBase}/api/users/${encodeURIComponent(githubLogin)}/requests/`
-          + `?scope=${scope}&limit=${limit}&offset=${offset}`,
+          + `?scope=${scope}&${buildQuery(limit, offset, filters)}`,
         { credentials: 'include' }
       )
 
