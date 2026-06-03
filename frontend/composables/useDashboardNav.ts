@@ -22,6 +22,7 @@ export const dashboardNav: DashboardNavGroup[] = [
       { title: 'Chat', url: '/dashboard/playground' },
       { title: 'Transcription', url: '/dashboard/playground/transcribe' },
       { title: 'Images', url: '/dashboard/playground/images' },
+      { title: 'Text to speech', url: '/dashboard/playground/speech' },
     ],
   },
   {

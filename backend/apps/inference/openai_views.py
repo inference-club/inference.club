@@ -1009,6 +1009,233 @@ class _ImageProxyBase(_RateLimitHeadersMixin, APIView):
         )
 
 
+def _riva_encoding(response_format):
+    """Map an OpenAI ``response_format`` to a (riva_encoding, content_type, ext).
+    Riva returns WAV (LINEAR_PCM) natively; we support that and OGG/Opus, and
+    fall back to WAV for formats Riva can't produce (mp3/aac/flac) rather than
+    transcoding."""
+    fmt = (response_format or "wav").lower()
+    if fmt in ("opus", "ogg"):
+        return "OGGOPUS", "audio/ogg", "ogg"
+    # wav, pcm, and the unsupported mp3/aac/flac all resolve to WAV.
+    return "LINEAR_PCM", "audio/wav", "wav"
+
+
+def _wav_seconds(audio: bytes):
+    """Duration (seconds) of a WAV blob, for metering. None for non-WAV."""
+    import io
+    import wave
+
+    try:
+        with wave.open(io.BytesIO(audio)) as w:
+            rate = w.getframerate()
+            return round(w.getnframes() / float(rate), 3) if rate else None
+    except Exception:
+        return None
+
+
+def _flatten_voices(data) -> list:
+    """Flatten Riva's nested list_voices shape
+    ``{"en-US,es-US,...": {"voices": [...]}}`` into a sorted unique list."""
+    out: list[str] = []
+    if isinstance(data, dict):
+        for v in data.values():
+            if isinstance(v, dict) and isinstance(v.get("voices"), list):
+                out.extend(str(x) for x in v["voices"])
+            elif isinstance(v, list):
+                out.extend(str(x) for x in v)
+    elif isinstance(data, list):
+        out.extend(str(x) for x in data)
+    return sorted(set(out))
+
+
+class AudioSpeechView(_RateLimitHeadersMixin, APIView):
+    """``POST /v1/audio/speech`` — OpenAI-compatible text-to-speech.
+
+    The request is the OpenAI shape (`model`, `input`, `voice`, …); we adapt it
+    to the provider's NVIDIA Riva ``/v1/audio/synthesize`` endpoint, store the
+    generated audio (public OUTPUT_AUDIO), and return the raw audio bytes —
+    exactly like the OpenAI API. Routes only to `tts` services.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "inference"
+    inference_type = "TTS"
+
+    def post(self, request):
+        body = request.data if isinstance(request.data, dict) else {}
+        text = body.get("input")
+        if not isinstance(text, str) or not text.strip():
+            return Response(
+                {"error": {"message": "`input` is required.", "type": "missing_input"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(text) > settings.TTS_MAX_INPUT_CHARS:
+            return Response(
+                {"error": {"message": "Input text too long.", "type": "request_too_large"}},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        model_name = body.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="tts"
+        )
+        if provider_model is None:
+            return Response(
+                {
+                    "error": {
+                        "message": f"No online text-to-speech provider serving model "
+                        f"'{model_name}' for this user.",
+                        "type": "no_provider",
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        provider = provider_model.provider
+        canonical = _model_slug(provider_model)
+        voice = body.get("voice") or settings.TTS_DEFAULT_VOICE
+        language = body.get("language") or settings.TTS_DEFAULT_LANGUAGE
+        try:
+            sample_rate = int(body.get("sample_rate_hz") or settings.TTS_DEFAULT_SAMPLE_RATE)
+        except (TypeError, ValueError):
+            sample_rate = settings.TTS_DEFAULT_SAMPLE_RATE
+        requested_format = body.get("response_format") or "wav"
+        encoding, content_type, ext = _riva_encoding(requested_format)
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="TTS",
+            payload={
+                "model": canonical or model_name or "",
+                "input": text,
+                "voice": voice,
+                "language": language,
+                "response_format": requested_format,
+            },
+            status="PROCESSING",
+        )
+
+        # Adapt to Riva's multipart /audio/synthesize. Sent as multipart form
+        # fields (files with (None, value)) to match the NIM's expectation.
+        endpoint = provider.tailnet_base_url.rstrip("/") + "/audio/synthesize"
+        fields = {
+            "text": (None, text),
+            "language": (None, language),
+            "voice": (None, voice),
+            "sample_rate_hz": (None, str(sample_rate)),
+            "encoding": (None, encoding),
+        }
+        started = time.monotonic()
+        try:
+            upstream = requests.post(
+                endpoint, files=fields, timeout=UPSTREAM_TIMEOUT_SECONDS,
+                verify=False, proxies=_tailnet_proxies(),
+            )
+        except requests.RequestException as e:
+            ir.status = "REQUESTED"
+            ir.results = {"error": str(e)}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            logger.error("Upstream speech synthesis failed: %s", e)
+            return Response(
+                {"error": {"message": str(e), "type": "upstream_error"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not upstream.ok:
+            ir.status = "REQUESTED"
+            ir.results = {"upstream_status": upstream.status_code}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            return Response(
+                upstream.json()
+                if upstream.headers.get("content-type", "").startswith("application/json")
+                else {"error": upstream.text[:500]},
+                status=upstream.status_code,
+            )
+
+        audio = upstream.content
+        out_ct = upstream.headers.get("content-type") or content_type
+        seconds = _wav_seconds(audio)
+
+        from django.core.files.base import ContentFile
+
+        from .models import MediaAsset
+
+        asset = None
+        try:
+            asset = MediaAsset(
+                user=request.user, inference_request=ir, kind=MediaAsset.OUTPUT_AUDIO,
+                content_type=out_ct, size_bytes=len(audio), duration_seconds=seconds,
+            )
+            asset.file.save(f"speech.{ext}", ContentFile(audio), save=False)
+            asset.save()
+        except Exception as e:
+            logger.warning("output-audio store failed: %s", e)
+
+        ir.status = "PROCESSED"
+        ir.audio_seconds = seconds
+        ir.results = {
+            "audio_asset_id": asset.id if asset else None,
+            "content_type": out_ct,
+            "voice": voice,
+            "characters": len(text),
+        }
+        ir.latency_ms = int((time.monotonic() - started) * 1000)
+        ir.save(
+            update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"]
+        )
+        Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+
+        from django.http import HttpResponse
+
+        resp = HttpResponse(audio, content_type=out_ct)
+        resp["Content-Disposition"] = f'inline; filename="speech.{ext}"'
+        return resp
+
+
+class AudioVoicesView(_RateLimitHeadersMixin, APIView):
+    """``GET /v1/audio/voices?model=<id>`` — the voices a TTS model offers.
+
+    An inference.club extension (not in OpenAI's API) that proxies the
+    provider's Riva ``list_voices`` so the playground can populate a dropdown
+    that matches what the NIM actually serves.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "models"
+
+    def get(self, request):
+        model_name = request.query_params.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="tts"
+        )
+        if provider_model is None:
+            return Response(
+                {"error": {"message": "No text-to-speech model found.", "type": "no_provider"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        endpoint = provider_model.provider.tailnet_base_url.rstrip("/") + "/audio/list_voices"
+        try:
+            upstream = requests.get(
+                endpoint, timeout=30, verify=False, proxies=_tailnet_proxies()
+            )
+            upstream.raise_for_status()
+            data = upstream.json()
+        except (requests.RequestException, ValueError) as e:
+            logger.warning("list_voices failed: %s", e)
+            return Response(
+                {"error": {"message": "Could not load voices.", "type": "upstream_error"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"voices": _flatten_voices(data)})
+
+
 class ImageGenerationsView(_ImageProxyBase):
     """``POST /v1/images/generations`` — OpenAI-compatible text-to-image."""
 

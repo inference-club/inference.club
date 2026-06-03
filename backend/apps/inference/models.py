@@ -484,10 +484,10 @@ class MediaAsset(BaseModel):
         (INPUT_IMAGE, "Input image"),
         (OUTPUT_IMAGE, "Output image"),
     )
-    # Kinds served publicly (by URL, no auth) so generated images embed in
-    # <img> tags and show on profiles. Private kinds (uploaded audio) stay
-    # owner-gated. The user opted images "open by default".
-    PUBLIC_KINDS = {INPUT_IMAGE, OUTPUT_IMAGE}
+    # Kinds served publicly (by URL, no auth) so generated images/audio embed
+    # in <img>/<audio> tags and show on profiles. Generated output is open by
+    # default; uploaded input audio (STT) stays owner-gated/private.
+    PUBLIC_KINDS = {INPUT_IMAGE, OUTPUT_IMAGE, OUTPUT_AUDIO}
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

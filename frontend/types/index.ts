@@ -60,7 +60,8 @@ export interface InferenceRequest {
 
   // Audio modalities (STT now; TTS later)
   audio_seconds?: number | null
-  audio_url?: string | null
+  audio_url?: string | null // input audio (STT)
+  output_audio_url?: string | null // generated audio (TTS)
   transcription?: TranscriptionExtras | null
 
   // Image generation

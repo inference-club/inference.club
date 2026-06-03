@@ -340,6 +340,14 @@ IMAGE_ALLOWED_CONTENT_TYPES = {
     "application/octet-stream",
 }
 
+# ---- text-to-speech (TTS) guardrails ------------------------------------
+TTS_MAX_INPUT_CHARS = int(os.environ.get("TTS_MAX_INPUT_CHARS", "5000"))
+# Default voice + language when the client omits them. The Riva/Magpie NIM
+# serves these; override per-deployment if your model uses different names.
+TTS_DEFAULT_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "Magpie-Multilingual.EN-US.Mia")
+TTS_DEFAULT_LANGUAGE = os.environ.get("TTS_DEFAULT_LANGUAGE", "en-US")
+TTS_DEFAULT_SAMPLE_RATE = int(os.environ.get("TTS_DEFAULT_SAMPLE_RATE", "44100"))
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---- proxy/headers ------------------------------------------------------

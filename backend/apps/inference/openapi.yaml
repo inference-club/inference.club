@@ -14,10 +14,10 @@ info:
     Requests are proxied to a member's home GPU that serves the requested model.
     Get an API key from **Dashboard → Settings → Token**.
 
-    Each model on `GET /models` reports a `service_type` (`llm`, `stt`, or
-    `image`) plus its modalities, and requests only route to a matching service —
-    a transcription never lands on a chat model, an image request never on a
-    text model.
+    Each model on `GET /models` reports a `service_type` (`llm`, `stt`,
+    `image`, or `tts`) plus its modalities, and requests only route to a
+    matching service — a transcription never lands on a chat model, an image
+    request never on a text model.
 
     > **Try it out** makes real calls against a live provider's GPU using your
     > API key (click **Authorize**). They count against your rate limit.
@@ -35,7 +35,7 @@ tags:
   - name: Chat
     description: Text generation (LLM) — OpenAI chat & completions.
   - name: Audio
-    description: Speech-to-text (STT / ASR).
+    description: Speech-to-text (STT) and text-to-speech (TTS).
   - name: Images
     description: Image generation and editing.
 
@@ -198,6 +198,73 @@ paths:
         "413": { $ref: "#/components/responses/TooLarge" }
         "415": { $ref: "#/components/responses/UnsupportedMedia" }
 
+  /audio/speech:
+    post:
+      tags: [Audio]
+      summary: Synthesize speech from text
+      description: |
+        Text-to-speech. Returns the **raw audio** (WAV by default, or Opus),
+        exactly like OpenAI. A copy is stored on inference.club for your
+        history. Metered by audio duration.
+      operationId: createSpeech
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, input]
+              properties:
+                model: { type: string, description: "A `tts` model id from /models." }
+                input: { type: string, description: "The text to synthesize." }
+                voice: { type: string, description: "A voice name (see /audio/voices)." }
+                response_format: { type: string, enum: [wav, opus], default: wav }
+                language: { type: string, description: "Optional language hint, e.g. en-US." }
+            example:
+              model: magpie-tts-multilingual
+              input: "Hello from inference club"
+              voice: "Magpie-Multilingual.EN-US.Mia"
+      responses:
+        "200":
+          description: The synthesized audio bytes.
+          content:
+            audio/wav:
+              schema: { type: string, format: binary }
+            audio/ogg:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+
+  /audio/voices:
+    get:
+      tags: [Audio]
+      summary: List a TTS model's voices
+      description: |
+        The voices a text-to-speech model offers. An inference.club extension
+        (not part of OpenAI's API).
+      operationId: listVoices
+      parameters:
+        - name: model
+          in: query
+          required: true
+          schema: { type: string }
+          description: A `tts` model id.
+      responses:
+        "200":
+          description: The available voices.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  voices: { type: array, items: { type: string } }
+              example:
+                voices: ["Magpie-Multilingual.EN-US.Mia", "Magpie-Multilingual.EN-US.Jason"]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoProvider" }
+
   /images/generations:
     post:
       tags: [Images]
@@ -338,7 +405,7 @@ components:
         object: { type: string, example: model }
         created: { type: integer }
         owned_by: { type: string }
-        service_type: { type: string, enum: [llm, stt, image], description: "Which surface this model serves." }
+        service_type: { type: string, enum: [llm, stt, image, tts], description: "Which surface this model serves." }
         input_modalities: { type: array, items: { type: string }, example: [text] }
         output_modalities: { type: array, items: { type: string }, example: [text] }
         supported_features: { type: array, items: { type: string }, example: [reasoning] }

@@ -23,6 +23,7 @@ const emit = defineEmits<{ (e: 'delete', id: string): void }>()
 const lightbox = useImageLightbox()
 const isStt = computed(() => props.request.inference_type === 'STT')
 const isImage = computed(() => props.request.inference_type === 'IMAGE')
+const isTts = computed(() => props.request.inference_type === 'TTS')
 const fmtSeconds = (s?: number | null) =>
   s == null ? null : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`
 
@@ -104,6 +105,17 @@ const onClick = () => {
       </div>
     </template>
 
+    <!-- TTS: input text + audio player -->
+    <template v-else-if="isTts">
+      <div class="mt-3">
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Text</p>
+        <p class="text-sm line-clamp-2">{{ props.request.prompt_preview || '—' }}</p>
+      </div>
+      <div v-if="props.request.output_audio_url" class="mt-2" @click.stop>
+        <audio :src="props.request.output_audio_url" controls class="w-full h-9" />
+      </div>
+    </template>
+
     <!-- IMAGE: prompt + thumbnails -->
     <template v-else-if="isImage">
       <div class="mt-3">
@@ -137,7 +149,7 @@ const onClick = () => {
     <!-- Footer metadata -->
     <div class="mt-3 pt-3 border-t flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
       <span
-        v-if="isStt"
+        v-if="isStt || isTts"
         class="inline-flex items-center gap-1"
         title="Audio duration"
       >

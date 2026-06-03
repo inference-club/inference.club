@@ -410,6 +410,7 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
     streamed = serializers.SerializerMethodField()
     has_reasoning = serializers.SerializerMethodField()
     audio_url = serializers.SerializerMethodField()
+    output_audio_url = serializers.SerializerMethodField()
     image_urls = serializers.SerializerMethodField()
 
     class Meta:
@@ -427,6 +428,7 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
             "usage",
             "audio_seconds",
             "audio_url",
+            "output_audio_url",
             "image_count",
             "image_urls",
             "prompt_preview",
@@ -440,6 +442,10 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
 
     def get_audio_url(self, obj):
         return _input_audio_url(obj, self.context.get("request"))
+
+    def get_output_audio_url(self, obj):
+        urls = _asset_urls(obj, self.context.get("request"), "OUTPUT_AUDIO")
+        return urls[0] if urls else None
 
     def get_image_urls(self, obj):
         if obj.inference_type != "IMAGE":
@@ -456,10 +462,12 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
         return _is_streamed(obj)
 
     def get_prompt_preview(self, obj) -> str:
-        # Image (and other non-chat) requests carry a flat `prompt` field.
-        if isinstance(obj.payload, dict) and isinstance(obj.payload.get("prompt"), str):
-            if not _extract_messages(obj.payload):
-                return _truncate(obj.payload["prompt"])
+        # Image / TTS (and other non-chat) requests carry a flat `prompt` /
+        # `input` field instead of chat messages.
+        if isinstance(obj.payload, dict) and not _extract_messages(obj.payload):
+            for key in ("prompt", "input"):
+                if isinstance(obj.payload.get(key), str):
+                    return _truncate(obj.payload[key])
         msgs = _extract_messages(obj.payload)
         for m in reversed(msgs):
             if m["role"] == "user":
@@ -485,6 +493,7 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
     streamed = serializers.SerializerMethodField()
     tokens_per_second = serializers.SerializerMethodField()
     audio_url = serializers.SerializerMethodField()
+    output_audio_url = serializers.SerializerMethodField()
     transcription = serializers.SerializerMethodField()
     image_urls = serializers.SerializerMethodField()
     input_image_url = serializers.SerializerMethodField()
@@ -507,6 +516,7 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
             "usage",
             "audio_seconds",
             "audio_url",
+            "output_audio_url",
             "transcription",
             "image_count",
             "image_urls",
@@ -524,6 +534,10 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
 
     def get_audio_url(self, obj):
         return _input_audio_url(obj, self.context.get("request"))
+
+    def get_output_audio_url(self, obj):
+        urls = _asset_urls(obj, self.context.get("request"), "OUTPUT_AUDIO")
+        return urls[0] if urls else None
 
     def get_transcription(self, obj):
         return _transcription(obj.results)

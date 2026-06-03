@@ -21,6 +21,7 @@ const id = computed(() => String(route.params.id))
 const req = computed(() => store.currentRequest)
 const isStt = computed(() => req.value?.inference_type === 'STT')
 const isImage = computed(() => req.value?.inference_type === 'IMAGE')
+const isTts = computed(() => req.value?.inference_type === 'TTS')
 const lightbox = useImageLightbox()
 
 const finishReason = computed<string | null>(() => {
@@ -232,6 +233,19 @@ onMounted(() => {
         />
       </Card>
 
+      <!-- Text to speech -->
+      <Card v-if="isTts" class="p-4 mb-4">
+        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+          Speech
+          <Badge v-if="req.audio_seconds != null" variant="outline">{{ req.audio_seconds.toFixed(1) }}s</Badge>
+        </h2>
+        <div v-if="req.payload?.input" class="text-sm mb-3">
+          <span class="text-muted-foreground">Text:</span> {{ req.payload.input }}
+        </div>
+        <audio v-if="req.output_audio_url" :src="req.output_audio_url" controls class="w-full h-10" />
+        <div v-else class="text-sm text-muted-foreground">No audio stored for this request.</div>
+      </Card>
+
       <!-- Image generation -->
       <Card v-if="isImage" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -264,7 +278,7 @@ onMounted(() => {
       </Card>
 
       <!-- Conversation -->
-      <Card v-if="!isStt && !isImage" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage && !isTts" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3">
           Conversation
           <span class="text-sm font-normal text-muted-foreground">
@@ -314,7 +328,7 @@ onMounted(() => {
       </Card>
 
       <!-- Response -->
-      <Card v-if="!isStt && !isImage" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage && !isTts" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
           Response
           <Badge v-if="req.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">

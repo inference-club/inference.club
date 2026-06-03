@@ -1,7 +1,9 @@
 from django.urls import path
 
 from .openai_views import (
+    AudioSpeechView,
     AudioTranscriptionsView,
+    AudioVoicesView,
     ChatCompletionsView,
     CompletionsView,
     ImageEditsView,
@@ -20,6 +22,10 @@ urlpatterns = [
     path("completions/", CompletionsView.as_view()),
     path("audio/transcriptions", AudioTranscriptionsView.as_view(), name="audio-transcriptions"),
     path("audio/transcriptions/", AudioTranscriptionsView.as_view()),
+    path("audio/speech", AudioSpeechView.as_view(), name="audio-speech"),
+    path("audio/speech/", AudioSpeechView.as_view()),
+    path("audio/voices", AudioVoicesView.as_view(), name="audio-voices"),
+    path("audio/voices/", AudioVoicesView.as_view()),
     path("images/generations", ImageGenerationsView.as_view(), name="images-generations"),
     path("images/generations/", ImageGenerationsView.as_view()),
     path("images/edits", ImageEditsView.as_view(), name="images-edits"),
