@@ -1,38 +1,48 @@
 import { defineContentConfig, defineCollection, z } from '@nuxt/content'
 
-// Two collections: docs and blog. Keeping them separate gives each its own
-// schema (blog needs publishedAt + author; docs needs sidebar order +
-// category) and makes queries explicit.
-export default defineContentConfig({
-  collections: {
-    docs: defineCollection({
-      type: 'page',
-      source: 'docs/**/*.md',
-      schema: z.object({
-        // Lower numbers sort first inside a category. Optional — defaults to
-        // alphabetical fallback when missing.
-        order: z.number().optional(),
-        // Sidebar grouping. Pages without a category render at the top level.
-        category: z.string().optional(),
-      }),
-    }),
-    blog: defineCollection({
-      type: 'page',
-      source: 'blog/**/*.md',
-      schema: z.object({
-        publishedAt: z.string(),
-        author: z.string().optional(),
-        tags: z.array(z.string()).optional(),
-        // Header image path (e.g. /images/blog/<slug>.png). Optional — pages
-        // fall back to a gradient when absent.
-        image: z.string().optional(),
-        // Text prompt used to generate the header image. Every post should
-        // include this so a matching banner can be (re)generated on demand.
-        image_prompt: z.string().optional(),
-        // Mark one post to surface on the homepage. Newest featured wins;
-        // falls back to the newest post overall when none is flagged.
-        featured: z.boolean().optional(),
-      }),
-    }),
-  },
+// One collection per locale per content type (blog_en, blog_fr, docs_en, …).
+// Nuxt Content v3 has no built-in i18n, so this is the official pattern: each
+// collection sources a language subfolder, and `prefix: ''` strips the locale
+// segment so stored paths stay locale-free (/blog/x, /docs/x). The active
+// locale is chosen at query time, falling back to English when a translation
+// is missing (see composables/useLocalizedContent.ts).
+//
+// Adding a language = add its code here (and one content/<code>/ folder).
+const LOCALES = ['en', 'zh', 'ja', 'ru', 'fr', 'ko', 'es'] as const
+
+// blog needs publishedAt + author; docs needs sidebar order + category.
+const blogSchema = z.object({
+  publishedAt: z.string(),
+  author: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  // Header image path (e.g. /images/blog/<slug>.png). Optional — pages fall
+  // back to a gradient when absent.
+  image: z.string().optional(),
+  // Text prompt used to generate the header image.
+  image_prompt: z.string().optional(),
+  // Mark one post to surface on the homepage.
+  featured: z.boolean().optional(),
 })
+
+const docsSchema = z.object({
+  // Lower numbers sort first inside a category.
+  order: z.number().optional(),
+  // Sidebar grouping. Pages without a category render at the top level.
+  category: z.string().optional(),
+})
+
+const collections: Record<string, ReturnType<typeof defineCollection>> = {}
+for (const code of LOCALES) {
+  collections[`blog_${code}`] = defineCollection({
+    type: 'page',
+    source: { include: `${code}/blog/**/*.md`, prefix: '' },
+    schema: blogSchema,
+  })
+  collections[`docs_${code}`] = defineCollection({
+    type: 'page',
+    source: { include: `${code}/docs/**/*.md`, prefix: '' },
+    schema: docsSchema,
+  })
+}
+
+export default defineContentConfig({ collections })

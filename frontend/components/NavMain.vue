@@ -17,14 +17,17 @@ import {
 import { ChevronRight, type LucideIcon } from 'lucide-vue-next'
 import { NuxtLink } from '#components'
 
+const { t } = useI18n()
+const localePath = useLocalePath()
+
 defineProps<{
   items: {
-    title: string
+    titleKey: string
     url?: string
     icon?: LucideIcon
     isActive?: boolean
     items?: {
-      title: string
+      titleKey: string
       url: string
     }[]
   }[]
@@ -33,29 +36,29 @@ defineProps<{
 
 <template>
   <SidebarGroup>
-    <SidebarGroupLabel>Platform</SidebarGroupLabel>
+    <SidebarGroupLabel>{{ t('dashboard.platform') }}</SidebarGroupLabel>
     <SidebarMenu>
       <Collapsible
         v-for="item in items"
-        :key="item.title"
+        :key="item.titleKey"
         as-child
         :default-open="item.isActive"
         class="group/collapsible"
       >
         <SidebarMenuItem>
           <CollapsibleTrigger as-child>
-            <SidebarMenuButton :tooltip="item.title">
+            <SidebarMenuButton :tooltip="t(item.titleKey)">
               <component :is="item.icon" v-if="item.icon" />
-              <span>{{ item.title }}</span>
+              <span>{{ t(item.titleKey) }}</span>
               <ChevronRight class="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
             </SidebarMenuButton>
           </CollapsibleTrigger>
           <CollapsibleContent>
             <SidebarMenuSub>
-              <SidebarMenuSubItem v-for="subItem in item.items" :key="subItem.title">
+              <SidebarMenuSubItem v-for="subItem in item.items" :key="subItem.titleKey">
                 <SidebarMenuSubButton as-child>
-                  <NuxtLink :to="subItem.url">
-                    <span>{{ subItem.title }}</span>
+                  <NuxtLink :to="localePath(subItem.url)">
+                    <span>{{ t(subItem.titleKey) }}</span>
                   </NuxtLink>
                 </SidebarMenuSubButton>
               </SidebarMenuSubItem>

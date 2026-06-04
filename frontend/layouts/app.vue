@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Sun, Moon } from 'lucide-vue-next'
 import { useTheme } from '@/composables/useTheme'
 
+const { t } = useI18n()
 const { isDark, toggleTheme } = useTheme()
 </script>
 
@@ -18,16 +19,16 @@ const { isDark, toggleTheme } = useTheme()
             class="mr-2 data-[orientation=vertical]:h-4"
           />
           <DashboardBreadcrumbs />
+          <LanguagePicker class="ml-auto" />
           <Button
             variant="ghost"
             size="icon"
-            class="ml-auto"
-            :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+            :title="isDark ? t('dashboard.switchToLight') : t('dashboard.switchToDark')"
             @click="toggleTheme"
           >
             <Sun v-if="isDark" class="h-5 w-5" />
             <Moon v-else class="h-5 w-5" />
-            <span class="sr-only">Toggle theme</span>
+            <span class="sr-only">{{ t('nav.toggleTheme') }}</span>
           </Button>
         </div>
       </header>

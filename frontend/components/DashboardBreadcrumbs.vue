@@ -4,29 +4,37 @@ import { useRoute } from 'vue-router'
 import { dashboardNav } from '@/composables/useDashboardNav'
 
 const route = useRoute()
+const { t, locale, defaultLocale } = useI18n()
 
 const humanize = (seg: string) =>
   seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
-// Build the breadcrumb trail from the current route, lined up with the sidebar
-// nav. Plain text (not links) — they just mirror where you are.
+// nav urls are locale-free; strip the /<locale> prefix that
+// prefix_except_default adds so matching against them works in every locale.
+const stripLocale = (path: string): string => {
+  if (locale.value === defaultLocale) return path
+  const prefix = `/${locale.value}`
+  if (path === prefix) return '/'
+  return path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path
+}
+
 // Humanized path segments after /dashboard — the universal fallback so the
 // breadcrumb is never empty even if the nav config is momentarily unavailable.
 const fallbackCrumbs = (path: string): string[] => {
   const segs = path.split('/').filter(Boolean)
   const after = segs[0] === 'dashboard' ? segs.slice(1) : segs
-  return after.length ? after.map(humanize) : ['Dashboard']
+  return after.length ? after.map(humanize) : [t('dashboard.home')]
 }
 
 const crumbs = computed<string[]>(() => {
-  const path = route.path.replace(/\/+$/, '') || '/'
+  const path = stripLocale(route.path.replace(/\/+$/, '') || '/')
 
-  if (path === '/dashboard') return ['Dashboard']
+  if (path === '/dashboard') return [t('dashboard.home')]
 
   // Request detail is reachable from both "Your" and "All", so attribute it to
   // the group rather than a specific sidebar item.
   const detail = path.match(/^\/dashboard\/inference\/requests\/(\d+)$/)
-  if (detail) return ['Inference Requests', `Request #${detail[1]}`]
+  if (detail) return [t('dashboard.groups.inferenceRequests'), t('dashboard.requestDetail', { id: detail[1] })]
 
   // Guard the nav lookup so a transiently-undefined import can never throw and
   // wipe the breadcrumb — we just fall back to humanized path segments.
@@ -35,7 +43,7 @@ const crumbs = computed<string[]>(() => {
   // Exact sidebar item match → [group, item].
   for (const group of nav) {
     for (const item of group.items) {
-      if (item.url === path) return [group.title, item.title]
+      if (item.url === path) return [t(group.titleKey), t(item.titleKey)]
     }
   }
 
@@ -44,7 +52,7 @@ const crumbs = computed<string[]>(() => {
   for (const group of nav) {
     for (const item of group.items) {
       if (path.startsWith(item.url + '/') && (!best || item.url.length > best.url.length)) {
-        best = { group: group.title, item: item.title, url: item.url }
+        best = { group: t(group.titleKey), item: t(item.titleKey), url: item.url }
       }
     }
   }

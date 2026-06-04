@@ -2,12 +2,17 @@
 definePageMeta({ layout: 'default' })
 
 const route = useRoute()
-const config = useRuntimeConfig()
+const localePath = useLocalePath()
+const { findByPath, locale } = useLocalizedContent()
 
-const { data: post } = await useAsyncData(
+// Query the active locale's collection, falling back to English when the post
+// isn't translated yet. `fellBack` drives the notice banner.
+const { data } = await useAsyncData(
   `blog:${route.path}`,
-  () => queryCollection('blog').path(route.path).first(),
+  () => findByPath('blog', route.path),
 )
+const post = computed(() => data.value?.doc ?? null)
+const fellBack = computed(() => data.value?.fellBack ?? false)
 
 if (!post.value) {
   throw createError({ statusCode: 404, statusMessage: 'Post not found' })
@@ -88,6 +93,7 @@ const formatDate = (iso: string) =>
            prose-img:rounded-lg
            prose-a:underline-offset-4"
   >
+    <ContentFallbackBanner v-if="fellBack" />
     <div
       v-if="post!.image"
       class="not-prose mb-8 sm:mb-10 rounded-xl overflow-hidden border shadow-sm"
@@ -107,7 +113,7 @@ const formatDate = (iso: string) =>
         <template v-if="post!.author">
           ·
           <NuxtLink
-            :to="`/${post!.author}`"
+            :to="localePath(`/${post!.author}`)"
             class="hover:text-foreground underline-offset-4 hover:underline"
           >@{{ post!.author }}</NuxtLink>
         </template>
@@ -126,8 +132,8 @@ const formatDate = (iso: string) =>
     </header>
     <ContentRenderer :value="post!" />
     <footer class="not-prose mt-12 sm:mt-16 pt-8 border-t">
-      <NuxtLink to="/blog" class="text-sm text-muted-foreground hover:text-foreground">
-        ← All posts
+      <NuxtLink :to="localePath('/blog')" class="text-sm text-muted-foreground hover:text-foreground">
+        ← {{ $t('common.allPosts') }}
       </NuxtLink>
     </footer>
   </article>

@@ -2,82 +2,84 @@ import { BookOpen, Boxes, Cpu, Send, Settings2, Sparkles, Trophy } from 'lucide-
 import type { Component } from 'vue'
 
 export interface DashboardNavItem {
-  title: string
+  // i18n key resolved with t() at render time (e.g. 'dashboard.items.chat').
+  titleKey: string
   url: string
 }
 
 export interface DashboardNavGroup {
-  title: string
+  titleKey: string
   icon: Component
   items: DashboardNavItem[]
 }
 
 // Single source of truth for the dashboard sidebar AND the breadcrumbs, so the
-// two never drift apart.
+// two never drift apart. Titles are i18n keys (not literals) so both surfaces
+// localize from one place; matching is by `url`, which stays locale-free.
 export const dashboardNav: DashboardNavGroup[] = [
   {
-    title: 'Playground',
+    titleKey: 'dashboard.groups.playground',
     icon: Sparkles,
     items: [
-      { title: 'Chat', url: '/dashboard/playground' },
-      { title: 'Transcription', url: '/dashboard/playground/transcribe' },
-      { title: 'Images', url: '/dashboard/playground/images' },
-      { title: 'Text to speech', url: '/dashboard/playground/speech' },
+      { titleKey: 'dashboard.items.chat', url: '/dashboard/playground' },
+      { titleKey: 'dashboard.items.transcription', url: '/dashboard/playground/transcribe' },
+      { titleKey: 'dashboard.items.images', url: '/dashboard/playground/images' },
+      { titleKey: 'dashboard.items.textToSpeech', url: '/dashboard/playground/speech' },
     ],
   },
   {
-    title: 'Models',
+    titleKey: 'dashboard.groups.models',
     icon: Boxes,
     items: [
-      { title: 'Catalog', url: '/dashboard/models' },
+      { titleKey: 'dashboard.items.catalog', url: '/dashboard/models' },
     ],
   },
   {
-    title: 'Inference Requests',
+    titleKey: 'dashboard.groups.inferenceRequests',
     icon: Send,
     items: [
-      { title: 'Your requests', url: '/dashboard/inference/requests' },
-      { title: 'All requests', url: '/dashboard/inference/requests/all' },
-      { title: 'Gallery', url: '/dashboard/inference/gallery' },
-      { title: 'Starred', url: '/dashboard/inference/starred' },
-      { title: 'Bookmarks', url: '/dashboard/inference/bookmarks' },
-      { title: 'Collections', url: '/dashboard/inference/collections' },
+      { titleKey: 'dashboard.items.yourRequests', url: '/dashboard/inference/requests' },
+      { titleKey: 'dashboard.items.allRequests', url: '/dashboard/inference/requests/all' },
+      { titleKey: 'dashboard.items.gallery', url: '/dashboard/inference/gallery' },
+      { titleKey: 'dashboard.items.starred', url: '/dashboard/inference/starred' },
+      { titleKey: 'dashboard.items.bookmarks', url: '/dashboard/inference/bookmarks' },
+      { titleKey: 'dashboard.items.collections', url: '/dashboard/inference/collections' },
     ],
   },
   {
-    title: 'Leaderboard',
+    titleKey: 'dashboard.groups.leaderboard',
     icon: Trophy,
     items: [
-      { title: 'Token usage', url: '/dashboard/leaderboard' },
+      { titleKey: 'dashboard.items.tokenUsage', url: '/dashboard/leaderboard' },
     ],
   },
   {
-    title: 'Compute',
+    titleKey: 'dashboard.groups.compute',
     icon: Cpu,
     items: [
-      { title: 'My nodes', url: '/dashboard/providers/my-nodes' },
-      { title: 'All nodes', url: '/dashboard/providers/all-nodes' },
-      { title: 'Manifests', url: '/dashboard/manifest' },
+      { titleKey: 'dashboard.items.myNodes', url: '/dashboard/providers/my-nodes' },
+      { titleKey: 'dashboard.items.allNodes', url: '/dashboard/providers/all-nodes' },
+      { titleKey: 'dashboard.items.manifests', url: '/dashboard/manifest' },
     ],
   },
   {
-    title: 'Documentation',
+    titleKey: 'dashboard.groups.documentation',
     icon: BookOpen,
     items: [
-      { title: 'Introduction', url: '/docs/introduction' },
-      { title: 'Get Started', url: '/docs/get-started' },
-      { title: 'API reference', url: '/dashboard/api-reference' },
+      { titleKey: 'dashboard.items.introduction', url: '/docs/introduction' },
+      { titleKey: 'dashboard.items.getStarted', url: '/docs/get-started' },
+      { titleKey: 'dashboard.items.apiReference', url: '/dashboard/api-reference' },
     ],
   },
   {
-    title: 'Settings',
+    titleKey: 'dashboard.groups.settings',
     icon: Settings2,
     items: [
-      { title: 'General', url: '/dashboard/settings/general' },
-      { title: 'Routing', url: '/dashboard/settings/routing' },
-      { title: 'Usage', url: '/dashboard/settings/usage' },
-      { title: 'Access', url: '/dashboard/settings/access' },
-      { title: 'Token', url: '/dashboard/settings/token' },
+      { titleKey: 'dashboard.items.general', url: '/dashboard/settings/general' },
+      { titleKey: 'dashboard.items.routing', url: '/dashboard/settings/routing' },
+      { titleKey: 'dashboard.items.usage', url: '/dashboard/settings/usage' },
+      { titleKey: 'dashboard.items.access', url: '/dashboard/settings/access' },
+      { titleKey: 'dashboard.items.token', url: '/dashboard/settings/token' },
     ],
   },
 ]

@@ -3,14 +3,14 @@
     <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
       <!-- Left: Logo/Name -->
       <div class="flex items-center space-x-2">
-        <NuxtLink to="/" class="font-bold text-lg">inference.club</NuxtLink>
+        <NuxtLink :to="localePath('/')" class="font-bold text-lg">inference.club</NuxtLink>
       </div>
       <!-- Center: Navigation Links -->
       <nav class="flex flex-wrap gap-4 text-muted-foreground text-sm">
-        <NuxtLink to="/about" class="hover:text-primary transition">About</NuxtLink>
-        <NuxtLink to="/contact" class="hover:text-primary transition">Contact</NuxtLink>
-        <NuxtLink to="/privacy-policy" class="hover:text-primary transition">Privacy Policy</NuxtLink>
-        <NuxtLink to="/terms-of-service" class="hover:text-primary transition">Terms of Service</NuxtLink>
+        <NuxtLink :to="localePath('/about')" class="hover:text-primary transition">{{ t('footer.about') }}</NuxtLink>
+        <NuxtLink :to="localePath('/contact')" class="hover:text-primary transition">{{ t('footer.contact') }}</NuxtLink>
+        <NuxtLink :to="localePath('/privacy-policy')" class="hover:text-primary transition">{{ t('footer.privacyPolicy') }}</NuxtLink>
+        <NuxtLink :to="localePath('/terms-of-service')" class="hover:text-primary transition">{{ t('footer.termsOfService') }}</NuxtLink>
       </nav>
       <!-- Right: Socials -->
       <div class="flex items-center gap-4">
@@ -29,10 +29,12 @@
       </div>
     </div>
     <div class="mt-8 text-center text-xs text-muted-foreground">
-      &copy; {{ new Date().getFullYear() }} inference.club. All rights reserved.
+      {{ t('footer.rights', { year: new Date().getFullYear() }) }}
     </div>
   </footer>
 </template>
 
 <script setup lang="ts">
+const { t } = useI18n()
+const localePath = useLocalePath()
 </script>

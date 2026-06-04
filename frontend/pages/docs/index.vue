@@ -1,11 +1,11 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'docs' })
 
-// The /docs root is rendered from content/docs/index.md so editors don't
-// need to touch Vue to change the landing page.
-const { data: page } = await useAsyncData('docs:/docs', () =>
-  queryCollection('docs').path('/docs').first(),
-)
+// The /docs root is rendered from content/<locale>/docs/index.md so editors
+// don't need to touch Vue to change the landing page. Falls back to English.
+const { findByPath } = useLocalizedContent()
+const { data } = await useAsyncData('docs:/docs', () => findByPath('docs', '/docs'))
+const page = computed(() => data.value?.doc ?? null)
 
 useSeoMeta({
   title: 'inference.club docs',

@@ -2,12 +2,15 @@
 definePageMeta({ layout: 'docs' })
 
 const route = useRoute()
+const { findByPath } = useLocalizedContent()
 
-// queryCollection().path() takes the URL path. Our docs live at /docs/...
-const { data: page } = await useAsyncData(
+// Active-locale docs page, falling back to English when untranslated.
+const { data } = await useAsyncData(
   `docs:${route.path}`,
-  () => queryCollection('docs').path(route.path).first(),
+  () => findByPath('docs', route.path),
 )
+const page = computed(() => data.value?.doc ?? null)
+const fellBack = computed(() => data.value?.fellBack ?? false)
 
 if (!page.value) {
   throw createError({ statusCode: 404, statusMessage: 'Doc not found' })
@@ -21,6 +24,7 @@ useSeoMeta({
 
 <template>
   <article>
+    <ContentFallbackBanner v-if="fellBack" />
     <ContentRenderer v-if="page" :value="page" />
   </article>
 </template>

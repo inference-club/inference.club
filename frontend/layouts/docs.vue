@@ -11,7 +11,20 @@ type NavItem = {
   children?: NavItem[]
 }
 
-const { data: nav } = await useAsyncData('docs-nav', () => queryCollectionNavigation('docs'))
+const localePath = useLocalePath()
+const { collectionName, locale } = useLocalizedContent()
+
+// Sidebar reflects the active locale's docs; falls back to English nav when the
+// locale has no docs translated yet so the tree is never empty.
+const { data: nav } = await useAsyncData(
+  'docs-nav',
+  async () => {
+    const localized = await queryCollectionNavigation(collectionName('docs'))
+    if (localized?.length) return localized
+    return await queryCollectionNavigation(collectionName('docs', 'en'))
+  },
+  { watch: [locale] },
+)
 
 function sorted(items: NavItem[] | undefined): NavItem[] {
   if (!items) return []
@@ -27,7 +40,9 @@ function sorted(items: NavItem[] | undefined): NavItem[] {
 
 const tree = computed<NavItem[]>(() => sorted(nav.value as NavItem[] | undefined))
 const route = useRoute()
-const isActive = (path: string) => route.path === path
+// item paths are locale-free (/docs/x); compare against the localized form so
+// the active item highlights correctly under a locale prefix (/fr/docs/x).
+const isActive = (path: string) => route.path === localePath(path)
 </script>
 
 <template>
@@ -40,7 +55,7 @@ const isActive = (path: string) => route.path === path
             <template v-for="item in tree" :key="item.path">
               <li>
                 <NuxtLink
-                  :to="item.path"
+                  :to="localePath(item.path)"
                   :class="[
                     'block px-2 py-1 rounded hover:bg-accent',
                     isActive(item.path) ? 'bg-accent text-accent-foreground font-medium' : '',
@@ -51,7 +66,7 @@ const isActive = (path: string) => route.path === path
                 <ul v-if="item.children?.length" class="mt-1 ml-3 space-y-1 border-l pl-3">
                   <li v-for="child in item.children" :key="child.path">
                     <NuxtLink
-                      :to="child.path"
+                      :to="localePath(child.path)"
                       :class="[
                         'block px-2 py-1 rounded hover:bg-accent',
                         isActive(child.path) ? 'bg-accent text-accent-foreground font-medium' : '',

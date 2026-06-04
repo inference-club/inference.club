@@ -5,11 +5,14 @@ import { useRoute } from 'vue-router'
 import { dashboardNav } from '@/composables/useDashboardNav'
 
 const route = useRoute()
+const localePath = useLocalePath()
 const props = withDefaults(defineProps<SidebarProps>(), {
   collapsible: 'icon',
 })
 
-const isRouteActive = (url: string) => route.path.startsWith(url)
+// nav urls are locale-free (/dashboard/x); compare against the localized form so
+// the active item resolves under a locale prefix (/fr/dashboard/x).
+const isRouteActive = (url: string) => route.path.startsWith(localePath(url))
 
 const navMainWithActive = dashboardNav.map(item => ({
   ...item,

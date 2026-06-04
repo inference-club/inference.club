@@ -2,48 +2,50 @@
   <header class="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
     <div class="flex h-14 items-center px-4 sm:px-6 lg:px-8">
       <div class="mr-4 flex">
-        <NuxtLink to="/" class="mr-6 flex items-center gap-2">
+        <NuxtLink :to="localePath('/')" class="mr-6 flex items-center gap-2">
           <AppLogo class="size-6 text-primary" />
           <span class="font-bold text-xl">inference.club</span>
         </NuxtLink>
         <nav class="hidden md:flex items-center space-x-4 text-sm">
           <NuxtLink
             v-if="isAuthenticated"
-            to="/dashboard"
+            :to="localePath('/dashboard')"
             class="text-muted-foreground transition-colors hover:text-foreground"
           >
-            Dashboard
+            {{ t('nav.dashboard') }}
           </NuxtLink>
           <NuxtLink
-            to="/status"
+            :to="localePath('/status')"
             class="text-muted-foreground transition-colors hover:text-foreground"
           >
-            Network
+            {{ t('nav.network') }}
           </NuxtLink>
           <NuxtLink
-            to="/docs"
+            :to="localePath('/docs')"
             class="text-muted-foreground transition-colors hover:text-foreground"
           >
-            Docs
+            {{ t('nav.docs') }}
           </NuxtLink>
           <NuxtLink
-            to="/blog"
+            :to="localePath('/blog')"
             class="text-muted-foreground transition-colors hover:text-foreground"
           >
-            Blog
+            {{ t('nav.blog') }}
           </NuxtLink>
         </nav>
       </div>
       <div class="flex flex-1 items-center justify-end space-x-2">
+        <LanguagePicker />
+
         <Button variant="ghost" size="sm" @click="toggleTheme">
           <Sun v-if="isDark" class="h-5 w-5" />
           <Moon v-else class="h-5 w-5" />
-          <span class="sr-only">Toggle theme</span>
+          <span class="sr-only">{{ t('nav.toggleTheme') }}</span>
         </Button>
 
         <!-- Show login button if not authenticated -->
         <Button v-if="!isAuthenticated" variant="ghost" size="sm">
-          <NuxtLink to="/login">Login</NuxtLink>
+          <NuxtLink :to="localePath('/login')">{{ t('nav.login') }}</NuxtLink>
         </Button>
 
         <!-- Show logout button with popover if authenticated -->
@@ -51,7 +53,7 @@
           <PopoverTrigger as-child>
             <Button variant="ghost" size="sm">
               <User class="h-5 w-5" />
-              <span class="sr-only">User menu</span>
+              <span class="sr-only">{{ t('nav.userMenu') }}</span>
             </Button>
           </PopoverTrigger>
           <PopoverContent class="w-56" align="end">
@@ -71,15 +73,15 @@
                 variant="ghost"
                 class="justify-start"
               >
-                <NuxtLink :to="`/${user.github_login}`">
+                <NuxtLink :to="localePath(`/${user.github_login}`)">
                   <UserRound class="mr-2 h-4 w-4" />
-                  Public profile
+                  {{ t('nav.publicProfile') }}
                 </NuxtLink>
               </Button>
               <Button as-child variant="ghost" class="justify-start">
-                <NuxtLink to="/dashboard/settings/general">
+                <NuxtLink :to="localePath('/dashboard/settings/general')">
                   <Settings class="mr-2 h-4 w-4" />
-                  Account settings
+                  {{ t('nav.accountSettings') }}
                 </NuxtLink>
               </Button>
               <Separator />
@@ -89,7 +91,7 @@
                 @click="logout"
               >
                 <LogOut class="mr-2 h-4 w-4" />
-                Logout
+                {{ t('nav.logout') }}
               </Button>
             </div>
           </PopoverContent>
@@ -107,6 +109,8 @@ import { useAuth } from '@/composables/useAuth'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
 
+const { t } = useI18n()
+const localePath = useLocalePath()
 const { isDark, toggleTheme } = useTheme()
 const { user, isAuthenticated, logout } = useAuth()
 </script>

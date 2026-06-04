@@ -6,6 +6,8 @@ import { useAuth } from '@/composables/useAuth'
 import { useProviders } from '@/composables/useProviders'
 import CodeTabs from '@/components/CodeTabs.vue'
 
+const { t, locale } = useI18n()
+const localePath = useLocalePath()
 const { isAuthenticated } = useAuth()
 
 // Nudge signed-in members who haven't put a model-serving node on the network yet.
@@ -24,11 +26,16 @@ const needsNode = computed(
 )
 
 // Featured blog post for the homepage: the newest post flagged `featured`,
-// else the newest post overall.
-const { data: featuredPost } = await useAsyncData('home:featured', async () => {
-  const posts = await queryCollection('blog').order('publishedAt', 'DESC').all()
-  return posts.find(p => p.featured) ?? posts[0] ?? null
-})
+// else the newest post overall — in the active locale, falling back to English.
+const { listMerged } = useLocalizedContent()
+const { data: featuredPost } = await useAsyncData(
+  'home:featured',
+  async () => {
+    const posts = await listMerged('blog', q => q.order('publishedAt', 'DESC'))
+    return posts.find(p => p.featured) ?? posts[0] ?? null
+  },
+  { watch: [locale] },
+)
 
 const consumerSnippets = [
   {
@@ -120,31 +127,13 @@ export OPENAI_API_KEY=local-key
   },
 ]
 
+// Feature cards: visual config lives here; copy is resolved from i18n keys in
+// the template so all four cards localize without duplicating strings.
 const features = [
-  {
-    icon: Code2,
-    title: 'OpenAI-compatible',
-    body: 'Drop-in replacement. Swap the base URL and key — your existing SDKs and prompts just work.',
-    grad: 'from-violet-500 to-fuchsia-500',
-  },
-  {
-    icon: Cpu,
-    title: 'Real GPUs, real models',
-    body: 'Members serve open-weight models on their own hardware: Qwen, Llama, DeepSeek, Mistral, Gemma.',
-    grad: 'from-fuchsia-500 to-rose-500',
-  },
-  {
-    icon: Lock,
-    title: 'Private by default',
-    body: 'Requests reach providers over Tailscale, end-to-end encrypted. No public endpoints to scrape.',
-    grad: 'from-cyan-500 to-violet-500',
-  },
-  {
-    icon: Users,
-    title: 'A club, not a vendor',
-    body: 'Pool compute with people you trust. Bring a node when you have spare cycles. Use the network when you need them.',
-    grad: 'from-emerald-500 to-cyan-500',
-  },
+  { icon: Code2, key: 'feature1', grad: 'from-violet-500 to-fuchsia-500' },
+  { icon: Cpu, key: 'feature2', grad: 'from-fuchsia-500 to-rose-500' },
+  { icon: Lock, key: 'feature3', grad: 'from-cyan-500 to-violet-500' },
+  { icon: Users, key: 'feature4', grad: 'from-emerald-500 to-cyan-500' },
 ]
 </script>
 
@@ -171,51 +160,49 @@ const features = [
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
             <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
           </span>
-          <span class="text-muted-foreground">live at</span>
+          <span class="text-muted-foreground">{{ t('home.liveAt') }}</span>
           <span class="text-foreground">api.inference.club</span>
         </div>
 
         <h1 class="text-5xl sm:text-6xl md:text-7xl font-bold tracking-tight leading-[1.05]">
-          A distributed inference network<br>
-          powered by
+          {{ t('home.heroTitleLead') }}
           <span class="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-transparent">
-            consumer GPUs
+            {{ t('home.heroConsumerGpus') }}
           </span>
-          and
+          {{ t('home.heroAnd') }}
           <span class="bg-gradient-to-r from-cyan-500 via-violet-500 to-fuchsia-500 bg-clip-text text-transparent">
-            Tailscale
+            {{ t('home.heroTailscale') }}
           </span>
         </h1>
 
         <p class="mt-8 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-          One OpenAI-compatible endpoint backed by GPUs that members bring to the network.
-          Run an agent on your own hardware. Use the whole pool through one key.
+          {{ t('home.heroSubtitle') }}
         </p>
 
         <div class="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
           <template v-if="isAuthenticated">
-            <NuxtLink to="/dashboard">
+            <NuxtLink :to="localePath('/dashboard')">
               <Button size="lg" class="w-full sm:w-auto h-12 px-6 text-base">
-                Go to Dashboard
+                {{ t('home.goToDashboard') }}
                 <ArrowRight class="ml-2 h-4 w-4" />
               </Button>
             </NuxtLink>
-            <NuxtLink v-if="needsNode" to="/docs/providers/run-an-agent">
+            <NuxtLink v-if="needsNode" :to="localePath('/docs/providers/run-an-agent')">
               <Button size="lg" variant="outline" class="w-full sm:w-auto h-12 px-6 text-base">
-                Run an agent
+                {{ t('home.runAnAgent') }}
               </Button>
             </NuxtLink>
           </template>
           <template v-else>
-            <NuxtLink to="/login">
+            <NuxtLink :to="localePath('/login')">
               <Button size="lg" class="w-full sm:w-auto h-12 px-6 text-base shadow-lg shadow-violet-500/20">
-                Get an API key
+                {{ t('home.getApiKey') }}
                 <ArrowRight class="ml-2 h-4 w-4" />
               </Button>
             </NuxtLink>
-            <NuxtLink to="/docs/providers/run-an-agent">
+            <NuxtLink :to="localePath('/docs/providers/run-an-agent')">
               <Button size="lg" variant="outline" class="w-full sm:w-auto h-12 px-6 text-base">
-                Run an agent
+                {{ t('home.runAnAgent') }}
               </Button>
             </NuxtLink>
           </template>
@@ -223,16 +210,16 @@ const features = [
 
         <NuxtLink
           v-if="needsNode"
-          to="/dashboard"
+          :to="localePath('/dashboard')"
           class="mt-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/[0.06] px-4 py-1.5 text-sm text-foreground transition-colors hover:bg-primary/10"
         >
           <Server class="h-4 w-4 text-primary" />
-          You haven't put a node on the network yet — finish setup
+          {{ t('home.needsNode') }}
           <ArrowRight class="h-3.5 w-3.5" />
         </NuxtLink>
 
         <p class="mt-6 text-xs text-muted-foreground font-mono">
-          GitHub sign-in · Free during beta · No credit card
+          {{ t('home.betaNote') }}
         </p>
       </div>
     </section>
@@ -241,10 +228,10 @@ const features = [
     <section class="relative pb-20">
       <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center mb-8">
-          <p class="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">How it fits together</p>
+          <p class="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">{{ t('home.topologyEyebrow') }}</p>
           <h2 class="text-3xl sm:text-4xl font-bold tracking-tight">
-            Home GPUs, one
-            <span class="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-transparent">private network</span>.
+            {{ t('home.topologyTitleLead') }}
+            <span class="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-transparent">{{ t('home.topologyTitleHighlight') }}</span>.
           </h2>
         </div>
       </div>
@@ -273,16 +260,16 @@ const features = [
               <div class="h-8 w-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
                 <Send class="h-4 w-4 text-white" />
               </div>
-              <span class="text-xs font-mono uppercase tracking-wider text-muted-foreground">For consumers</span>
+              <span class="text-xs font-mono uppercase tracking-wider text-muted-foreground">{{ t('home.forConsumers') }}</span>
             </div>
             <h2 class="text-2xl sm:text-3xl font-bold tracking-tight whitespace-nowrap">
-              Drop-in for the OpenAI SDK.
+              {{ t('home.consumerTitle') }}
             </h2>
-            <p class="text-muted-foreground text-sm sm:text-base">
-              Sign up, mint a token, point your client at
-              <code class="px-1.5 py-0.5 rounded bg-muted font-mono text-foreground text-xs">api.inference.club/v1</code>.
-              Every model on the network is one request away.
-            </p>
+            <i18n-t keypath="home.consumerBody" tag="p" class="text-muted-foreground text-sm sm:text-base" scope="global">
+              <template #endpoint>
+                <code class="px-1.5 py-0.5 rounded bg-muted font-mono text-foreground text-xs">api.inference.club/v1</code>
+              </template>
+            </i18n-t>
             <CodeTabs :snippets="consumerSnippets" filename="consumer" />
           </div>
 
@@ -292,18 +279,22 @@ const features = [
               <div class="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-500 flex items-center justify-center">
                 <Cpu class="h-4 w-4 text-white" />
               </div>
-              <span class="text-xs font-mono uppercase tracking-wider text-muted-foreground">For providers</span>
+              <span class="text-xs font-mono uppercase tracking-wider text-muted-foreground">{{ t('home.forProviders') }}</span>
             </div>
             <h2 class="text-2xl sm:text-3xl font-bold tracking-tight whitespace-nowrap">
-              Wrap any OpenAI-compatible server.
+              {{ t('home.providerTitle') }}
             </h2>
-            <p class="text-muted-foreground text-sm sm:text-base">
-              Already running
-              <code class="px-1.5 py-0.5 rounded bg-muted font-mono text-foreground text-xs">vllm</code>,
-              <code class="px-1.5 py-0.5 rounded bg-muted font-mono text-foreground text-xs">llama.cpp</code>, or
-              <code class="px-1.5 py-0.5 rounded bg-muted font-mono text-foreground text-xs">ollama</code>?
-              Point the agent at it and you're a node on the network.
-            </p>
+            <i18n-t keypath="home.providerBody" tag="p" class="text-muted-foreground text-sm sm:text-base" scope="global">
+              <template #vllm>
+                <code class="px-1.5 py-0.5 rounded bg-muted font-mono text-foreground text-xs">vllm</code>
+              </template>
+              <template #llamacpp>
+                <code class="px-1.5 py-0.5 rounded bg-muted font-mono text-foreground text-xs">llama.cpp</code>
+              </template>
+              <template #ollama>
+                <code class="px-1.5 py-0.5 rounded bg-muted font-mono text-foreground text-xs">ollama</code>
+              </template>
+            </i18n-t>
             <CodeTabs :snippets="providerSnippets" filename="provider" />
           </div>
         </div>
@@ -314,9 +305,9 @@ const features = [
     <section class="relative px-4 sm:px-6 lg:px-8 py-24 border-y bg-muted/30">
       <div class="max-w-6xl mx-auto">
         <div class="text-center mb-14">
-          <p class="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">Architecture</p>
+          <p class="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">{{ t('home.archEyebrow') }}</p>
           <h2 class="text-3xl sm:text-4xl font-bold tracking-tight">
-            Three pieces. <span class="text-muted-foreground font-normal">Nothing magic.</span>
+            {{ t('home.archTitleLead') }} <span class="text-muted-foreground font-normal">{{ t('home.archTitleMuted') }}</span>
           </h2>
         </div>
 
@@ -324,41 +315,42 @@ const features = [
           <!-- Step 1 -->
           <div class="group relative rounded-xl border bg-card p-6 hover:border-violet-500/40 transition-colors">
             <div class="absolute -top-3 left-6 inline-flex items-center gap-1.5 rounded-full bg-background border px-2.5 py-0.5 text-xs font-mono">
-              <span class="text-muted-foreground">step</span>
+              <span class="text-muted-foreground">{{ t('home.step') }}</span>
               <span class="bg-gradient-to-r from-violet-500 to-fuchsia-500 bg-clip-text text-transparent font-semibold">01</span>
             </div>
             <Cpu class="h-7 w-7 text-violet-500 mb-4 mt-2" />
-            <h3 class="font-semibold text-lg mb-2">Operators run agents</h3>
-            <p class="text-sm text-muted-foreground leading-relaxed">
-              Members run <code class="font-mono text-foreground text-xs">inference-club-agent</code> next to
-              their local LLM server. The agent advertises whatever models the server is hosting.
-            </p>
+            <h3 class="font-semibold text-lg mb-2">{{ t('home.step1Title') }}</h3>
+            <i18n-t keypath="home.step1Body" tag="p" class="text-sm text-muted-foreground leading-relaxed" scope="global">
+              <template #agent>
+                <code class="font-mono text-foreground text-xs">inference-club-agent</code>
+              </template>
+            </i18n-t>
           </div>
           <!-- Step 2 -->
           <div class="group relative rounded-xl border bg-card p-6 hover:border-fuchsia-500/40 transition-colors">
             <div class="absolute -top-3 left-6 inline-flex items-center gap-1.5 rounded-full bg-background border px-2.5 py-0.5 text-xs font-mono">
-              <span class="text-muted-foreground">step</span>
+              <span class="text-muted-foreground">{{ t('home.step') }}</span>
               <span class="bg-gradient-to-r from-fuchsia-500 to-cyan-500 bg-clip-text text-transparent font-semibold">02</span>
             </div>
             <Network class="h-7 w-7 text-fuchsia-500 mb-4 mt-2" />
-            <h3 class="font-semibold text-lg mb-2">Agents join the tailnet</h3>
+            <h3 class="font-semibold text-lg mb-2">{{ t('home.step2Title') }}</h3>
             <p class="text-sm text-muted-foreground leading-relaxed">
-              Each agent receives a short-lived Tailscale key and joins our private mesh.
-              No public endpoints. No port forwarding. Just WireGuard.
+              {{ t('home.step2Body') }}
             </p>
           </div>
           <!-- Step 3 -->
           <div class="group relative rounded-xl border bg-card p-6 hover:border-cyan-500/40 transition-colors">
             <div class="absolute -top-3 left-6 inline-flex items-center gap-1.5 rounded-full bg-background border px-2.5 py-0.5 text-xs font-mono">
-              <span class="text-muted-foreground">step</span>
+              <span class="text-muted-foreground">{{ t('home.step') }}</span>
               <span class="bg-gradient-to-r from-cyan-500 to-violet-500 bg-clip-text text-transparent font-semibold">03</span>
             </div>
             <Send class="h-7 w-7 text-cyan-500 mb-4 mt-2" />
-            <h3 class="font-semibold text-lg mb-2">Consumers send requests</h3>
-            <p class="text-sm text-muted-foreground leading-relaxed">
-              Calls to <code class="font-mono text-foreground text-xs">api.inference.club</code> route to an
-              online agent serving the requested model. Streaming works. Latency is direct.
-            </p>
+            <h3 class="font-semibold text-lg mb-2">{{ t('home.step3Title') }}</h3>
+            <i18n-t keypath="home.step3Body" tag="p" class="text-sm text-muted-foreground leading-relaxed" scope="global">
+              <template #endpoint>
+                <code class="font-mono text-foreground text-xs">api.inference.club</code>
+              </template>
+            </i18n-t>
           </div>
         </div>
 
@@ -420,11 +412,11 @@ const features = [
     <section class="px-4 sm:px-6 lg:px-8 py-24">
       <div class="max-w-6xl mx-auto">
         <div class="text-center mb-14">
-          <p class="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">Why inference.club</p>
+          <p class="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">{{ t('home.whyEyebrow') }}</p>
           <h2 class="text-3xl sm:text-4xl font-bold tracking-tight">
-            Built for the way
-            <span class="bg-gradient-to-r from-violet-500 to-cyan-500 bg-clip-text text-transparent">open models</span>
-            actually run.
+            {{ t('home.whyTitleLead') }}
+            <span class="bg-gradient-to-r from-violet-500 to-cyan-500 bg-clip-text text-transparent">{{ t('home.whyTitleHighlight') }}</span>
+            {{ t('home.whyTitleTrail') }}
           </h2>
         </div>
         <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -439,8 +431,8 @@ const features = [
             >
               <component :is="f.icon" class="h-5 w-5 text-white" />
             </div>
-            <h3 class="font-semibold mb-1.5">{{ f.title }}</h3>
-            <p class="text-sm text-muted-foreground leading-relaxed">{{ f.body }}</p>
+            <h3 class="font-semibold mb-1.5">{{ t(`home.${f.key}Title`) }}</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">{{ t(`home.${f.key}Body`) }}</p>
           </div>
         </div>
       </div>
@@ -450,16 +442,16 @@ const features = [
     <section v-if="featuredPost" class="relative px-4 sm:px-6 lg:px-8 py-20 border-t">
       <div class="max-w-5xl mx-auto">
         <div class="flex items-end justify-between mb-8">
-          <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">From the blog</h2>
+          <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">{{ t('home.blogEyebrow') }}</h2>
           <NuxtLink
-            to="/blog"
+            :to="localePath('/blog')"
             class="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
           >
-            All posts <ArrowRight class="h-3.5 w-3.5" />
+            {{ t('common.allPosts') }} <ArrowRight class="h-3.5 w-3.5" />
           </NuxtLink>
         </div>
         <NuxtLink
-          :to="featuredPost.path"
+          :to="localePath(featuredPost.path)"
           class="group block rounded-2xl border bg-card overflow-hidden shadow-sm hover:shadow-lg hover:border-primary/40 transition-all"
         >
           <div class="grid md:grid-cols-2">
@@ -476,7 +468,7 @@ const features = [
               />
             </div>
             <div class="p-6 sm:p-8 flex flex-col justify-center">
-              <p class="text-xs uppercase tracking-wide text-primary font-medium mb-2">Featured</p>
+              <p class="text-xs uppercase tracking-wide text-primary font-medium mb-2">{{ t('home.featured') }}</p>
               <h3 class="text-xl sm:text-2xl font-bold tracking-tight group-hover:text-primary transition-colors">
                 {{ featuredPost.title }}
               </h3>
@@ -493,7 +485,7 @@ const features = [
                 </span>
               </div>
               <span class="mt-6 inline-flex items-center gap-1 text-sm font-medium text-primary">
-                Read article <ArrowRight class="h-4 w-4" />
+                {{ t('common.readArticle') }} <ArrowRight class="h-4 w-4" />
               </span>
             </div>
           </div>
@@ -510,22 +502,21 @@ const features = [
       <div class="max-w-3xl mx-auto text-center">
         <Zap class="h-10 w-10 mx-auto mb-6 text-violet-500" />
         <h2 class="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
-          Ready to plug in?
+          {{ t('home.ctaTitle') }}
         </h2>
         <p class="text-muted-foreground text-lg mb-10 max-w-xl mx-auto">
-          Sign in with GitHub, mint a key, and you're live in under a minute.
-          Bring a node whenever you have spare cycles.
+          {{ t('home.ctaBody') }}
         </p>
         <div class="flex flex-col sm:flex-row gap-3 justify-center">
-          <NuxtLink :to="isAuthenticated ? '/dashboard' : '/login'">
+          <NuxtLink :to="localePath(isAuthenticated ? '/dashboard' : '/login')">
             <Button size="lg" class="w-full sm:w-auto h-12 px-6 text-base shadow-lg shadow-violet-500/20">
-              {{ isAuthenticated ? 'Go to Dashboard' : 'Get an API key' }}
+              {{ isAuthenticated ? t('home.goToDashboard') : t('home.getApiKey') }}
               <ArrowRight class="ml-2 h-4 w-4" />
             </Button>
           </NuxtLink>
-          <NuxtLink to="/docs">
+          <NuxtLink :to="localePath('/docs')">
             <Button size="lg" variant="outline" class="w-full sm:w-auto h-12 px-6 text-base">
-              Read the docs
+              {{ t('common.readTheDocs') }}
             </Button>
           </NuxtLink>
         </div>

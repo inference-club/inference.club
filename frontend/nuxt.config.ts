@@ -38,10 +38,41 @@ export default defineNuxtConfig({
     '@nuxt/image',
     '@nuxt/scripts',
     '@nuxt/test-utils',
+    '@nuxtjs/i18n',
     '@pinia/nuxt',
     '@tresjs/nuxt',
     'shadcn-nuxt',
   ],
+  i18n: {
+    // Locale message files live in i18n/locales/ (v9 restructureDir default is
+    // `i18n`, so langDir is relative to it). Adding a language = one entry
+    // here + one i18n/locales/<code>.json + one content/<code>/ folder.
+    langDir: 'locales',
+    defaultLocale: 'en',
+    // English keeps clean URLs (/blog); every other locale is path-prefixed
+    // (/fr/blog). No redirects for existing English links, best SEO.
+    strategy: 'prefix_except_default',
+    lazy: true,
+    locales: [
+      { code: 'en', language: 'en-US', name: 'English', file: 'en.json' },
+      { code: 'zh', language: 'zh-CN', name: '中文', file: 'zh.json' },
+      { code: 'ja', language: 'ja-JP', name: '日本語', file: 'ja.json' },
+      { code: 'ru', language: 'ru-RU', name: 'Русский', file: 'ru.json' },
+      { code: 'fr', language: 'fr-FR', name: 'Français', file: 'fr.json' },
+      { code: 'ko', language: 'ko-KR', name: '한국어', file: 'ko.json' },
+      { code: 'es', language: 'es-ES', name: 'Español', file: 'es.json' },
+    ],
+    // Fall back to English for any key missing in the active locale, so the
+    // UI never shows a raw key while translations are filled in over time.
+    bundle: { optimizeTranslationDirective: false },
+    vueI18n: './i18n.config.ts',
+    detectBrowserLanguage: {
+      useCookie: true,
+      cookieKey: 'i18n_locale',
+      redirectOn: 'root',
+      alwaysRedirect: false,
+    },
+  },
   components: {
     dirs: ['~/components', '~/components/ui']
   },
