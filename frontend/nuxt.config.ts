@@ -49,6 +49,9 @@ export default defineNuxtConfig({
     // here + one i18n/locales/<code>.json + one content/<code>/ folder.
     langDir: 'locales',
     defaultLocale: 'en',
+    // Absolute site URL — required so useLocaleHead() can emit valid (absolute)
+    // hreflang/canonical SEO links. Static prod domain regardless of env.
+    baseUrl: 'https://inference.club',
     // English keeps clean URLs (/blog); every other locale is path-prefixed
     // (/fr/blog). No redirects for existing English links, best SEO.
     strategy: 'prefix_except_default',

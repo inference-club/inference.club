@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
 # ---- base: shared toolchain for every stage ----
-FROM node:20-alpine AS base
+# Node 22 (LTS) is required by @nuxtjs/i18n's @intlify/* deps (engine ">= 22")
+# and matches the host's Node version. Building on node:20 fails install.
+FROM node:22-alpine AS base
 WORKDIR /app
 RUN corepack enable
 
@@ -33,7 +35,7 @@ RUN yarn build
 
 
 # ---- runtime: minimal node image serving the Nitro server (default target) ----
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 
 ENV NODE_ENV=production \
     NUXT_HOST=0.0.0.0 \
