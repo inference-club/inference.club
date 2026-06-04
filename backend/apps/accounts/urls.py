@@ -1,6 +1,11 @@
 from django.urls import path
 
-from apps.inference.views import PublicUserProfileView, PublicUserRequestsView
+from apps.inference.views import (
+    PublicCollectionDetailView,
+    PublicUserCollectionsView,
+    PublicUserProfileView,
+    PublicUserRequestsView,
+)
 
 from . import views
 
@@ -24,5 +29,15 @@ urlpatterns = [
         "users/<str:github_login>/requests/",
         PublicUserRequestsView.as_view(),
         name="public-user-requests",
+    ),
+    path(
+        "users/<str:github_login>/collections/",
+        PublicUserCollectionsView.as_view(),
+        name="public-user-collections",
+    ),
+    path(
+        "users/<str:github_login>/collections/<slug:slug>/",
+        PublicCollectionDetailView.as_view(),
+        name="public-user-collection-detail",
     ),
 ]

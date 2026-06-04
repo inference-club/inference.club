@@ -38,6 +38,23 @@ class CustomUser(AbstractUser):
         ),
     )
 
+    # Default visibility applied to new inference requests (see
+    # docs/prd/01-content-sharing.md). Choices mirror
+    # apps.inference.models.VISIBILITY_CHOICES; kept as a plain CharField here to
+    # avoid an accounts→inference import. Defaults to "unlisted".
+    default_request_visibility = models.CharField(
+        _("default request visibility"),
+        max_length=12,
+        default="UNLISTED",
+        help_text="Visibility applied to new inference requests unless overridden.",
+    )
+
+    # Master switch for the user's public profile at /<github_login>. When off,
+    # the public profile and its request listings are hidden from everyone.
+    public_profile_enabled = models.BooleanField(
+        _("public profile enabled"), default=True
+    )
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 

@@ -14,13 +14,22 @@ const store = useInferenceRequestStore()
 
 const pagination = usePagination(computed(() => store.pagination.count), 10)
 
+// 'recent' (default, newest first) | 'popular' (most-starred first).
+const sort = ref<'recent' | 'popular'>('recent')
+const sortFilters = computed(() => (sort.value === 'popular' ? { sort: 'popular' } : {}))
+
 watch(() => store.pagination.count, () => {
   pagination.currentPage.value = 1 // reset to first page on data change
 })
 
 watch([pagination.currentPage, pagination.currentPageSize], ([page, size]) => {
   const offset = (page - 1) * size
-  store.fetchRequests(size, offset)
+  store.fetchRequests(size, offset, sortFilters.value)
+})
+
+watch(sort, () => {
+  pagination.currentPage.value = 1
+  store.fetchRequests(pagination.currentPageSize.value, 0, sortFilters.value)
 })
 
 const resultsTopRef = ref<HTMLElement | null>(null)
@@ -60,13 +69,31 @@ onMounted(async () => {
           {{ store.pagination.count }} request{{ store.pagination.count === 1 ? '' : 's' }}
         </p>
       </div>
-      <button
-        class="text-sm text-muted-foreground hover:text-foreground"
-        :disabled="store.loading"
-        @click="store.fetchRequests(pagination.currentPageSize.value, (pagination.currentPage.value - 1) * pagination.currentPageSize.value)"
-      >
-        {{ store.loading ? 'Refreshing…' : 'Refresh' }}
-      </button>
+      <div class="flex items-center gap-3">
+        <div class="inline-flex rounded-md border p-0.5 text-sm">
+          <button
+            class="px-2.5 py-1 rounded-sm transition-colors"
+            :class="sort === 'recent' ? 'bg-muted font-medium' : 'text-muted-foreground hover:text-foreground'"
+            @click="sort = 'recent'"
+          >
+            Recent
+          </button>
+          <button
+            class="px-2.5 py-1 rounded-sm transition-colors"
+            :class="sort === 'popular' ? 'bg-muted font-medium' : 'text-muted-foreground hover:text-foreground'"
+            @click="sort = 'popular'"
+          >
+            Most popular
+          </button>
+        </div>
+        <button
+          class="text-sm text-muted-foreground hover:text-foreground"
+          :disabled="store.loading"
+          @click="store.fetchRequests(pagination.currentPageSize.value, (pagination.currentPage.value - 1) * pagination.currentPageSize.value, sortFilters)"
+        >
+          {{ store.loading ? 'Refreshing…' : 'Refresh' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="store.loading && store.requests.length === 0" class="space-y-4">

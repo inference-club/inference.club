@@ -7,11 +7,12 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count, Prefetch, Q, Sum
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Sum
 from django.db.models.functions import TruncDate
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.text import slugify
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -22,22 +23,31 @@ from rest_framework.views import APIView
 from .manifest_validator import validate as validate_manifest
 from .hf_enrich import enrich_catalog_model
 from .models import (
+    Bookmark,
     CatalogModel,
+    Collection,
+    CollectionItem,
     InferenceRequest,
     MediaAsset,
     Provider,
     ProviderModel,
     ProviderService,
     ServiceManifest,
+    Star,
+    VISIBILITY_PUBLIC,
     link_catalog_model,
     slugify_model_id,
+    visible_list_q,
 )
 from .pagination import StandardResultsSetPagination
 from .serializers import (
     AgentRegisterSerializer,
+    CollectionSerializer,
+    CollectionWriteSerializer,
     InferenceRequestDetailSerializer,
     InferenceRequestListSerializer,
     InferenceRequestSerializer,
+    InferenceRequestVisibilitySerializer,
     ProviderSerializer,
     ProviderServiceSerializer,
     ProviderUpdateSerializer,
@@ -58,6 +68,22 @@ def _requests_with_owner():
     ).prefetch_related("user__social_auth", "assets")
 
 
+def _annotate_viewer_flags(qs, user):
+    """Annotate ``user_has_starred`` / ``user_has_bookmarked`` so the card and
+    detail serializers can show per-viewer star/bookmark state without an N+1.
+    No-op for anonymous callers (the flags default to False in the serializer)."""
+    if user is not None and getattr(user, "is_authenticated", False):
+        qs = qs.annotate(
+            user_has_starred=Exists(
+                Star.objects.filter(request=OuterRef("pk"), user=user)
+            ),
+            user_has_bookmarked=Exists(
+                Bookmark.objects.filter(request=OuterRef("pk"), user=user)
+            ),
+        )
+    return qs
+
+
 # Valid inference_type values, used to validate the ?type= query param.
 _INFERENCE_TYPES = {t[0] for t in InferenceRequest.INFERENCE_TYPES}
 
@@ -68,7 +94,8 @@ def _apply_request_filters(qs, params):
     ``?type=IMAGE`` narrows to a single modality (powers the image gallery and
     the profile "recent images" strip). ``?search=`` matches the stored prompt
     (image/TTS payloads carry it directly) and the model name, case-insensitive.
-    Both are optional and compose.
+    ``?sort=popular`` orders by star count (most-starred first). All optional
+    and composable.
     """
     itype = (params.get("type") or "").upper().strip()
     if itype in _INFERENCE_TYPES:
@@ -80,6 +107,9 @@ def _apply_request_filters(qs, params):
             Q(payload__prompt__icontains=search)
             | Q(model_name__icontains=search)
         )
+
+    if (params.get("sort") or "").lower() in ("popular", "stars"):
+        qs = qs.order_by("-star_count", "-created_on")
     return qs
 
 
@@ -98,6 +128,7 @@ class InferenceRequestView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         qs = _requests_with_owner().filter(user=self.request.user)
+        qs = _annotate_viewer_flags(qs, self.request.user)
         return _apply_request_filters(qs, self.request.query_params)
 
     def perform_create(self, serializer):
@@ -105,32 +136,157 @@ class InferenceRequestView(generics.ListCreateAPIView):
 
 
 class AllInferenceRequestView(generics.ListAPIView):
-    """Every inference request on the network (powers "All Inference
-    Requests"). Visible to any authenticated user, with owner attribution."""
+    """Every *listable* inference request on the network (powers "All Inference
+    Requests"). Visible to any authenticated user, with owner attribution.
+    Honors per-request visibility: a member sees PUBLIC + PRIVATE (members-only)
+    requests plus their own; UNLISTED and SECRET are excluded from the feed."""
 
     permission_classes = [IsAuthenticated]
     pagination_class = StandardResultsSetPagination
     serializer_class = InferenceRequestListSerializer
 
     def get_queryset(self):
-        return _apply_request_filters(_requests_with_owner(), self.request.query_params)
+        qs = _requests_with_owner().filter(visible_list_q(self.request.user))
+        qs = _annotate_viewer_flags(qs, self.request.user)
+        return _apply_request_filters(qs, self.request.query_params)
 
 
-class RetrieveInferenceRequestView(generics.RetrieveDestroyAPIView):
-    """GET returns any request fully-expanded (the All view links here);
-    DELETE is restricted to the request's owner."""
+class RetrieveInferenceRequestView(generics.RetrieveUpdateDestroyAPIView):
+    """GET returns a request fully-expanded (subject to its visibility); PATCH
+    changes its visibility (owner only); DELETE removes it (owner only)."""
 
     permission_classes = [IsAuthenticated]
-    serializer_class = InferenceRequestDetailSerializer
     lookup_field = "id"
 
+    def get_serializer_class(self):
+        if self.request.method in ("PATCH", "PUT"):
+            return InferenceRequestVisibilitySerializer
+        return InferenceRequestDetailSerializer
+
     def get_queryset(self):
-        return _requests_with_owner()
+        return _annotate_viewer_flags(_requests_with_owner(), self.request.user)
+
+    def get_object(self):
+        obj = super().get_object()
+        # Writes are owner-only; reads enforce the request's visibility.
+        if self.request.method in ("PATCH", "PUT", "DELETE"):
+            if obj.user_id != self.request.user.id:
+                raise PermissionDenied("You can only modify your own inference requests.")
+        elif not obj.is_visible_to(self.request.user):
+            raise Http404("no such inference request")
+        return obj
 
     def perform_destroy(self, instance):
         if instance.user_id != self.request.user.id:
             raise PermissionDenied("You can only delete your own inference requests.")
         instance.delete()
+
+
+class SharedRequestView(generics.RetrieveAPIView):
+    """GET /api/inference/shared/<share_token>/ — resolve a request by its
+    unguessable share token, for link-based sharing. Unauthenticated-friendly:
+    PUBLIC/UNLISTED render to anyone, PRIVATE to any signed-in member, SECRET
+    only to the owner. Anything not visible 404s (never 403) so the token's
+    existence isn't confirmed."""
+
+    permission_classes = [AllowAny]
+    serializer_class = InferenceRequestDetailSerializer
+    lookup_field = "share_token"
+
+    def get_queryset(self):
+        user = self.request.user if self.request.user.is_authenticated else None
+        return _annotate_viewer_flags(_requests_with_owner(), user)
+
+    def get_object(self):
+        obj = super().get_object()
+        if not obj.is_visible_to(self.request.user):
+            raise Http404("no such inference request")
+        return obj
+
+
+def _get_owned_or_visible_request(request, request_id):
+    """Fetch a request the caller may act on (star/bookmark): must be visible
+    to them. 404 otherwise."""
+    obj = get_object_or_404(InferenceRequest, id=request_id)
+    if not obj.is_visible_to(request.user):
+        raise Http404("no such inference request")
+    return obj
+
+
+class RequestStarView(APIView):
+    """POST/DELETE /api/inference/requests/<id>/star/ — toggle the caller's star
+    on a request. Returns the fresh star_count + is_starred."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, id):
+        obj = _get_owned_or_visible_request(request, id)
+        Star.objects.get_or_create(user=request.user, request=obj)
+        return Response({"is_starred": True, "star_count": obj.recount_stars()})
+
+    def delete(self, request, id):
+        obj = _get_owned_or_visible_request(request, id)
+        Star.objects.filter(user=request.user, request=obj).delete()
+        return Response({"is_starred": False, "star_count": obj.recount_stars()})
+
+
+class RequestBookmarkView(APIView):
+    """POST/DELETE /api/inference/requests/<id>/bookmark/ — toggle the caller's
+    bookmark (the "show on my profile" curation choice)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, id):
+        obj = _get_owned_or_visible_request(request, id)
+        Bookmark.objects.get_or_create(user=request.user, request=obj)
+        return Response({"is_bookmarked": True})
+
+    def delete(self, request, id):
+        obj = _get_owned_or_visible_request(request, id)
+        Bookmark.objects.filter(user=request.user, request=obj).delete()
+        return Response({"is_bookmarked": False})
+
+
+class StarredRequestsView(generics.ListAPIView):
+    """GET /api/inference/requests/starred/ — the caller's starred requests
+    (most-recently-starred first), filtered to what's still visible to them."""
+
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    serializer_class = InferenceRequestListSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        starred_ids = Star.objects.filter(user=user).values_list("request_id", flat=True)
+        qs = (
+            _requests_with_owner()
+            .filter(id__in=list(starred_ids))
+            .filter(Q(user=user) | Q(visibility__in=[VISIBILITY_PUBLIC, "UNLISTED", "PRIVATE"]))
+        )
+        qs = _annotate_viewer_flags(qs, user)
+        return _apply_request_filters(qs, self.request.query_params)
+
+
+class BookmarkedRequestsView(generics.ListAPIView):
+    """GET /api/inference/requests/bookmarked/ — the caller's bookmarked
+    requests, for managing what shows on their profile."""
+
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    serializer_class = InferenceRequestListSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        bookmarked_ids = Bookmark.objects.filter(user=user).values_list(
+            "request_id", flat=True
+        )
+        qs = (
+            _requests_with_owner()
+            .filter(id__in=list(bookmarked_ids))
+            .filter(Q(user=user) | Q(visibility__in=[VISIBILITY_PUBLIC, "UNLISTED", "PRIVATE"]))
+        )
+        qs = _annotate_viewer_flags(qs, user)
+        return _apply_request_filters(qs, self.request.query_params)
 
 
 class AgentRegisterView(APIView):
@@ -1317,9 +1473,9 @@ class PublicUserProfileView(APIView):
 
     def get(self, request, github_login):
         user, github_data = _user_by_github_login(github_login)
-        if user is None:
+        if user is None or not user.public_profile_enabled:
             return Response(
-                {"detail": f"no user with github login {github_login!r}"},
+                {"detail": f"no public profile for {github_login!r}"},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -1349,9 +1505,10 @@ class PublicUserRequestsView(generics.ListAPIView):
     list of a user's inference requests for their public profile.
 
     ``?scope=consumed`` (default) = requests this user made; ``?scope=served``
-    = requests this user's nodes served to others. Reuses the same slim card
-    serializer as the dashboard; ``is_owner`` is always False here (anonymous),
-    so no delete affordance is exposed.
+    = requests this user's nodes served to others; ``?scope=bookmarked`` =
+    requests this user has bookmarked onto their profile. Only PUBLIC requests
+    are listed (UNLISTED/PRIVATE/SECRET never surface publicly). ``is_owner`` is
+    always False here (anonymous), so no delete affordance is exposed.
     """
 
     permission_classes = [AllowAny]
@@ -1361,14 +1518,163 @@ class PublicUserRequestsView(generics.ListAPIView):
 
     def get_queryset(self):
         user, _ = _user_by_github_login(self.kwargs["github_login"])
-        if user is None:
-            raise Http404("no such user")
+        if user is None or not user.public_profile_enabled:
+            raise Http404("no such profile")
+        scope = self.request.query_params.get("scope")
         qs = _requests_with_owner()
-        if self.request.query_params.get("scope") == "served":
+        if scope == "served":
             qs = qs.filter(provider__user=user)
+        elif scope == "bookmarked":
+            bookmarked_ids = Bookmark.objects.filter(user=user).values_list(
+                "request_id", flat=True
+            )
+            qs = qs.filter(id__in=list(bookmarked_ids))
         else:
             qs = qs.filter(user=user)
+        # Public profile shows PUBLIC content only, whoever owns it.
+        qs = qs.filter(visibility=VISIBILITY_PUBLIC)
         return _apply_request_filters(qs, self.request.query_params)
+
+
+# --- Collections ---------------------------------------------------------
+
+
+def _unique_collection_slug(user, name, instance=None) -> str:
+    """A slug unique within ``user``'s collections, derived from ``name``."""
+    base = slugify(name) or "collection"
+    slug = base
+    n = 2
+    qs = Collection.objects.filter(user=user)
+    if instance is not None:
+        qs = qs.exclude(pk=instance.pk)
+    while qs.filter(slug=slug).exists():
+        slug = f"{base}-{n}"
+        n += 1
+    return slug
+
+
+def _collection_with_items(col, request) -> dict:
+    """Serialize a collection plus the items the caller may see (each item still
+    enforces its own visibility)."""
+    items_qs = (
+        _requests_with_owner()
+        .filter(collection_items__collection=col)
+        .order_by("collection_items__position", "-created_on")
+    )
+    viewer = request.user if request.user.is_authenticated else None
+    items_qs = _annotate_viewer_flags(items_qs, viewer)
+    items = [ir for ir in items_qs if ir.is_visible_to(request.user)]
+    data = CollectionSerializer(col, context={"request": request}).data
+    data["items"] = InferenceRequestListSerializer(
+        items, many=True, context={"request": request}
+    ).data
+    return data
+
+
+class CollectionListCreateView(generics.ListCreateAPIView):
+    """GET lists the caller's collections; POST creates one (slug derived from
+    the name)."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = CollectionSerializer
+
+    def get_queryset(self):
+        return (
+            Collection.objects.filter(user=self.request.user)
+            .annotate(item_count=Count("items"))
+            .select_related("cover_request")
+        )
+
+    def create(self, request, *args, **kwargs):
+        ser = CollectionWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        slug = _unique_collection_slug(request.user, ser.validated_data["name"])
+        col = Collection.objects.create(user=request.user, slug=slug, **ser.validated_data)
+        return Response(
+            CollectionSerializer(col, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CollectionDetailView(APIView):
+    """GET (collection + items) / PATCH / DELETE one of the caller's
+    collections, keyed by slug. The slug stays stable across renames so shared
+    links don't break."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _get(self, request, slug):
+        return get_object_or_404(Collection, user=request.user, slug=slug)
+
+    def get(self, request, slug):
+        return Response(_collection_with_items(self._get(request, slug), request))
+
+    def patch(self, request, slug):
+        col = self._get(request, slug)
+        ser = CollectionWriteSerializer(col, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        return Response(CollectionSerializer(col, context={"request": request}).data)
+
+    def delete(self, request, slug):
+        self._get(request, slug).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CollectionItemView(APIView):
+    """POST/DELETE /api/inference/collections/<slug>/items/<request_id>/ — add
+    or remove a request from one of the caller's collections."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, slug, request_id):
+        col = get_object_or_404(Collection, user=request.user, slug=slug)
+        ir = _get_owned_or_visible_request(request, request_id)
+        CollectionItem.objects.get_or_create(collection=col, request=ir)
+        return Response({"in_collection": True})
+
+    def delete(self, request, slug, request_id):
+        col = get_object_or_404(Collection, user=request.user, slug=slug)
+        CollectionItem.objects.filter(collection=col, request_id=request_id).delete()
+        return Response({"in_collection": False})
+
+
+class PublicUserCollectionsView(APIView):
+    """GET /api/users/<github_login>/collections/ — the user's PUBLIC
+    collections, for their profile. 404 when the profile is disabled."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def get(self, request, github_login):
+        user, _ = _user_by_github_login(github_login)
+        if user is None or not user.public_profile_enabled:
+            raise Http404("no such profile")
+        cols = (
+            Collection.objects.filter(user=user, visibility=VISIBILITY_PUBLIC)
+            .annotate(item_count=Count("items"))
+            .select_related("cover_request")
+        )
+        return Response(
+            CollectionSerializer(cols, many=True, context={"request": request}).data
+        )
+
+
+class PublicCollectionDetailView(APIView):
+    """GET /api/users/<github_login>/collections/<slug>/ — a PUBLIC collection +
+    its publicly-visible items."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def get(self, request, github_login, slug):
+        user, _ = _user_by_github_login(github_login)
+        if user is None or not user.public_profile_enabled:
+            raise Http404("no such profile")
+        col = get_object_or_404(
+            Collection, user=user, slug=slug, visibility=VISIBILITY_PUBLIC
+        )
+        return Response(_collection_with_items(col, request))
 
 
 import os as _os

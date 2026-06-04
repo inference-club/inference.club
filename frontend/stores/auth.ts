@@ -9,6 +9,8 @@ interface User {
   github_login: string | null
   api_token: string
   routing_preference: 'ANY' | 'PREFER_OWN' | 'ONLY_OWN'
+  default_request_visibility: 'PUBLIC' | 'UNLISTED' | 'PRIVATE' | 'SECRET'
+  public_profile_enabled: boolean
 }
 
 interface AuthState {

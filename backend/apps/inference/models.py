@@ -1,7 +1,9 @@
+import secrets
 from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.models import BaseModel
@@ -10,6 +12,49 @@ from apps.core.models import BaseModel
 # without any new evidence. Two minutes leaves room for occasional latency
 # spikes without flapping the UI.
 PROVIDER_LAST_SEEN_WINDOW = timedelta(seconds=120)
+
+
+# --- Content visibility (see docs/prd/01-content-sharing.md) -----------------
+# One axis shared by InferenceRequest and Collection. The owner always sees
+# their own content regardless of level.
+#
+#   PUBLIC   — anyone (even logged-out); listed on the owner's public profile.
+#   UNLISTED — anyone with the link (the unguessable share_token); NOT listed
+#              on the public profile or in network listings.
+#   PRIVATE  — any signed-in inference.club member; not listed publicly.
+#   SECRET   — only the owner ("Only me").
+VISIBILITY_PUBLIC = "PUBLIC"
+VISIBILITY_UNLISTED = "UNLISTED"
+VISIBILITY_PRIVATE = "PRIVATE"
+VISIBILITY_SECRET = "SECRET"
+VISIBILITY_CHOICES = (
+    (VISIBILITY_PUBLIC, "Public"),
+    (VISIBILITY_UNLISTED, "Unlisted"),
+    (VISIBILITY_PRIVATE, "Members only"),
+    (VISIBILITY_SECRET, "Only me"),
+)
+VISIBILITY_VALUES = {c[0] for c in VISIBILITY_CHOICES}
+# New content defaults to unlisted unless the owner picked another default.
+DEFAULT_VISIBILITY = VISIBILITY_UNLISTED
+
+
+def generate_share_token() -> str:
+    """An unguessable, URL-safe token used to resolve a request by link, so
+    UNLISTED/PRIVATE content can't be enumerated via the sequential PK."""
+    return secrets.token_urlsafe(16)
+
+
+def visible_list_q(user) -> Q:
+    """A ``Q`` selecting requests that may appear in *listings* (the
+    network-wide feed, profiles). UNLISTED and SECRET are deliberately
+    excluded — they're reachable only by direct link/owner. Direct access
+    (by token or PK) uses ``InferenceRequest.is_visible_to`` instead, which is
+    more permissive for the link case."""
+    if user is not None and getattr(user, "is_authenticated", False):
+        return Q(user=user) | Q(
+            visibility__in=[VISIBILITY_PUBLIC, VISIBILITY_PRIVATE]
+        )
+    return Q(visibility=VISIBILITY_PUBLIC)
 
 
 class Provider(BaseModel):
@@ -439,6 +484,22 @@ class InferenceRequest(BaseModel):
     # tokens/seconds for image generation; null for non-image requests.
     image_count = models.PositiveIntegerField(null=True, blank=True)
 
+    # --- Sharing & curation (see docs/prd/01-content-sharing.md) ------------
+    # Who may see this request. Left blank on the model so save() can fill it
+    # from the owner's account default; the data migration backfills existing
+    # rows to PUBLIC (preserving the prior all-public-profile behavior).
+    visibility = models.CharField(
+        max_length=12, choices=VISIBILITY_CHOICES, blank=True, db_index=True
+    )
+    # Unguessable handle for link-based access (so UNLISTED/PRIVATE content
+    # isn't enumerable via the sequential id). Set on create, rotatable.
+    # unique=True already creates the lookup index; adding db_index=True too
+    # makes postgres build a duplicate varchar_pattern_ops "_like" index whose
+    # name collides during the add→alter migration step, so keep just unique.
+    share_token = models.CharField(max_length=32, unique=True, editable=False)
+    # Denormalized star total, for cheap "most popular" sorting.
+    star_count = models.PositiveIntegerField(default=0, db_index=True)
+
     class Meta:
         ordering = ["-created_on"]
         indexes = [
@@ -449,6 +510,44 @@ class InferenceRequest(BaseModel):
 
     def __str__(self):
         return f"{self.inference_type} request by {self.user.username} ({self.status})"
+
+    def _account_default_visibility(self) -> str:
+        """The owner's chosen default visibility for new requests, falling back
+        to the global default. Read off the already-loaded ``user`` so create
+        paths (which pass ``user=...``) incur no extra query."""
+        return (
+            getattr(self.user, "default_request_visibility", "") or DEFAULT_VISIBILITY
+        )
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            if not self.visibility:
+                self.visibility = self._account_default_visibility()
+            if not self.share_token:
+                self.share_token = generate_share_token()
+        super().save(*args, **kwargs)
+
+    def is_visible_to(self, user) -> bool:
+        """Whether ``user`` may *directly access* this request (by share link or
+        PK). More permissive than ``visible_list_q`` for the UNLISTED link case:
+        anyone holding the link/id may open an UNLISTED request."""
+        if (
+            user is not None
+            and getattr(user, "is_authenticated", False)
+            and self.user_id == user.id
+        ):
+            return True  # the owner always can
+        if self.visibility in (VISIBILITY_PUBLIC, VISIBILITY_UNLISTED):
+            return True
+        if self.visibility == VISIBILITY_PRIVATE:
+            return bool(user is not None and getattr(user, "is_authenticated", False))
+        return False  # SECRET — owner only
+
+    def recount_stars(self) -> int:
+        """Recompute and persist ``star_count`` from the Star rows."""
+        self.star_count = self.stars.count()
+        type(self).objects.filter(pk=self.pk).update(star_count=self.star_count)
+        return self.star_count
 
 
 def media_asset_upload_to(instance, filename: str) -> str:
@@ -518,3 +617,110 @@ class MediaAsset(BaseModel):
 
     def __str__(self):
         return f"{self.kind} asset {self.pk} for {self.user_id}"
+
+
+class Star(BaseModel):
+    """A user "starred" (liked) a request. The like signal + popularity stat;
+    we expose aggregate counts only, never *who* starred."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="stars"
+    )
+    request = models.ForeignKey(
+        InferenceRequest, on_delete=models.CASCADE, related_name="stars"
+    )
+
+    class Meta:
+        ordering = ["-created_on"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "request"], name="unique_star_per_user_request"
+            )
+        ]
+
+    def __str__(self):
+        return f"star u{self.user_id}->r{self.request_id}"
+
+
+class Bookmark(BaseModel):
+    """A user saved a request to surface on their public profile. Distinct from
+    a Star: a curation choice ("show this on my profile"), not a like."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="bookmarks"
+    )
+    request = models.ForeignKey(
+        InferenceRequest, on_delete=models.CASCADE, related_name="bookmarks"
+    )
+
+    class Meta:
+        ordering = ["-created_on"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "request"], name="unique_bookmark_per_user_request"
+            )
+        ]
+
+    def __str__(self):
+        return f"bookmark u{self.user_id}->r{self.request_id}"
+
+
+class Collection(BaseModel):
+    """A user-named group of inference requests. A request may live in zero,
+    one, or many collections; ``visibility`` controls who sees the collection
+    itself (items inside still enforce their own visibility)."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="collections",
+    )
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=140)
+    description = models.TextField(blank=True, default="")
+    visibility = models.CharField(
+        max_length=12, choices=VISIBILITY_CHOICES, default=DEFAULT_VISIBILITY
+    )
+    # Optional cover; SET_NULL (not CASCADE) so deleting the request just clears
+    # the cover rather than the whole collection.
+    cover_request = models.ForeignKey(
+        InferenceRequest,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "slug"], name="unique_collection_slug_per_user"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}:{self.slug}"
+
+
+class CollectionItem(BaseModel):
+    """Membership of a request in a collection (the M2M through-model)."""
+
+    collection = models.ForeignKey(
+        Collection, on_delete=models.CASCADE, related_name="items"
+    )
+    request = models.ForeignKey(
+        InferenceRequest, on_delete=models.CASCADE, related_name="collection_items"
+    )
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "-created_on"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["collection", "request"], name="unique_request_per_collection"
+            )
+        ]
+
+    def __str__(self):
+        return f"c{self.collection_id}<-r{self.request_id}"

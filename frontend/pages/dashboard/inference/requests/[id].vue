@@ -79,7 +79,14 @@ onMounted(() => {
         <ArrowLeft class="size-4" /> Back to requests
       </NuxtLink>
 
-      <AlertDialog v-if="req && req.is_owner">
+      <div class="flex items-center gap-2">
+        <RequestActionBar
+          v-if="req"
+          :request="req"
+          @visibility-change="(v) => { if (store.currentRequest) store.currentRequest.visibility = v }"
+        />
+
+        <AlertDialog v-if="req && req.is_owner">
         <AlertDialogTrigger as-child>
           <Button variant="outline" size="sm" class="text-destructive hover:text-destructive">
             <Trash2 class="size-4" /> Delete
@@ -104,6 +111,7 @@ onMounted(() => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
 
     <!-- Loading -->
@@ -124,6 +132,7 @@ onMounted(() => {
         <div class="flex items-center gap-2 flex-wrap mt-2">
           <Badge variant="outline">{{ req.inference_type }}</Badge>
           <Badge :variant="statusVariant(req.status)">{{ req.status }}</Badge>
+          <VisibilityBadge v-if="req.visibility" :visibility="req.visibility" />
           <Badge v-if="req.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">
             <Radio class="size-3" /> streamed
           </Badge>

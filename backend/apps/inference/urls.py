@@ -4,6 +4,10 @@ from .views import (
     AgentRegisterView,
     AllInferenceRequestView,
     AllProvidersListView,
+    BookmarkedRequestsView,
+    CollectionDetailView,
+    CollectionItemView,
+    CollectionListCreateView,
     InferenceRequestView,
     LeaderboardView,
     MediaAssetView,
@@ -17,7 +21,11 @@ from .views import (
     ProviderServiceUpdateView,
     ProviderUpdateView,
     RefreshProviderModelsView,
+    RequestBookmarkView,
+    RequestStarView,
     RetrieveInferenceRequestView,
+    SharedRequestView,
+    StarredRequestsView,
 )
 
 app_name = "inference"
@@ -30,9 +38,49 @@ urlpatterns = [
         name="inference-requests-all",
     ),
     path(
+        "requests/starred/",
+        StarredRequestsView.as_view(),
+        name="inference-requests-starred",
+    ),
+    path(
+        "requests/bookmarked/",
+        BookmarkedRequestsView.as_view(),
+        name="inference-requests-bookmarked",
+    ),
+    path(
         "requests/<int:id>/",
         RetrieveInferenceRequestView.as_view(),
         name="inference-detail",
+    ),
+    path(
+        "requests/<int:id>/star/",
+        RequestStarView.as_view(),
+        name="inference-request-star",
+    ),
+    path(
+        "requests/<int:id>/bookmark/",
+        RequestBookmarkView.as_view(),
+        name="inference-request-bookmark",
+    ),
+    path(
+        "shared/<str:share_token>/",
+        SharedRequestView.as_view(),
+        name="inference-shared",
+    ),
+    path(
+        "collections/",
+        CollectionListCreateView.as_view(),
+        name="collection-list",
+    ),
+    path(
+        "collections/<slug:slug>/",
+        CollectionDetailView.as_view(),
+        name="collection-detail",
+    ),
+    path(
+        "collections/<slug:slug>/items/<int:request_id>/",
+        CollectionItemView.as_view(),
+        name="collection-item",
     ),
     path("agent/register/", AgentRegisterView.as_view(), name="agent-register"),
     path("agent/manifest/", AgentManifestView.as_view(), name="agent-manifest"),

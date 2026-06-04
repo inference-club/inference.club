@@ -11,9 +11,11 @@ import {
   type PublicProfile,
 } from '@/composables/useManifest'
 import { useInferenceRequest } from '@/composables/useInferenceRequest'
+import { useContentSharing } from '@/composables/useContentSharing'
 import { usePagination } from '@/composables/usePagination'
-import type { InferenceRequest } from '@/types'
+import type { Collection, InferenceRequest } from '@/types'
 import { useAuthStore } from '@/stores/auth'
+import CollectionCard from '@/components/CollectionCard.vue'
 
 const route = useRoute()
 const config = useRuntimeConfig()
@@ -30,7 +32,7 @@ const PUBLIC_API_BASE = 'https://api.inference.club/v1'
 // hooks (onMounted/watch) only bind to the component when registered during
 // the synchronous part of setup, i.e. before the first await.
 const { listPublicUserRequests } = useInferenceRequest()
-const reqScope = ref<'consumed' | 'served'>('consumed')
+const reqScope = ref<'consumed' | 'served' | 'bookmarked'>('consumed')
 const requests = ref<InferenceRequest[]>([])
 const reqCount = ref(0)
 const reqLoading = ref(false)
@@ -77,6 +79,19 @@ const loadRecentImages = async () => {
   }
 }
 onMounted(loadRecentImages)
+
+// Public collections strip.
+const { listPublicCollections } = useContentSharing()
+const collections = ref<Collection[]>([])
+const loadCollections = async () => {
+  if (!username.value) return
+  try {
+    collections.value = await listPublicCollections(username.value)
+  } catch {
+    // non-fatal — section stays hidden
+  }
+}
+onMounted(loadCollections)
 
 // During SSR (inside the container) the browser-facing apiBase may be
 // unreachable; use the server-only internal base when set.
@@ -459,6 +474,13 @@ console.log(resp.choices[0].message.content)`,
           >
             Served
           </button>
+          <button
+            class="px-3 py-1 rounded"
+            :class="reqScope === 'bookmarked' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'"
+            @click="reqScope = 'bookmarked'"
+          >
+            Bookmarked
+          </button>
         </div>
       </div>
 
@@ -483,7 +505,8 @@ console.log(resp.choices[0].message.content)`,
         v-else-if="requests.length === 0"
         class="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground"
       >
-        @{{ data.github_login }} hasn't {{ reqScope === 'consumed' ? 'made' : 'served' }} any inference requests yet.
+        <template v-if="reqScope === 'bookmarked'">@{{ data.github_login }} hasn't bookmarked any requests yet.</template>
+        <template v-else>@{{ data.github_login }} hasn't {{ reqScope === 'consumed' ? 'made' : 'served' }} any inference requests yet.</template>
       </div>
 
       <div v-else class="space-y-3">
@@ -492,7 +515,7 @@ console.log(resp.choices[0].message.content)`,
           :key="r.id"
           :request="r"
           :linkable="true"
-          :show-owner="reqScope === 'served'"
+          :show-owner="reqScope !== 'consumed'"
         />
         <PaginationControls
           v-if="reqPager.pageCount.value > 1"
@@ -505,6 +528,22 @@ console.log(resp.choices[0].message.content)`,
           :prev="reqPager.prev"
           :next="reqPager.next"
           :on-page-change="(page) => { reqPager.currentPage.value = page }"
+        />
+      </div>
+    </section>
+
+    <!-- collections -->
+    <section v-if="collections.length" class="mb-10">
+      <h2 class="font-semibold flex items-center gap-2 mb-3">
+        <Boxes class="size-4 text-primary" /> Collections
+        <span class="text-sm font-normal text-muted-foreground">({{ collections.length }})</span>
+      </h2>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <CollectionCard
+          v-for="col in collections"
+          :key="col.slug"
+          :collection="col"
+          :to="`/${username}/collections/${col.slug}`"
         />
       </div>
     </section>

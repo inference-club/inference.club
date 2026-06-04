@@ -9,6 +9,8 @@ interface User {
   github_login: string | null
   api_token: string
   routing_preference: 'ANY' | 'PREFER_OWN' | 'ONLY_OWN'
+  default_request_visibility: 'PUBLIC' | 'UNLISTED' | 'PRIVATE' | 'SECRET'
+  public_profile_enabled: boolean
 }
 
 interface LoginCredentials {
@@ -207,7 +209,14 @@ export const useAuth = () => {
     }
   }
 
-  const updateAccount = async (payload: Partial<Pick<User, 'routing_preference'>>) => {
+  const updateAccount = async (
+    payload: Partial<
+      Pick<
+        User,
+        'routing_preference' | 'default_request_visibility' | 'public_profile_enabled'
+      >
+    >,
+  ) => {
     const csrfToken = getCsrfToken()
     const data = await $fetch<User>(`${config.public.apiBase}/api/account/`, {
       method: 'PATCH',

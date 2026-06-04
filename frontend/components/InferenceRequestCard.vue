@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon,
 } from 'lucide-vue-next'
-import type { InferenceRequest } from '@/types'
+import type { InferenceRequest, Visibility } from '@/types'
 import { statusVariant, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
 
 const props = withDefaults(
@@ -14,8 +14,10 @@ const props = withDefaults(
     // When false the card is display-only: no click-through to the (auth-gated)
     // detail page, no delete button. Used on the public profile.
     linkable?: boolean
+    // Show the star / bookmark / share / owner-menu action bar in the header.
+    actions?: boolean
   }>(),
-  { linkable: true },
+  { linkable: true, actions: true },
 )
 
 const emit = defineEmits<{ (e: 'delete', id: string): void }>()
@@ -30,6 +32,11 @@ const fmtSeconds = (s?: number | null) =>
 const onClick = () => {
   if (props.linkable) navigateTo(`/dashboard/inference/requests/${props.request.id}`)
 }
+
+// Local copy of the visibility so the badge updates instantly when the owner
+// edits it via the action bar (without mutating the request prop).
+const displayVisibility = ref<Visibility | undefined>(props.request.visibility)
+watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
 </script>
 
 <template>
@@ -58,9 +65,20 @@ const onClick = () => {
         <Badge v-if="showOwner" variant="outline" class="font-mono">
           <Github class="size-3" /> {{ props.request.github_login || props.request.owner }}
         </Badge>
+        <VisibilityBadge
+          v-if="displayVisibility && (props.request.is_owner || displayVisibility !== 'PUBLIC')"
+          :visibility="displayVisibility"
+        />
       </div>
 
-      <AlertDialog v-if="props.linkable && props.request.is_owner">
+      <div class="flex items-center gap-0.5 shrink-0">
+        <RequestActionBar
+          v-if="actions"
+          :request="props.request"
+          @visibility-change="(v) => (displayVisibility = v)"
+        />
+
+        <AlertDialog v-if="props.linkable && props.request.is_owner">
         <AlertDialogTrigger as-child @click.stop>
           <Button
             variant="ghost"
@@ -91,6 +109,7 @@ const onClick = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
 
     <!-- Body: input on the left, output on the right -->

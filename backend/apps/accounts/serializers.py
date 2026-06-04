@@ -21,6 +21,8 @@ class UserSerializer(serializers.ModelSerializer):
             "github_login",
             "api_token",
             "routing_preference",
+            "default_request_visibility",
+            "public_profile_enabled",
         )
 
     def get_api_token(self, obj) -> str:
@@ -44,4 +46,18 @@ class AccountUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("routing_preference",)
+        fields = (
+            "routing_preference",
+            "default_request_visibility",
+            "public_profile_enabled",
+        )
+
+    def validate_default_request_visibility(self, value):
+        # Import here to keep accounts decoupled from inference at module load.
+        from apps.inference.models import VISIBILITY_VALUES
+
+        if value not in VISIBILITY_VALUES:
+            raise serializers.ValidationError(
+                f"Must be one of {sorted(VISIBILITY_VALUES)}."
+            )
+        return value

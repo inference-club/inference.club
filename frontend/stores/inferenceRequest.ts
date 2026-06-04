@@ -35,13 +35,17 @@ export const useInferenceRequestStore = defineStore('inferenceRequest', {
   },
 
   actions: {
-    async fetchRequests(limit: number = 10, offset: number = 0) {
+    async fetchRequests(
+      limit: number = 10,
+      offset: number = 0,
+      filters: { type?: string; search?: string; sort?: string } = {},
+    ) {
       const { listInferenceRequests, loading, error } = useInferenceRequest()
       this.loading = loading.value
       this.error = error.value
 
       try {
-        const response = await listInferenceRequests(limit, offset)
+        const response = await listInferenceRequests(limit, offset, filters)
         this.requests = response.results
         this.pagination = {
           count: response.count,

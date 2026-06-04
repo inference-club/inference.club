@@ -3,11 +3,13 @@ import re
 from rest_framework import serializers
 
 from .models import (
+    Collection,
     InferenceRequest,
     Provider,
     ProviderModel,
     ProviderService,
     ServiceManifest,
+    VISIBILITY_VALUES,
 )
 
 # Some reasoning models embed their thinking inline as <think>…</think> in the
@@ -363,6 +365,60 @@ class OwnerAttributionMixin(serializers.Serializer):
         )
 
 
+class SharingFieldsMixin(serializers.Serializer):
+    """Adds visibility + curation fields to an inference-request serializer:
+    the visibility level, the (owner-only) share token, the aggregate star
+    count, and per-viewer ``is_starred`` / ``is_bookmarked`` flags.
+
+    The flags read annotations (``user_has_starred`` / ``user_has_bookmarked``)
+    when the view provides them, so list endpoints avoid an N+1; otherwise they
+    fall back to a per-row existence check."""
+
+    visibility = serializers.CharField(read_only=True)
+    share_token = serializers.SerializerMethodField()
+    star_count = serializers.IntegerField(read_only=True)
+    is_starred = serializers.SerializerMethodField()
+    is_bookmarked = serializers.SerializerMethodField()
+
+    def _is_owner(self, obj) -> bool:
+        request = self.context.get("request")
+        return bool(
+            request
+            and request.user.is_authenticated
+            and obj.user_id == request.user.id
+        )
+
+    def get_share_token(self, obj):
+        # Only the owner needs the token (to build share links); don't leak the
+        # link handle for others' content on shared/profile views.
+        return obj.share_token if self._is_owner(obj) else None
+
+    def get_is_starred(self, obj) -> bool:
+        if hasattr(obj, "user_has_starred"):
+            return bool(obj.user_has_starred)
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return obj.stars.filter(user=request.user).exists()
+
+    def get_is_bookmarked(self, obj) -> bool:
+        if hasattr(obj, "user_has_bookmarked"):
+            return bool(obj.user_has_bookmarked)
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return obj.bookmarks.filter(user=request.user).exists()
+
+
+SHARING_FIELDS = [
+    "visibility",
+    "share_token",
+    "star_count",
+    "is_starred",
+    "is_bookmarked",
+]
+
+
 class InferenceProviderMiniSerializer(serializers.ModelSerializer):
     class Meta:
         model = Provider
@@ -397,7 +453,9 @@ class InferenceRequestSerializer(serializers.ModelSerializer):
         return InferenceRequest.objects.create(**validated_data)
 
 
-class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSerializer):
+class InferenceRequestListSerializer(
+    SharingFieldsMixin, OwnerAttributionMixin, serializers.ModelSerializer
+):
     """Slim card view — previews + counts, no full payload/results so the
     list stays cheap even when a request has a long message history.
     Includes owner attribution so the network-wide list can show who ran it."""
@@ -424,6 +482,7 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
             "owner",
             "github_login",
             "is_owner",
+            *SHARING_FIELDS,
             "latency_ms",
             "usage",
             "audio_seconds",
@@ -481,7 +540,9 @@ class InferenceRequestListSerializer(OwnerAttributionMixin, serializers.ModelSer
         return bool(_extract_reasoning(obj.results))
 
 
-class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelSerializer):
+class InferenceRequestDetailSerializer(
+    SharingFieldsMixin, OwnerAttributionMixin, serializers.ModelSerializer
+):
     """Full detail view — normalized messages + response plus the raw
     payload/results so the dashboard can show everything, fully expanded."""
 
@@ -510,6 +571,7 @@ class InferenceRequestDetailSerializer(OwnerAttributionMixin, serializers.ModelS
             "owner",
             "github_login",
             "is_owner",
+            *SHARING_FIELDS,
             "latency_ms",
             "ttft_ms",
             "tokens_per_second",
@@ -629,3 +691,107 @@ class ProviderServiceSerializer(serializers.ModelSerializer):
         if policy != ProviderService.ACCESS_RESTRICTED:
             attrs["allowed_github_users"] = []
         return attrs
+
+
+class InferenceRequestVisibilitySerializer(serializers.ModelSerializer):
+    """Owner-only write serializer to change a request's visibility from the
+    edit-visibility modal (PATCH /requests/<id>/)."""
+
+    class Meta:
+        model = InferenceRequest
+        fields = ["id", "visibility"]
+        read_only_fields = ["id"]
+
+    def validate_visibility(self, value):
+        if value not in VISIBILITY_VALUES:
+            raise serializers.ValidationError(
+                f"Must be one of {sorted(VISIBILITY_VALUES)}."
+            )
+        return value
+
+
+class CollectionSerializer(serializers.ModelSerializer):
+    """Read view of a collection — metadata + counts + owner attribution. The
+    items themselves are returned by the collection-detail endpoint."""
+
+    item_count = serializers.SerializerMethodField()
+    cover_image_url = serializers.SerializerMethodField()
+    owner = serializers.SerializerMethodField()
+    github_login = serializers.SerializerMethodField()
+    is_owner = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Collection
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "description",
+            "visibility",
+            "item_count",
+            "cover_image_url",
+            "owner",
+            "github_login",
+            "is_owner",
+            "created_on",
+            "modified_on",
+        ]
+        read_only_fields = [
+            "id",
+            "slug",
+            "item_count",
+            "cover_image_url",
+            "owner",
+            "github_login",
+            "is_owner",
+            "created_on",
+            "modified_on",
+        ]
+
+    def get_item_count(self, obj) -> int:
+        if hasattr(obj, "item_count"):
+            return obj.item_count
+        return obj.items.count()
+
+    def get_cover_image_url(self, obj):
+        request = self.context.get("request")
+        if obj.cover_request_id is None or request is None:
+            return None
+        urls = _asset_urls(obj.cover_request, request, "OUTPUT_IMAGE")
+        return urls[0] if urls else None
+
+    def get_owner(self, obj) -> str:
+        return _user_owner(obj.user)
+
+    def get_github_login(self, obj):
+        return _user_github_login(obj.user)
+
+    def get_is_owner(self, obj) -> bool:
+        request = self.context.get("request")
+        return bool(
+            request
+            and request.user.is_authenticated
+            and obj.user_id == request.user.id
+        )
+
+
+class CollectionWriteSerializer(serializers.ModelSerializer):
+    """Create / update a collection. ``slug`` is derived server-side from the
+    name (unique per user), so it isn't accepted from the client."""
+
+    class Meta:
+        model = Collection
+        fields = ["name", "description", "visibility"]
+
+    def validate_visibility(self, value):
+        if value not in VISIBILITY_VALUES:
+            raise serializers.ValidationError(
+                f"Must be one of {sorted(VISIBILITY_VALUES)}."
+            )
+        return value
+
+    def validate_name(self, value):
+        value = (value or "").strip()
+        if not value:
+            raise serializers.ValidationError("Name cannot be blank.")
+        return value

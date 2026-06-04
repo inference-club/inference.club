@@ -39,6 +39,9 @@ export const dashboardNav: DashboardNavGroup[] = [
       { title: 'Your requests', url: '/dashboard/inference/requests' },
       { title: 'All requests', url: '/dashboard/inference/requests/all' },
       { title: 'Gallery', url: '/dashboard/inference/gallery' },
+      { title: 'Starred', url: '/dashboard/inference/starred' },
+      { title: 'Bookmarks', url: '/dashboard/inference/bookmarks' },
+      { title: 'Collections', url: '/dashboard/inference/collections' },
     ],
   },
   {

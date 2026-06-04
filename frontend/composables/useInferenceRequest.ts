@@ -63,12 +63,14 @@ export function useInferenceRequest() {
   }
 
   // Optional filters shared by the list endpoints: ?type=IMAGE narrows to a
-  // modality, ?search= matches the stored prompt / model name.
-  interface ListFilters { type?: string; search?: string }
+  // modality, ?search= matches the stored prompt / model name, ?sort=popular
+  // orders by star count.
+  interface ListFilters { type?: string; search?: string; sort?: string }
   const buildQuery = (limit: number, offset: number, filters: ListFilters = {}) => {
     const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
     if (filters.type) qs.set('type', filters.type)
     if (filters.search) qs.set('search', filters.search)
+    if (filters.sort) qs.set('sort', filters.sort)
     return qs.toString()
   }
 
@@ -132,7 +134,7 @@ export function useInferenceRequest() {
   // scope: 'consumed' = requests they made, 'served' = requests their nodes served.
   const listPublicUserRequests = async (
     githubLogin: string,
-    scope: 'consumed' | 'served' = 'consumed',
+    scope: 'consumed' | 'served' | 'bookmarked' = 'consumed',
     limit: number = 10,
     offset: number = 0,
     filters: ListFilters = {},

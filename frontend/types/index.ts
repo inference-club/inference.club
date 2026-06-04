@@ -1,5 +1,8 @@
 export type InferenceType = 'LLM' | 'STT' | 'IMAGE' | 'VIDEO' | 'TTS'
 
+// Content visibility — see docs/prd/01-content-sharing.md.
+export type Visibility = 'PUBLIC' | 'UNLISTED' | 'PRIVATE' | 'SECRET'
+
 // One word in a verbose_json transcription, with its time interval.
 export interface TranscriptWord {
   word: string
@@ -74,6 +77,13 @@ export interface InferenceRequest {
   github_login?: string | null
   is_owner?: boolean
 
+  // Sharing & curation (docs/prd/01-content-sharing.md)
+  visibility?: Visibility
+  share_token?: string | null // owner-only; null for non-owners
+  star_count?: number
+  is_starred?: boolean
+  is_bookmarked?: boolean
+
   // List (slim) serializer only
   prompt_preview?: string
   response_preview?: string
@@ -86,4 +96,22 @@ export interface InferenceRequest {
   reasoning?: string
   payload?: Record<string, unknown>
   results?: Record<string, unknown>
+}
+
+// A user-named group of inference requests.
+export interface Collection {
+  id: number
+  name: string
+  slug: string
+  description: string
+  visibility: Visibility
+  item_count: number
+  cover_image_url?: string | null
+  owner?: string
+  github_login?: string | null
+  is_owner?: boolean
+  created_on: string
+  modified_on: string
+  // Populated by the collection-detail endpoint.
+  items?: InferenceRequest[]
 }

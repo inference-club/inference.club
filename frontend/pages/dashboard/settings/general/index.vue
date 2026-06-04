@@ -1,16 +1,52 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { toast } from 'vue-sonner'
 import { Github, ExternalLink } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/composables/useAuth'
+import type { Visibility } from '@/types'
+import { VISIBILITY_META, VISIBILITY_ORDER } from '@/utils/visibility'
 
 definePageMeta({
   layout: 'app',
 })
 
-const { user } = useAuth()
+const { user, updateAccount } = useAuth()
 
 const githubLogin = computed(() => user.value?.github_login ?? null)
+
+const defaultVisibility = computed<Visibility>(
+  () => user.value?.default_request_visibility ?? 'UNLISTED',
+)
+const profileEnabled = computed(() => user.value?.public_profile_enabled ?? true)
+
+const savingVis = ref(false)
+const savingProfile = ref(false)
+
+const onVisibilityChange = async (value: Visibility) => {
+  if (value === defaultVisibility.value) return
+  savingVis.value = true
+  try {
+    await updateAccount({ default_request_visibility: value })
+    toast.success('Default visibility updated')
+  } catch {
+    toast.error('Failed to update default visibility')
+  } finally {
+    savingVis.value = false
+  }
+}
+
+const onProfileToggle = async (value: boolean) => {
+  savingProfile.value = true
+  try {
+    await updateAccount({ public_profile_enabled: value })
+    toast.success(value ? 'Public profile enabled' : 'Public profile hidden')
+  } catch {
+    toast.error('Failed to update profile setting')
+  } finally {
+    savingProfile.value = false
+  }
+}
 </script>
 
 <template>
@@ -63,11 +99,52 @@ const githubLogin = computed(() => user.value?.github_login ?? null)
       </div>
     </Card>
 
-    <Card class="p-6">
-      <h2 class="text-lg font-semibold mb-2">Coming soon</h2>
-      <p class="text-sm text-muted-foreground">
-        Display name, profile preferences, and account deletion will land here.
-      </p>
+    <Card class="p-6 space-y-6">
+      <div>
+        <h2 class="text-lg font-semibold">Sharing &amp; privacy</h2>
+        <p class="text-sm text-muted-foreground mt-1">
+          Defaults for new inference requests and your public profile.
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <Label>Default visibility for new requests</Label>
+        <Select
+          :model-value="defaultVisibility"
+          :disabled="savingVis"
+          @update:model-value="(v) => onVisibilityChange(v as Visibility)"
+        >
+          <SelectTrigger class="w-full sm:max-w-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="v in VISIBILITY_ORDER" :key="v" :value="v">
+              {{ VISIBILITY_META[v].label }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <p class="text-xs text-muted-foreground">
+          {{ VISIBILITY_META[defaultVisibility].description }}
+          New requests use this unless you change them individually.
+        </p>
+      </div>
+
+      <div class="flex items-start justify-between gap-4 pt-4 border-t">
+        <div class="min-w-0">
+          <Label for="public-profile-switch">Public profile</Label>
+          <p class="text-xs text-muted-foreground mt-1">
+            When off, your profile at
+            <span class="font-mono">/{{ githubLogin || 'you' }}</span>
+            is hidden from everyone, regardless of individual request visibility.
+          </p>
+        </div>
+        <Switch
+          id="public-profile-switch"
+          :model-value="profileEnabled"
+          :disabled="savingProfile"
+          @update:model-value="onProfileToggle"
+        />
+      </div>
     </Card>
   </div>
 </template>
