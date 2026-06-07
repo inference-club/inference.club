@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  Star, Bookmark, Share2, MoreHorizontal, Eye, FolderPlus, Flag,
+  Star, Bookmark, MoreHorizontal, Eye, FolderPlus, Flag,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { useContentSharing } from '@/composables/useContentSharing'
@@ -14,7 +14,7 @@ const props = withDefaults(
 )
 const emit = defineEmits<{ (e: 'visibility-change', v: Visibility): void }>()
 
-const { toggleStar, toggleBookmark, shareUrl } = useContentSharing()
+const { toggleStar, toggleBookmark } = useContentSharing()
 const { isAuthenticated } = useAuth()
 
 // Local, optimistic state seeded from the request (resynced when the row swaps).
@@ -72,17 +72,6 @@ const onBookmark = async () => {
   }
 }
 
-const onShare = async () => {
-  const link = shareUrl(props.request.share_token)
-  if (!link) return
-  try {
-    await navigator.clipboard.writeText(link)
-    toast.success('Share link copied')
-  } catch {
-    toast.error('Could not copy link')
-  }
-}
-
 const onVisibilityUpdated = (v: Visibility) => {
   // Let the parent reflect the change (the request object it owns drives the
   // visibility badge); we avoid mutating the prop directly here.
@@ -117,17 +106,13 @@ const onVisibilityUpdated = (v: Visibility) => {
       <Bookmark class="size-4" :class="bookmarked ? 'fill-current' : ''" />
     </Button>
 
-    <!-- Share (owner only — others use the page URL) -->
-    <Button
-      v-if="showShare && request.is_owner && request.share_token"
-      variant="ghost"
-      size="icon"
-      class="size-8 text-muted-foreground"
-      title="Copy share link"
-      @click="onShare"
-    >
-      <Share2 class="size-4" />
-    </Button>
+    <!-- Share (owner only — only the owner is given the share_token). Hidden
+         for SECRET requests, where a shared link wouldn't resolve for anyone
+         else anyway. -->
+    <ShareMenu
+      v-if="showShare && request.is_owner && request.share_token && request.visibility !== 'SECRET'"
+      :request="request"
+    />
 
     <!-- Owner menu: visibility + collections -->
     <DropdownMenu v-if="request.is_owner">
