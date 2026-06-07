@@ -21,7 +21,6 @@ from rest_framework.settings import api_settings
 from rest_framework.views import APIView
 
 from .manifest_validator import validate as validate_manifest
-from .hf_enrich import enrich_catalog_model
 from .models import (
     Bookmark,
     CatalogModel,
@@ -585,20 +584,9 @@ class RateLimitUsageView(APIView):
 
 
 # --- OpenRouter-style model catalog --------------------------------------
-# See docs/plans/openrouter-provider-compatibility.md. We build rich per-model
-# metadata from light id heuristics + operator overrides (ProviderModel.metadata)
-# + sensible defaults, so the catalog is credible without agent changes.
-
-_QUANT_HEURISTICS = [
-    ("fp4", ("nvfp4", "mxfp4", "fp4")),
-    ("fp6", ("fp6",)),
-    ("fp8", ("fp8",)),
-    ("bf16", ("bf16",)),
-    ("fp16", ("fp16", "half")),
-    ("fp32", ("fp32",)),
-    ("int4", ("int4", "awq", "gptq", "q4", "4bit", "w4a16")),
-    ("int8", ("int8", "q8", "8bit", "w8a8")),
-]
+# See docs/plans/openrouter-provider-compatibility.md. Per-model capabilities
+# come from the linked CatalogModel (declared by the operator in the agent
+# manifest); per-deployment overrides on ProviderModel.metadata win when set.
 
 _DEFAULT_SAMPLING_PARAMS = [
     "temperature",
@@ -614,47 +602,38 @@ _DEFAULT_SAMPLING_PARAMS = [
 ]
 
 
-def _guess_quantization(model_id: str):
-    s = model_id.lower()
-    for canonical, needles in _QUANT_HEURISTICS:
-        if any(n in s for n in needles):
-            return canonical
-    return None
-
-
-def _guess_features(model_id: str) -> list[str]:
-    s = model_id.lower()
-    feats = []
-    if any(k in s for k in ("reason", "thinking", "-r1", "qwq")):
-        feats.append("reasoning")
-    return feats
-
-
-def _guess_modalities(model_id: str):
-    s = model_id.lower()
-    inp = ["text"]
-    if any(k in s for k in ("vl", "vision", "omni", "image", "multimodal")):
-        inp.append("image")
-    return inp, ["text"]
-
-
 def openrouter_model_schema(pm) -> dict:
-    """Build the OpenRouter provider `data[]` entry for a ProviderModel."""
+    """Build the OpenRouter provider `data[]` entry for a ProviderModel.
+
+    Capabilities are sourced from the linked CatalogModel (declared in the
+    operator's manifest); per-deployment overrides on ``ProviderModel.metadata``
+    take precedence. No id-based guessing.
+    """
     meta = pm.metadata if isinstance(pm.metadata, dict) else {}
+    cat = pm.catalog_model if pm.catalog_model_id else None
     model_id = pm.name
-    inp_default, out_default = _guess_modalities(model_id)
     created_dt = pm.created_on or pm.provider.created_on
+
+    cat_input = (cat.input_modalities or ["text"]) if cat else ["text"]
+    cat_output = (cat.output_modalities or ["text"]) if cat else ["text"]
+    cat_features = (cat.supported_features or []) if cat else []
+    # Live-probed served window first, then the declared catalog ceiling.
+    context = (
+        pm.served_context_len
+        or (cat.native_context_length if cat else None)
+        or pm.context_window
+    )
 
     out = {
         "id": model_id,
-        "name": meta.get("name") or model_id,
+        "name": meta.get("name") or (cat.display_name if cat else None) or model_id,
         "created": int(created_dt.timestamp()) if created_dt else 0,
-        "input_modalities": meta.get("input_modalities") or inp_default,
-        "output_modalities": meta.get("output_modalities") or out_default,
+        "input_modalities": meta.get("input_modalities") or cat_input,
+        "output_modalities": meta.get("output_modalities") or cat_output,
         "context_length": (
             meta.get("context_length")
             if meta.get("context_length") is not None
-            else pm.context_window
+            else context
         ),
         "max_output_length": meta.get("max_output_length"),
         # No economic model yet — pricing is present (OpenRouter requires it)
@@ -663,16 +642,17 @@ def openrouter_model_schema(pm) -> dict:
         or {"prompt": "0", "completion": "0", "request": "0", "image": "0"},
         "supported_sampling_parameters": meta.get("supported_sampling_parameters")
         or _DEFAULT_SAMPLING_PARAMS,
-        "supported_features": meta.get("supported_features") or _guess_features(model_id),
+        "supported_features": meta.get("supported_features") or cat_features,
         "is_ready": meta.get("is_ready", True),
     }
-    quant = meta.get("quantization") or _guess_quantization(model_id)
+    quant = meta.get("quantization")
     if quant:
         out["quantization"] = quant
     if meta.get("description"):
         out["description"] = meta["description"]
-    if meta.get("hugging_face_id"):
-        out["hugging_face_id"] = meta["hugging_face_id"]
+    hf_id = meta.get("hugging_face_id") or (cat.hf_repo_id if cat else None)
+    if hf_id:
+        out["hugging_face_id"] = hf_id
     return out
 
 
@@ -700,11 +680,6 @@ class ProviderModelsCatalogView(APIView):
         return Response({"data": list(seen.values())})
 
 
-# Lazy-enrich at most this many un-synced models per catalog page view, so the
-# first visit "just works" without a slow unbounded burst of HF calls.
-_LAZY_ENRICH_CAP = 15
-
-
 def serialize_catalog_entry(catalog, deployments) -> dict:
     """Build the public catalog dict for one CatalogModel given an iterable of
     its active deployments. Shared by ModelCatalogView (network-wide) and the
@@ -717,46 +692,30 @@ def serialize_catalog_entry(catalog, deployments) -> dict:
         if d.served_context_len:
             served.append(d.served_context_len)
     # The real, usable context (largest served across online nodes) takes
-    # precedence over the HF-derived ceiling.
+    # precedence over the declared ceiling.
     context_length = (max(served) if served else None) or catalog.native_context_length
-    md = catalog.metadata or {}
     return {
         "slug": catalog.slug,
         "display_name": catalog.display_name or catalog.slug,
         "hf_repo_id": catalog.hf_repo_id,
         "hf_url": catalog.hf_url,
         "is_custom": catalog.is_custom,
-        "architecture": catalog.architecture,
         "context_length": context_length,
         "input_modalities": catalog.input_modalities or [],
         "output_modalities": catalog.output_modalities or [],
         "supported_features": catalog.supported_features or [],
-        "pipeline_tag": md.get("pipeline_tag"),
-        "downloads": md.get("downloads"),
-        "likes": md.get("likes"),
         "provider_count": len(providers),
         "online_provider_count": sum(1 for v in providers.values() if v["online"]),
         "providers": sorted(providers.values(), key=lambda v: v["name"]),
     }
 
 
-def _lazy_enrich(catalogs) -> None:
-    """Best-effort, bounded HF enrichment for never-synced catalogs. Never lets
-    enrichment break the calling view."""
-    for c in [c for c in catalogs if c.hf_repo_id and c.hf_synced_at is None][:_LAZY_ENRICH_CAP]:
-        try:
-            enrich_catalog_model(c)
-        except Exception:  # never let enrichment break the listing
-            logger.exception("lazy enrich failed for %s", c.slug)
-
-
 class ModelCatalogView(APIView):
     """GET /api/inference/models/ — the human-facing network model catalog.
 
     One entry per CatalogModel that has at least one active deployment, with
-    HuggingFace-enriched metadata (modalities, context, features) and which
-    nodes serve it. Un-synced models are enriched lazily (bounded) on view;
-    `manage.py enrich_catalog` does the authoritative/bulk sync.
+    operator-declared capabilities (modalities, context, features) and which
+    nodes serve it.
     """
 
     permission_classes = [IsAuthenticated]
@@ -775,9 +734,6 @@ class ModelCatalogView(APIView):
             )
             .order_by("slug")
         )
-
-        # Lazy, bounded, best-effort enrichment for anything never synced.
-        _lazy_enrich(catalogs)
 
         data = [
             serialize_catalog_entry(c, getattr(c, "active_deployments", []))
@@ -940,6 +896,28 @@ def _model_hf_id(m: dict) -> str:
     return hf.strip() if isinstance(hf, str) else ""
 
 
+def _str_list(value) -> list[str]:
+    """Normalize a manifest list field to a clean list of non-empty strings."""
+    return [v.strip() for v in (value or []) if isinstance(v, str) and v.strip()]
+
+
+def _model_capabilities(m: dict) -> dict:
+    """Operator-declared capabilities for one manifest model entry. All
+    optional; the validator already enforced shape. Modalities default later
+    from the service type when omitted (empty list here)."""
+    name = m.get("name")
+    ctx = m.get("context_length")
+    quant = m.get("quantization")
+    return {
+        "name": name.strip() if isinstance(name, str) and name.strip() else "",
+        "input_modalities": _str_list(m.get("input_modalities")),
+        "output_modalities": _str_list(m.get("output_modalities")),
+        "features": _str_list(m.get("features")),
+        "context_length": ctx if isinstance(ctx, int) and ctx > 0 else None,
+        "quantization": quant.strip() if isinstance(quant, str) and quant.strip() else "",
+    }
+
+
 def _manifest_services(parsed) -> list[dict]:
     """Walk ``parsed.hosts[].services[]`` into a flat list of
     ``{name, host_id, engine, model_ids}`` dicts. Defensive — the validator
@@ -966,7 +944,13 @@ def _manifest_services(parsed) -> list[dict]:
                 if not served or served in seen_served:
                     continue
                 seen_served.add(served)
-                models_list.append({"served": served, "hf": _model_hf_id(m)})
+                models_list.append(
+                    {
+                        "served": served,
+                        "hf": _model_hf_id(m),
+                        "capabilities": _model_capabilities(m),
+                    }
+                )
             svc_type = svc.get("type")
             if not isinstance(svc_type, str) or svc_type not in ("llm", "stt", "tts", "image"):
                 svc_type = "llm"
@@ -1047,6 +1031,7 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
     declared_models: set[str] = set()
     model_to_service: dict[str, ProviderService] = {}
     model_hf: dict[str, str] = {}
+    model_caps: dict[str, dict] = {}
     for sd in services_data:
         for m in sd["models"]:
             served = m["served"]
@@ -1054,6 +1039,7 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
             model_to_service.setdefault(served, service_by_name[sd["name"]])
             if m["hf"]:
                 model_hf.setdefault(served, m["hf"])
+            model_caps.setdefault(served, m.get("capabilities") or {})
 
     existing = {pm.name: pm for pm in provider.models.all()}
     for name, pm in existing.items():
@@ -1075,13 +1061,13 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
         if active and (pm.catalog_model_id is None or "hf_repo_id" in fields):
             link_catalog_model(pm)
             fields.append("catalog_model")
-        # (Re)seed modalities from the service type on every sync — not just on
-        # first link — so a model linked before its type was known (e.g. an
-        # image service whose catalog was created by an older agent that didn't
-        # send `type`, and which has no HF id to enrich from) still gets the
-        # right input/output modalities. Idempotent + skips HF-enriched rows.
+        # Apply the operator's declared capabilities to the catalog on every
+        # sync (manifest is the source of truth), and stash per-deployment
+        # quantization on the ProviderModel.
         if active and pm.catalog_model_id and svc is not None:
-            _apply_service_type_modalities(pm.catalog_model, svc)
+            _apply_declared_capabilities(pm.catalog_model, svc, model_caps.get(name))
+            if _apply_deployment_caps(pm, model_caps.get(name)) and "metadata" not in fields:
+                fields.append("metadata")
         if fields:
             pm.save(update_fields=fields + ["modified_on"])
     for name in declared_models:
@@ -1095,31 +1081,40 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
                 service=svc,
             )
             catalog = link_catalog_model(pm)
-            _apply_service_type_modalities(catalog, svc)
+            _apply_declared_capabilities(catalog, svc, model_caps.get(name))
+            _apply_deployment_caps(pm, model_caps.get(name))
             pm.save()
     return len(declared_models)
 
 
-def _apply_service_type_modalities(catalog, service) -> None:
-    """Seed sensible input/output modalities on a freshly-pooled catalog model
-    from its service type, so non-text models render correctly *before* the
-    lazy HuggingFace enrichment runs (and for models with no HF id at all).
+# Default (input, output) modalities by service type, used when a model doesn't
+# declare its own. LLM is text→text; the others mirror their endpoint shape.
+_SERVICE_TYPE_MODALITIES = {
+    "stt": (["audio"], ["text"]),
+    "tts": (["text"], ["audio"]),
+    "image": (["text", "image"], ["image"]),
+    "llm": (["text"], ["text"]),
+}
 
-    Only fills when the catalog hasn't been HF-enriched yet — never clobbers
-    richer enriched data.
+
+def _apply_declared_capabilities(catalog, service, caps) -> None:
+    """Apply operator-declared model capabilities to its CatalogModel.
+
+    Modalities use the declared lists when present, else default from the
+    service type. Features, context-length ceiling, and display name are taken
+    from the declaration when given. Manifest is the source of truth, so this
+    runs on every sync (idempotent — only writes changed fields).
     """
-    if service is None or catalog.hf_synced_at is not None:
-        return
-    stype = getattr(service, "service_type", "llm")
-    if stype == "stt":
-        inp, out = ["audio"], ["text"]
-    elif stype == "tts":
-        inp, out = ["text"], ["audio"]
-    elif stype == "image":
-        # Text prompt always; image input for the edits endpoint.
-        inp, out = ["text", "image"], ["image"]
-    else:
-        return
+    caps = caps or {}
+    stype = getattr(service, "service_type", "llm") if service is not None else "llm"
+    default_in, default_out = _SERVICE_TYPE_MODALITIES.get(stype, (["text"], ["text"]))
+
+    inp = caps.get("input_modalities") or default_in
+    out = caps.get("output_modalities") or default_out
+    feats = caps.get("features") or []
+    ctx = caps.get("context_length")
+    name = caps.get("name")
+
     fields = []
     if catalog.input_modalities != inp:
         catalog.input_modalities = inp
@@ -1127,8 +1122,36 @@ def _apply_service_type_modalities(catalog, service) -> None:
     if catalog.output_modalities != out:
         catalog.output_modalities = out
         fields.append("output_modalities")
+    if catalog.supported_features != feats:
+        catalog.supported_features = feats
+        fields.append("supported_features")
+    if ctx is not None and catalog.native_context_length != ctx:
+        catalog.native_context_length = ctx
+        fields.append("native_context_length")
+    if name and catalog.display_name != name:
+        catalog.display_name = name
+        fields.append("display_name")
     if fields:
         catalog.save(update_fields=fields + ["modified_on"])
+
+
+def _apply_deployment_caps(pm, caps) -> bool:
+    """Stash per-deployment capability overrides (currently just quantization)
+    on ``pm.metadata``. Mutates pm in place; returns True if metadata changed
+    (so the caller can include it in update_fields)."""
+    caps = caps or {}
+    quant = caps.get("quantization") or ""
+    meta = dict(pm.metadata or {})
+    if quant:
+        if meta.get("quantization") != quant:
+            meta["quantization"] = quant
+            pm.metadata = meta
+            return True
+    elif "quantization" in meta:
+        meta.pop("quantization")
+        pm.metadata = meta
+        return True
+    return False
 
 
 def refresh_provider_models(provider) -> int:
@@ -1482,7 +1505,6 @@ def _user_served_models(user) -> list:
             continue
         by_catalog.setdefault(c.id, (c, []))[1].append(d)
 
-    _lazy_enrich([c for c, _ in by_catalog.values()])
     entries = [serialize_catalog_entry(c, ds) for c, ds in by_catalog.values()]
     entries.sort(key=lambda e: e["display_name"].lower())
     return entries

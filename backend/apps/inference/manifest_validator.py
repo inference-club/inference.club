@@ -191,17 +191,47 @@ def validate(parsed: dict, raw_yaml: str = "") -> list[str]:
                     errors.append(f"{sprefix}.models: must be a list if present")
                 else:
                     for m_idx, m in enumerate(models):
+                        mprefix = f"{sprefix}.models[{m_idx}]"
                         mid = m.get("id") if isinstance(m, dict) else None
                         hf = m.get("hf") if isinstance(m, dict) else None
                         has_id = isinstance(mid, str) and mid.strip()
                         has_hf = isinstance(hf, str) and hf.strip()
                         if not isinstance(m, dict) or not (has_id or has_hf):
                             errors.append(
-                                f"{sprefix}.models[{m_idx}]: each entry needs a "
+                                f"{mprefix}: each entry needs a "
                                 "string `id` or `hf` (HuggingFace repo id)"
                             )
-                        elif hf is not None and not isinstance(hf, str):
-                            errors.append(f"{sprefix}.models[{m_idx}].hf: must be a string")
+                            continue
+                        if hf is not None and not isinstance(hf, str):
+                            errors.append(f"{mprefix}.hf: must be a string")
+
+                        # --- operator-declared capabilities (all optional) ---
+                        for field in ("name", "quantization"):
+                            val = m.get(field)
+                            if val is not None and (
+                                not isinstance(val, str) or len(val) > MAX_STRING_LEN
+                            ):
+                                errors.append(
+                                    f"{mprefix}.{field}: must be a string up to "
+                                    f"{MAX_STRING_LEN} chars"
+                                )
+                        for field in ("input_modalities", "output_modalities", "features"):
+                            val = m.get(field)
+                            if val is not None and (
+                                not isinstance(val, list)
+                                or not all(
+                                    isinstance(x, str) and len(x) <= MAX_STRING_LEN
+                                    for x in val
+                                )
+                            ):
+                                errors.append(
+                                    f"{mprefix}.{field}: must be a list of strings"
+                                )
+                        ctx = m.get("context_length")
+                        if ctx is not None and (not isinstance(ctx, int) or ctx < 0):
+                            errors.append(
+                                f"{mprefix}.context_length: must be a non-negative integer"
+                            )
 
             for field in ("command",):
                 val = svc.get(field)

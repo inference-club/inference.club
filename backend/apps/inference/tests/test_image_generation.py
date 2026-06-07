@@ -112,10 +112,9 @@ class TestImageManifestAndRouting:
         """Regression (prod): a model whose catalog was created before the
         service type was known (older agent dropped `type`) must get correct
         modalities on the next sync once the type is declared — even with no
-        HF id to enrich from."""
+        declared modalities to fall back to."""
         p = _online_provider(user)
-        # First sync without a type (simulates the old agent) → defaults to llm,
-        # no image modalities seeded.
+        # First sync without a type → defaults to llm → text-in/text-out.
         manifest = {
             "schema_version": 1, "agent": {"name": "club-host"},
             "hosts": [{"id": "h", "services": [{
@@ -125,13 +124,43 @@ class TestImageManifestAndRouting:
         }
         sync_provider_models_from_manifest(p, manifest)
         pm = ProviderModel.objects.select_related("catalog_model").get(provider=p, name="flux-x")
-        assert pm.catalog_model.input_modalities == []  # nothing seeded yet
+        assert pm.catalog_model.input_modalities == ["text"]  # llm default
         # Now the type is declared (new agent) — re-sync must fix modalities.
         manifest["hosts"][0]["services"][0]["type"] = "image"
         sync_provider_models_from_manifest(p, manifest)
         pm.catalog_model.refresh_from_db()
         assert pm.catalog_model.input_modalities == ["text", "image"]
         assert pm.catalog_model.output_modalities == ["image"]
+
+    def test_declared_model_capabilities_applied(self, user):
+        """Operator-declared per-model capabilities flow into the CatalogModel
+        and the deployment, overriding the service-type defaults."""
+        p = _online_provider(user)
+        manifest = {
+            "schema_version": 1, "agent": {"name": "club-host"},
+            "hosts": [{"id": "h", "services": [{
+                "name": "llm", "engine": "vllm", "type": "llm",
+                "url": "http://h:8000/v1",
+                "models": [{
+                    "id": "qwen3-vl",
+                    "hf": "Qwen/Qwen3-VL",
+                    "name": "Qwen3 VL",
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text"],
+                    "features": ["reasoning", "tools"],
+                    "context_length": 32768,
+                    "quantization": "fp8",
+                }],
+            }]}],
+        }
+        sync_provider_models_from_manifest(p, manifest)
+        pm = ProviderModel.objects.select_related("catalog_model").get(provider=p, name="qwen3-vl")
+        cat = pm.catalog_model
+        assert cat.display_name == "Qwen3 VL"
+        assert cat.input_modalities == ["text", "image"]
+        assert cat.supported_features == ["reasoning", "tools"]
+        assert cat.native_context_length == 32768
+        assert pm.metadata.get("quantization") == "fp8"
 
 
 # --- generations -----------------------------------------------------------

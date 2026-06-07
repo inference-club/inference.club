@@ -1,5 +1,5 @@
-// Network model catalog — one entry per logical model (CatalogModel),
-// HuggingFace-enriched, with which nodes serve it.
+// Network model catalog — one entry per logical model (CatalogModel), with
+// operator-declared capabilities and which nodes serve it.
 import { ref } from 'vue'
 
 export interface CatalogProvider {
@@ -13,14 +13,10 @@ export interface CatalogModelItem {
   hf_repo_id: string
   hf_url: string
   is_custom: boolean
-  architecture: string
   context_length: number | null
   input_modalities: string[]
   output_modalities: string[]
   supported_features: string[]
-  pipeline_tag: string | null
-  downloads: number | null
-  likes: number | null
   provider_count: number
   online_provider_count: number
   providers: CatalogProvider[]

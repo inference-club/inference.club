@@ -261,26 +261,22 @@ class CatalogModel(BaseModel):
         help_text="True for models with no HuggingFace repo "
         "(custom fine-tunes / local-only weights).",
     )
-    # --- Enrichment (Phase 2), synced from the HuggingFace Hub ---------------
-    architecture = models.CharField(
-        max_length=128, blank=True, help_text="e.g. 'Qwen2_5_VLForConditionalGeneration'."
-    )
+    # --- Capabilities, declared by the operator in the agent manifest --------
+    # (modalities default from the service type when a model omits them). The
+    # native context length is the declared ceiling; the live-probed
+    # ProviderModel.served_context_len takes precedence when present.
     native_context_length = models.PositiveIntegerField(
-        null=True, blank=True, help_text="config.json max_position_embeddings (the ceiling)."
+        null=True, blank=True, help_text="Declared context-window ceiling."
     )
     input_modalities = models.JSONField(default=list, blank=True)
     output_modalities = models.JSONField(default=list, blank=True)
     supported_features = models.JSONField(
         default=list, blank=True, help_text="e.g. ['reasoning', 'tools']."
     )
-    hf_synced_at = models.DateTimeField(
-        null=True, blank=True, help_text="Last successful HuggingFace enrichment."
-    )
     metadata = models.JSONField(
         default=dict,
         blank=True,
-        help_text="Raw HF subset (pipeline_tag, library_name, gated, downloads, "
-        "likes, model_type) + future fields (recommended serving profile).",
+        help_text="Operator-declared extras (e.g. recommended serving profile).",
     )
 
     class Meta:
@@ -344,7 +340,8 @@ class ProviderModel(BaseModel):
         help_text="Operator-set overrides for the OpenRouter-style model "
         "catalog (e.g. name, quantization, context_length, max_output_length, "
         "input/output_modalities, supported_features, "
-        "supported_sampling_parameters). Heuristics + defaults fill the rest.",
+        "supported_sampling_parameters). The linked catalog model + defaults "
+        "fill the rest.",
     )
 
     class Meta:

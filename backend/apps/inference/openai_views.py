@@ -252,7 +252,7 @@ def _model_caps(pm) -> dict:
     /v1/models so clients (the playground) can adapt the UI. Extra fields are
     ignored by standard OpenAI clients."""
     cat = pm.catalog_model if pm.catalog_model_id else None
-    # Prefer the live-probed served window over the catalog's HF-derived one.
+    # Prefer the live-probed served window over the catalog's declared ceiling.
     context = pm.served_context_len or (cat.native_context_length if cat else None)
     # The modality/endpoint kind ("llm" | "stt" | "tts") lets the playground
     # route a model to the right surface (chat vs. transcription). Unlinked

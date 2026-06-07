@@ -44,13 +44,6 @@ const fmtCtx = (n: number | null) => {
   if (n >= 1000) return `${Math.round(n / 1024)}K ctx`
   return `${n} ctx`
 }
-const fmtCount = (n: number | null) => {
-  if (!n && n !== 0) return null
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`
-  return `${n}`
-}
-
 onMounted(fetchModels)
 </script>
 
@@ -132,9 +125,6 @@ onMounted(fetchModels)
 
         <!-- Meta -->
         <div class="text-xs text-muted-foreground space-y-1 mt-auto">
-          <div v-if="m.architecture" class="font-mono truncate" :title="m.architecture">
-            {{ m.architecture }}
-          </div>
           <div class="flex items-center gap-3">
             <span class="inline-flex items-center gap-1.5">
               <span
@@ -143,9 +133,6 @@ onMounted(fetchModels)
               />
               {{ m.online_provider_count }}/{{ m.provider_count }}
               node{{ m.provider_count === 1 ? '' : 's' }} online
-            </span>
-            <span v-if="fmtCount(m.downloads)" title="HuggingFace downloads">
-              ↓ {{ fmtCount(m.downloads) }}
             </span>
           </div>
           <div v-if="m.providers.length" class="truncate" :title="m.providers.map((p) => p.name).join(', ')">
