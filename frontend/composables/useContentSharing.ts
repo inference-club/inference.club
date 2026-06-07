@@ -123,6 +123,19 @@ export function useContentSharing() {
       ),
     )
 
+  // --- moderation -----------------------------------------------------------
+
+  const reportRequest = (
+    id: string | number,
+    payload: { reason: string; details?: string },
+  ) =>
+    withState(() =>
+      api<{ reported: boolean; already_reported: boolean }>(
+        `/requests/${id}/report/`,
+        { method: 'POST', body: JSON.stringify(payload) },
+      ),
+    )
+
   // --- shared-by-token (public) --------------------------------------------
 
   const getSharedRequest = (token: string) =>
@@ -215,6 +228,7 @@ export function useContentSharing() {
     listStarred,
     toggleBookmark,
     listBookmarked,
+    reportRequest,
     getSharedRequest,
     shareUrl,
     listCollections,

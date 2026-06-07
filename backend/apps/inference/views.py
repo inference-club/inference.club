@@ -27,6 +27,7 @@ from .models import (
     CatalogModel,
     Collection,
     CollectionItem,
+    ContentReport,
     InferenceRequest,
     MediaAsset,
     Provider,
@@ -44,6 +45,7 @@ from .serializers import (
     AgentRegisterSerializer,
     CollectionSerializer,
     CollectionWriteSerializer,
+    ContentReportCreateSerializer,
     InferenceRequestDetailSerializer,
     InferenceRequestListSerializer,
     InferenceRequestSerializer,
@@ -245,6 +247,32 @@ class RequestBookmarkView(APIView):
         obj = _get_owned_or_visible_request(request, id)
         Bookmark.objects.filter(user=request.user, request=obj).delete()
         return Response({"is_bookmarked": False})
+
+
+class RequestReportView(APIView):
+    """POST /api/inference/requests/<id>/report/ — flag a request for
+    inappropriate content. Any signed-in member may report any request they can
+    see; staff triage the queue from the admin surface.
+
+    Idempotent per (reporter, request): re-reporting the same request just
+    returns the existing report instead of creating a duplicate (the unique
+    constraint guarantees one report per member per request)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, id):
+        obj = _get_owned_or_visible_request(request, id)
+        ser = ContentReportCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        report, created = ContentReport.objects.get_or_create(
+            reporter=request.user,
+            request=obj,
+            defaults=ser.validated_data,
+        )
+        return Response(
+            {"reported": True, "already_reported": not created},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 class StarredRequestsView(generics.ListAPIView):

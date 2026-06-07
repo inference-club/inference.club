@@ -115,7 +115,8 @@
       "leaderboard": "리더보드",
       "compute": "컴퓨트",
       "documentation": "문서",
-      "settings": "설정"
+      "settings": "설정",
+      "admin": "관리자"
     },
     "items": {
       "chat": "채팅",
@@ -140,7 +141,9 @@
       "routing": "라우팅",
       "usage": "사용량",
       "access": "접근",
-      "token": "토큰"
+      "token": "토큰",
+      "activity": "활동",
+      "moderation": "콘텐츠 검토"
     }
   }
 }

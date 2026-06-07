@@ -115,7 +115,8 @@
       "leaderboard": "Clasificación",
       "compute": "Cómputo",
       "documentation": "Documentación",
-      "settings": "Ajustes"
+      "settings": "Ajustes",
+      "admin": "Administración"
     },
     "items": {
       "chat": "Chat",
@@ -140,7 +141,9 @@
       "routing": "Enrutamiento",
       "usage": "Uso",
       "access": "Acceso",
-      "token": "Token"
+      "token": "Token",
+      "activity": "Actividad",
+      "moderation": "Moderación"
     }
   }
 }

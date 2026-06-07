@@ -2,10 +2,11 @@
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  Star, Bookmark, Share2, MoreHorizontal, Eye, FolderPlus,
+  Star, Bookmark, Share2, MoreHorizontal, Eye, FolderPlus, Flag,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { useContentSharing } from '@/composables/useContentSharing'
+import { useAuth } from '@/composables/useAuth'
 
 const props = withDefaults(
   defineProps<{ request: InferenceRequest; showShare?: boolean }>(),
@@ -14,6 +15,7 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'visibility-change', v: Visibility): void }>()
 
 const { toggleStar, toggleBookmark, shareUrl } = useContentSharing()
+const { isAuthenticated } = useAuth()
 
 // Local, optimistic state seeded from the request (resynced when the row swaps).
 const starred = ref(!!props.request.is_starred)
@@ -21,6 +23,7 @@ const starCount = ref(props.request.star_count ?? 0)
 const bookmarked = ref(!!props.request.is_bookmarked)
 const visEditOpen = ref(false)
 const collectOpen = ref(false)
+const reportOpen = ref(false)
 const busy = ref(false)
 
 watch(
@@ -143,6 +146,18 @@ const onVisibilityUpdated = (v: Visibility) => {
       </DropdownMenuContent>
     </DropdownMenu>
 
+    <!-- Report (non-owners only — you don't report your own content) -->
+    <Button
+      v-if="!request.is_owner && isAuthenticated"
+      variant="ghost"
+      size="icon"
+      class="size-8 text-muted-foreground hover:text-destructive"
+      title="Report"
+      @click="reportOpen = true"
+    >
+      <Flag class="size-4" />
+    </Button>
+
     <EditVisibilityDialog
       v-if="request.is_owner"
       v-model:open="visEditOpen"
@@ -152,6 +167,11 @@ const onVisibilityUpdated = (v: Visibility) => {
     <AddToCollectionDialog
       v-if="request.is_owner"
       v-model:open="collectOpen"
+      :request="request"
+    />
+    <ReportDialog
+      v-if="!request.is_owner && isAuthenticated"
+      v-model:open="reportOpen"
       :request="request"
     />
   </div>

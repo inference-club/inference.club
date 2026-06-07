@@ -26,6 +26,7 @@ urlpatterns = [
     path("v1/", include("apps.inference.openai_urls", namespace="openai")),
     path("api/", include("apps.accounts.urls")),
     path("api/inference/", include("apps.inference.urls")),
+    path("api/admin/", include("apps.inference.staff_urls")),
     # Public OpenAPI spec for the OpenAI-compatible /v1 API (powers the docs
     # page and is importable by external tools).
     path("openapi.json", OpenAPISchemaView.as_view(), name="openapi-json"),

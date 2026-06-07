@@ -115,7 +115,8 @@
       "leaderboard": "Leaderboard",
       "compute": "Compute",
       "documentation": "Documentation",
-      "settings": "Settings"
+      "settings": "Settings",
+      "admin": "Admin"
     },
     "items": {
       "chat": "Chat",
@@ -140,7 +141,9 @@
       "routing": "Routing",
       "usage": "Usage",
       "access": "Access",
-      "token": "Token"
+      "token": "Token",
+      "activity": "Activity",
+      "moderation": "Moderation"
     }
   }
 }

@@ -19,11 +19,13 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar'
+import { Badge } from '@/components/ui/badge'
 import {
   ChevronsUpDown,
   KeyRound,
   LogOut,
   Settings,
+  Shield,
   UserRound,
 } from 'lucide-vue-next'
 import { computed } from 'vue'
@@ -35,6 +37,7 @@ const { isMobile } = useSidebar()
 
 const githubLogin = computed(() => user.value?.github_login ?? '')
 const displayName = computed(() => githubLogin.value || user.value?.email || 'Not signed in')
+const isStaff = computed(() => !!user.value?.is_staff)
 const profilePath = computed(() => (githubLogin.value ? `/${githubLogin.value}` : null))
 const initials = computed(() => {
   const source = githubLogin.value || (user.value?.email?.split('@')[0] ?? '')
@@ -57,7 +60,18 @@ const initials = computed(() => {
               </AvatarFallback>
             </Avatar>
             <div class="grid flex-1 text-left text-sm leading-tight">
-              <span class="truncate text-xs">{{ displayName }}</span>
+              <span class="flex items-center gap-1 text-xs">
+                <span class="truncate">{{ displayName }}</span>
+                <Badge
+                  v-if="isStaff"
+                  variant="secondary"
+                  class="h-4 shrink-0 gap-0.5 px-1 text-[10px] leading-none"
+                  title="Staff"
+                >
+                  <Shield class="size-2.5" />
+                  Staff
+                </Badge>
+              </span>
             </div>
             <ChevronsUpDown class="ml-auto size-4" />
           </SidebarMenuButton>
@@ -76,7 +90,17 @@ const initials = computed(() => {
                 </AvatarFallback>
               </Avatar>
               <div class="grid flex-1 text-left text-sm leading-tight">
-                <span class="truncate font-medium">{{ displayName }}</span>
+                <span class="flex items-center gap-1 font-medium">
+                  <span class="truncate">{{ displayName }}</span>
+                  <Badge
+                    v-if="isStaff"
+                    variant="secondary"
+                    class="h-4 shrink-0 gap-0.5 px-1 text-[10px] leading-none"
+                  >
+                    <Shield class="size-2.5" />
+                    Staff
+                  </Badge>
+                </span>
                 <span v-if="user?.email" class="truncate text-xs text-muted-foreground">{{ user.email }}</span>
               </div>
             </div>

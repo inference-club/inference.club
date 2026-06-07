@@ -1,4 +1,4 @@
-import { BookOpen, Boxes, Cpu, Send, Settings2, Sparkles, Trophy } from 'lucide-vue-next'
+import { BookOpen, Boxes, Cpu, Send, Settings2, ShieldCheck, Sparkles, Trophy } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
 export interface DashboardNavItem {
@@ -11,6 +11,10 @@ export interface DashboardNavGroup {
   titleKey: string
   icon: Component
   items: DashboardNavItem[]
+  // When true, the group is only rendered for staff users (filtered in
+  // AppSidebar against the auth store). The API enforces staff access too —
+  // this is purely to hide the affordance from non-staff.
+  staffOnly?: boolean
 }
 
 // Single source of truth for the dashboard sidebar AND the breadcrumbs, so the
@@ -80,6 +84,15 @@ export const dashboardNav: DashboardNavGroup[] = [
       { titleKey: 'dashboard.items.usage', url: '/dashboard/settings/usage' },
       { titleKey: 'dashboard.items.access', url: '/dashboard/settings/access' },
       { titleKey: 'dashboard.items.token', url: '/dashboard/settings/token' },
+    ],
+  },
+  {
+    titleKey: 'dashboard.groups.admin',
+    icon: ShieldCheck,
+    staffOnly: true,
+    items: [
+      { titleKey: 'dashboard.items.activity', url: '/dashboard/admin/activity' },
+      { titleKey: 'dashboard.items.moderation', url: '/dashboard/admin/moderation' },
     ],
   },
 ]

@@ -22,6 +22,7 @@ from .views import (
     ProviderUpdateView,
     RefreshProviderModelsView,
     RequestBookmarkView,
+    RequestReportView,
     RequestStarView,
     RetrieveInferenceRequestView,
     SharedRequestView,
@@ -61,6 +62,11 @@ urlpatterns = [
         "requests/<int:id>/bookmark/",
         RequestBookmarkView.as_view(),
         name="inference-request-bookmark",
+    ),
+    path(
+        "requests/<int:id>/report/",
+        RequestReportView.as_view(),
+        name="inference-request-report",
     ),
     path(
         "shared/<str:share_token>/",

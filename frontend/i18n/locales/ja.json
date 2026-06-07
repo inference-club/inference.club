@@ -115,7 +115,8 @@
       "leaderboard": "リーダーボード",
       "compute": "コンピュート",
       "documentation": "ドキュメント",
-      "settings": "設定"
+      "settings": "設定",
+      "admin": "管理"
     },
     "items": {
       "chat": "チャット",
@@ -140,7 +141,9 @@
       "routing": "ルーティング",
       "usage": "使用量",
       "access": "アクセス",
-      "token": "トークン"
+      "token": "トークン",
+      "activity": "アクティビティ",
+      "moderation": "モデレーション"
     }
   }
 }

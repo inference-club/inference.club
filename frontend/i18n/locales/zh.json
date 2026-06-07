@@ -115,7 +115,8 @@
       "leaderboard": "排行榜",
       "compute": "算力",
       "documentation": "文档",
-      "settings": "设置"
+      "settings": "设置",
+      "admin": "管理"
     },
     "items": {
       "chat": "聊天",
@@ -140,7 +141,9 @@
       "routing": "路由",
       "usage": "用量",
       "access": "访问",
-      "token": "Token"
+      "token": "Token",
+      "activity": "活动",
+      "moderation": "内容审核"
     }
   }
 }

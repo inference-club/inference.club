@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 from .models import (
     Collection,
+    ContentReport,
     InferenceRequest,
     Provider,
     ProviderModel,
@@ -794,4 +795,118 @@ class CollectionWriteSerializer(serializers.ModelSerializer):
         value = (value or "").strip()
         if not value:
             raise serializers.ValidationError("Name cannot be blank.")
+        return value
+
+
+# --- Content moderation ------------------------------------------------------
+
+
+class ContentReportCreateSerializer(serializers.ModelSerializer):
+    """Member-facing: file a report against a request. The request, reporter,
+    and status are all set by the view, never accepted from the client."""
+
+    class Meta:
+        model = ContentReport
+        fields = ["reason", "details"]
+
+    def validate_reason(self, value):
+        valid = {c[0] for c in ContentReport._meta.get_field("reason").choices}
+        if value not in valid:
+            raise serializers.ValidationError(f"Must be one of {sorted(valid)}.")
+        return value
+
+    def validate_details(self, value):
+        return (value or "").strip()[:2000]
+
+
+class ReportedRequestMiniSerializer(serializers.ModelSerializer):
+    """Slim view of the reported request, embedded in the staff queue so a
+    moderator can triage without opening each one. No full payload/results."""
+
+    owner = serializers.SerializerMethodField()
+    github_login = serializers.SerializerMethodField()
+    prompt_preview = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InferenceRequest
+        fields = [
+            "id",
+            "inference_type",
+            "model_name",
+            "visibility",
+            "status",
+            "owner",
+            "github_login",
+            "prompt_preview",
+            "created_on",
+        ]
+
+    def get_owner(self, obj) -> str:
+        return _user_owner(obj.user)
+
+    def get_github_login(self, obj):
+        return _user_github_login(obj.user)
+
+    def get_prompt_preview(self, obj) -> str:
+        if isinstance(obj.payload, dict) and not _extract_messages(obj.payload):
+            for key in ("prompt", "input"):
+                if isinstance(obj.payload.get(key), str):
+                    return _truncate(obj.payload[key])
+        msgs = _extract_messages(obj.payload)
+        for m in reversed(msgs):
+            if m["role"] == "user":
+                return _truncate(m["content"])
+        return _truncate(msgs[-1]["content"]) if msgs else ""
+
+
+class ContentReportSerializer(serializers.ModelSerializer):
+    """Staff-facing report: the moderation record plus an embedded preview of
+    the reported request and the reporter's handle."""
+
+    request = ReportedRequestMiniSerializer(read_only=True)
+    reason_display = serializers.CharField(source="get_reason_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    reporter = serializers.SerializerMethodField()
+    resolved_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ContentReport
+        fields = [
+            "id",
+            "request",
+            "reporter",
+            "reason",
+            "reason_display",
+            "details",
+            "status",
+            "status_display",
+            "resolution_note",
+            "resolved_by",
+            "resolved_at",
+            "created_on",
+        ]
+        # Read-only view: skip the auto UniqueTogetherValidator DRF derives from
+        # the (reporter, request) constraint — it would otherwise rewrite the
+        # read-only `reporter` method field into a hidden write field.
+        validators: list = []
+
+    def get_reporter(self, obj):
+        return _user_owner(obj.reporter) if obj.reporter else None
+
+    def get_resolved_by(self, obj):
+        return _user_owner(obj.resolved_by) if obj.resolved_by else None
+
+
+class ContentReportUpdateSerializer(serializers.ModelSerializer):
+    """Staff-facing: triage a report. Only the outcome fields are writable; the
+    view stamps resolved_by/resolved_at when moving to a terminal status."""
+
+    class Meta:
+        model = ContentReport
+        fields = ["status", "resolution_note"]
+
+    def validate_status(self, value):
+        valid = {c[0] for c in ContentReport._meta.get_field("status").choices}
+        if value not in valid:
+            raise serializers.ValidationError(f"Must be one of {sorted(valid)}.")
         return value

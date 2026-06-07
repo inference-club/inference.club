@@ -724,3 +724,86 @@ class CollectionItem(BaseModel):
 
     def __str__(self):
         return f"c{self.collection_id}<-r{self.request_id}"
+
+
+# --- Content moderation ------------------------------------------------------
+# Members can flag an inference request for inappropriate content; staff triage
+# the queue from the in-app admin surface. See the staff_views module.
+REPORT_REASON_CHOICES = (
+    ("SEXUAL", "Sexual or explicit content"),
+    ("VIOLENCE", "Violence or gore"),
+    ("HATE", "Hate or harassment"),
+    ("ILLEGAL", "Illegal or dangerous"),
+    ("CSAM", "Child sexual abuse material"),
+    ("SPAM", "Spam or misleading"),
+    ("OTHER", "Other"),
+)
+
+REPORT_STATUS_OPEN = "OPEN"
+REPORT_STATUS_REVIEWING = "REVIEWING"
+REPORT_STATUS_RESOLVED = "RESOLVED"
+REPORT_STATUS_DISMISSED = "DISMISSED"
+REPORT_STATUS_CHOICES = (
+    (REPORT_STATUS_OPEN, "Open"),
+    (REPORT_STATUS_REVIEWING, "Reviewing"),
+    (REPORT_STATUS_RESOLVED, "Resolved"),
+    (REPORT_STATUS_DISMISSED, "Dismissed"),
+)
+# Statuses that still need staff attention (drive the moderation queue badge).
+REPORT_OPEN_STATUSES = (REPORT_STATUS_OPEN, REPORT_STATUS_REVIEWING)
+
+
+class ContentReport(BaseModel):
+    """A member's report that an inference request contains inappropriate
+    content. One open report per (reporter, request) — re-reporting is a no-op.
+
+    Reports are never auto-deleted with their reporter (SET_NULL): the moderation
+    record should outlive an account removal. They *are* deleted with the
+    request (CASCADE) — once the content is gone there's nothing left to moderate.
+    """
+
+    request = models.ForeignKey(
+        InferenceRequest,
+        on_delete=models.CASCADE,
+        related_name="reports",
+    )
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="filed_reports",
+    )
+    reason = models.CharField(max_length=16, choices=REPORT_REASON_CHOICES)
+    details = models.TextField(blank=True, default="")
+    status = models.CharField(
+        max_length=16,
+        choices=REPORT_STATUS_CHOICES,
+        default=REPORT_STATUS_OPEN,
+        db_index=True,
+    )
+    # Staff triage outcome.
+    resolution_note = models.TextField(blank=True, default="")
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="resolved_reports",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_on"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reporter", "request"],
+                name="unique_report_per_reporter_request",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["status", "created_on"]),
+        ]
+
+    def __str__(self):
+        return f"report#{self.pk} r{self.request_id} [{self.status}]"

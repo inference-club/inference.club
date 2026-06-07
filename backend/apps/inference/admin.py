@@ -3,8 +3,11 @@ from .models import (
     Bookmark,
     Collection,
     CollectionItem,
+    ContentReport,
     InferenceRequest,
     MediaAsset,
+    Provider,
+    ProviderService,
     Star,
 )
 
@@ -58,3 +61,51 @@ class MediaAssetAdmin(admin.ModelAdmin):
     list_filter = ("kind", "created_on")
     readonly_fields = ("created_on", "modified_on")
     search_fields = ("user__username",)
+
+
+@admin.register(ContentReport)
+class ContentReportAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "request",
+        "reporter",
+        "reason",
+        "status",
+        "resolved_by",
+        "created_on",
+    )
+    list_filter = ("status", "reason", "created_on")
+    readonly_fields = ("created_on", "modified_on", "resolved_at")
+    raw_id_fields = ("request", "reporter", "resolved_by")
+    search_fields = ("request__id", "reporter__email", "details")
+
+
+@admin.register(Provider)
+class ProviderAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "name",
+        "is_active",
+        "accepting_requests",
+        "last_seen_at",
+        "created_on",
+    )
+    list_filter = ("is_active", "accepting_requests", "created_on")
+    readonly_fields = ("created_on", "modified_on", "registered_at", "last_seen_at")
+    search_fields = ("user__email", "name", "tailnet_hostname")
+
+
+@admin.register(ProviderService)
+class ProviderServiceAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "provider",
+        "name",
+        "service_type",
+        "access_policy",
+        "is_active",
+    )
+    list_filter = ("service_type", "access_policy", "is_active")
+    readonly_fields = ("created_on", "modified_on")
+    search_fields = ("provider__name", "name")

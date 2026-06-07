@@ -115,7 +115,8 @@
       "leaderboard": "Classement",
       "compute": "Calcul",
       "documentation": "Documentation",
-      "settings": "Paramètres"
+      "settings": "Paramètres",
+      "admin": "Admin"
     },
     "items": {
       "chat": "Chat",
@@ -140,7 +141,9 @@
       "routing": "Routage",
       "usage": "Utilisation",
       "access": "Accès",
-      "token": "Jeton"
+      "token": "Jeton",
+      "activity": "Activité",
+      "moderation": "Modération"
     }
   }
 }
