@@ -145,6 +145,13 @@ onMounted(async () => {
     if (models.value.length) {
       const wanted = String(useRoute().query.model || '')
       model.value = (wanted && models.value.find((m) => m.id === wanted)?.id) || models.value[0].id
+      const p = usePlaygroundPrefill().take('IMAGE')
+      if (p) {
+        if (typeof p.prompt === 'string') prompt.value = p.prompt
+        if (typeof p.n === 'number') n.value = p.n
+        if (typeof p.size === 'string') size.value = p.size
+        if (typeof p.model === 'string' && models.value.some((m) => m.id === p.model)) model.value = p.model
+      }
     } else {
       modelsError.value =
         'No image models are available to you yet. Run an image agent (a service with type: image) to add one.'

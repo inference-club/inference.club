@@ -216,6 +216,34 @@ export function useInferenceRequest() {
     }
   }
 
+  // Re-run a failed request in place. Returns the backend's {id, status};
+  // surfaces the upstream failure reason as the thrown error message.
+  const retryInferenceRequest = async (id: string) => {
+    loading.value = true
+    error.value = null
+    try {
+      const csrfToken = getCsrfToken()
+      const response = await fetch(
+        `${config.public.apiBase}/api/inference/requests/${id}/retry/`,
+        {
+          method: 'POST',
+          headers: csrfToken ? { 'X-CSRFToken': csrfToken } : undefined,
+          credentials: 'include',
+        }
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data?.error?.message || 'Failed to retry inference request')
+      }
+      return data as { id: number; status: string }
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'An error occurred'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     loading,
     error,
@@ -225,5 +253,6 @@ export function useInferenceRequest() {
     listPublicUserRequests,
     getInferenceRequest,
     deleteInferenceRequest,
+    retryInferenceRequest,
   }
 }

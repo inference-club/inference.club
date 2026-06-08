@@ -118,7 +118,16 @@ onMounted(async () => {
     if (models.value.length) {
       const wanted = String(useRoute().query.model || '')
       model.value = (wanted && models.value.find((m) => m.id === wanted)?.id) || models.value[0].id
+      const p = usePlaygroundPrefill().take('TTS')
+      if (p && typeof p.model === 'string' && models.value.some((m) => m.id === p.model)) {
+        model.value = p.model
+      }
       await loadVoices()
+      if (p) {
+        if (typeof p.input === 'string') text.value = p.input
+        if (typeof p.response_format === 'string') format.value = p.response_format
+        if (typeof p.voice === 'string' && voices.value.includes(p.voice)) voice.value = p.voice
+      }
     } else {
       modelsError.value =
         'No text-to-speech models are available to you yet. Run a TTS agent (a service with type: tts) to add one.'

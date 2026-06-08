@@ -1,21 +1,44 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  Star, Bookmark, MoreHorizontal, Eye, FolderPlus, Flag,
+  Star, Bookmark, MoreHorizontal, Eye, FolderPlus, Flag, RotateCcw, Loader2,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { useContentSharing } from '@/composables/useContentSharing'
+import { useInferenceRequest } from '@/composables/useInferenceRequest'
 import { useAuth } from '@/composables/useAuth'
+import { isRetryable } from '@/utils/inference'
 
 const props = withDefaults(
   defineProps<{ request: InferenceRequest; showShare?: boolean }>(),
   { showShare: true },
 )
-const emit = defineEmits<{ (e: 'visibility-change', v: Visibility): void }>()
+const emit = defineEmits<{
+  (e: 'visibility-change', v: Visibility): void
+  (e: 'retried'): void
+}>()
 
 const { toggleStar, toggleBookmark } = useContentSharing()
+const { retryInferenceRequest } = useInferenceRequest()
 const { isAuthenticated } = useAuth()
+
+const retryable = computed(() => isRetryable(props.request))
+const retrying = ref(false)
+
+const onRetry = async () => {
+  if (retrying.value) return
+  retrying.value = true
+  try {
+    await retryInferenceRequest(props.request.id)
+    toast.success('Retried — generating again')
+    emit('retried')
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Retry failed')
+  } finally {
+    retrying.value = false
+  }
+}
 
 // Local, optimistic state seeded from the request (resynced when the row swaps).
 const starred = ref(!!props.request.is_starred)
@@ -81,6 +104,20 @@ const onVisibilityUpdated = (v: Visibility) => {
 
 <template>
   <div class="flex items-center gap-1" @click.stop>
+    <!-- Retry (owner only, failed requests only) -->
+    <Button
+      v-if="retryable"
+      variant="ghost"
+      size="sm"
+      class="h-8 px-2 gap-1 text-muted-foreground hover:text-foreground"
+      :disabled="retrying"
+      title="Retry this request"
+      @click="onRetry"
+    >
+      <component :is="retrying ? Loader2 : RotateCcw" class="size-4" :class="retrying ? 'animate-spin' : ''" />
+      <span class="text-xs">{{ retrying ? 'Retrying…' : 'Retry' }}</span>
+    </Button>
+
     <!-- Star -->
     <Button
       variant="ghost"

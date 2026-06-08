@@ -54,6 +54,12 @@ const remove = async (id: string) => {
   }
 }
 
+// Refresh the current page after an in-place retry so the row shows its result.
+const onRetried = () => {
+  const offset = (pagination.currentPage.value - 1) * pagination.currentPageSize.value
+  store.fetchRequests(pagination.currentPageSize.value, offset, sortFilters.value)
+}
+
 onMounted(async () => {
   await store.fetchRequests(pagination.currentPageSize.value, 0)
 })
@@ -136,6 +142,7 @@ onMounted(async () => {
         :request="request"
         :deleting="deletingId === String(request.id)"
         @delete="remove"
+        @retried="onRetried"
       />
 
       <PaginationControls

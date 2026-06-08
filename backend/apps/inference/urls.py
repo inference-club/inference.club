@@ -1,4 +1,5 @@
 from django.urls import path
+from .openai_views import RetryInferenceRequestView
 from .views import (
     AgentManifestView,
     AgentRegisterView,
@@ -67,6 +68,11 @@ urlpatterns = [
         "requests/<int:id>/report/",
         RequestReportView.as_view(),
         name="inference-request-report",
+    ),
+    path(
+        "requests/<int:id>/retry/",
+        RetryInferenceRequestView.as_view(),
+        name="inference-request-retry",
     ),
     path(
         "shared/<str:share_token>/",

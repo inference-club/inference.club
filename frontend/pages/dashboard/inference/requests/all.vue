@@ -46,6 +46,11 @@ const remove = async (id: string) => {
   }
 }
 
+const onRetried = () => {
+  const offset = (pagination.currentPage.value - 1) * pagination.currentPageSize.value
+  store.fetchAllRequests(pagination.currentPageSize.value, offset)
+}
+
 onMounted(async () => {
   await store.fetchAllRequests(pagination.currentPageSize.value, 0)
 })
@@ -115,6 +120,7 @@ onMounted(async () => {
         show-owner
         :deleting="deletingId === String(request.id)"
         @delete="remove"
+        @retried="onRetried"
       />
 
       <PaginationControls

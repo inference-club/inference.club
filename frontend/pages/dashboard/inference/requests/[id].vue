@@ -2,10 +2,11 @@
 import { computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge, Download, Loader2,
+  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge, Download, Loader2, SlidersHorizontal,
 } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
+import { usePlaygroundPrefill, REPRODUCE_ROUTES } from '@/composables/usePlaygroundPrefill'
 import {
   statusVariant, formatAbsolute, formatLatency, totalTokens, roleClasses,
 } from '@/utils/inference'
@@ -27,7 +28,8 @@ const lightbox = useImageLightbox()
 const { downloading: downloadingModel, download } = useFileDownload()
 
 const finishReason = computed<string | null>(() => {
-  const choices = (req.value?.results as any)?.choices
+  const results = req.value?.results as { choices?: { finish_reason?: string }[] } | null | undefined
+  const choices = results?.choices
   if (Array.isArray(choices) && choices[0]?.finish_reason) {
     return String(choices[0].finish_reason)
   }
@@ -65,6 +67,26 @@ const remove = async () => {
   }
 }
 
+// After an in-place retry, pull the fresh result back in.
+const onRetried = () => {
+  store.fetchRequest(id.value).catch(() => {})
+}
+
+// "Reproduce in playground" — open the matching composer pre-filled with this
+// request's parameters so the user can tweak and regenerate.
+const prefill = usePlaygroundPrefill()
+const reproduceRoute = computed(() =>
+  req.value ? REPRODUCE_ROUTES[req.value.inference_type] : undefined,
+)
+const reproduce = () => {
+  if (!req.value || !reproduceRoute.value) return
+  prefill.set(req.value.inference_type, {
+    ...(req.value.payload || {}),
+    model: req.value.model_name,
+  })
+  navigateTo(reproduceRoute.value)
+}
+
 onMounted(() => {
   store.fetchRequest(id.value).catch(() => {})
 })
@@ -86,7 +108,18 @@ onMounted(() => {
           v-if="req"
           :request="req"
           @visibility-change="(v) => { if (store.currentRequest) store.currentRequest.visibility = v }"
+          @retried="onRetried"
         />
+
+        <Button
+          v-if="req && req.is_owner && reproduceRoute"
+          variant="outline"
+          size="sm"
+          class="gap-2"
+          @click="reproduce"
+        >
+          <SlidersHorizontal class="size-4" /> Reproduce in playground
+        </Button>
 
         <AlertDialog v-if="req && req.is_owner">
         <AlertDialogTrigger as-child>

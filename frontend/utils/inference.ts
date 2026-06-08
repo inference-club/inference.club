@@ -17,6 +17,13 @@ export function statusVariant(
   }
 }
 
+// A request is retryable when the viewer owns it and it failed — i.e. it's not
+// a success (PROCESSED) and isn't currently running (PROCESSING). The proxy
+// leaves failed runs in REQUESTED.
+export function isRetryable(req: InferenceRequest): boolean {
+  return !!req.is_owner && req.status !== 'PROCESSED' && req.status !== 'PROCESSING'
+}
+
 export function formatRelative(iso: string | null | undefined): string {
   if (!iso) return 'unknown'
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)

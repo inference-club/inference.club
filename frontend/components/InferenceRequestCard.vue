@@ -20,7 +20,7 @@ const props = withDefaults(
   { linkable: true, actions: true },
 )
 
-const emit = defineEmits<{ (e: 'delete', id: string): void }>()
+const emit = defineEmits<{ (e: 'delete' | 'retried', id: string): void }>()
 
 const lightbox = useImageLightbox()
 const isStt = computed(() => props.request.inference_type === 'STT')
@@ -78,6 +78,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
           v-if="actions"
           :request="props.request"
           @visibility-change="(v) => (displayVisibility = v)"
+          @retried="emit('retried', String(props.request.id))"
         />
 
         <AlertDialog v-if="props.linkable && props.request.is_owner">

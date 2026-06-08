@@ -1323,6 +1323,9 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
                 "seed": seed,
                 "use_random_seed": randomize,
                 "audio_format": audio_format,
+                # Stored so a retry / "reproduce in playground" is faithful.
+                "bpm": forward.get("bpm"),
+                "key_scale": forward.get("key_scale", ""),
             },
             status="PROCESSING",
         )
@@ -1346,14 +1349,18 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
             )
 
         if not upstream.ok:
+            # Capture the agent's error text (it surfaces the ACE-Step failure
+            # reason, e.g. a missing codec) so a failed run is diagnosable from
+            # the request record, not just a bare status code.
+            err_text = (upstream.text or "")[:1000]
             ir.status = "REQUESTED"
-            ir.results = {"upstream_status": upstream.status_code}
+            ir.results = {"upstream_status": upstream.status_code, "error": err_text}
             ir.latency_ms = int((time.monotonic() - started) * 1000)
             ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
             return Response(
                 upstream.json()
                 if upstream.headers.get("content-type", "").startswith("application/json")
-                else {"error": upstream.text[:500]},
+                else {"error": {"message": err_text, "type": "upstream_error"}},
                 status=upstream.status_code,
             )
 
@@ -1847,3 +1854,444 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# ===========================================================================
+# Retry: re-run a FAILED inference request *in place*.
+#
+# A failed request keeps everything needed to run again: its `payload` (the
+# original parameters) and, for file inputs (STT/MESH), the stored INPUT_AUDIO /
+# INPUT_IMAGE asset. The runners below reconstruct each modality's upstream call
+# from that and update the SAME InferenceRequest row, mirroring the forward +
+# store logic of the corresponding /v1 view. The live inference views are left
+# untouched; this path is purely additive.
+# ===========================================================================
+
+# inference_type → routing service_type (None = LLM, no restriction).
+_RETRY_SERVICE_TYPE = {
+    "LLM": None, "STT": "stt", "TTS": "tts",
+    "IMAGE": "image", "MESH": "mesh", "MUSIC": "music",
+}
+
+
+def _retry_endpoint(provider, path: str) -> str:
+    return provider.tailnet_base_url.rstrip("/") + path
+
+
+def _retry_store_exc(ir, started, exc):
+    ir.status = "REQUESTED"
+    ir.results = {"error": str(exc)}
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+    logger.error("retry %s upstream failed: %s", ir.inference_type, exc)
+    return False, str(exc)
+
+
+def _retry_store_upstream_error(ir, started, upstream):
+    """Persist a non-2xx upstream reply (its text carries the real reason, e.g.
+    a provider-side error) so the failed retry is diagnosable."""
+    try:
+        if upstream.headers.get("content-type", "").startswith("application/json"):
+            txt = json.dumps(upstream.json())[:1000]
+        else:
+            txt = (upstream.text or "")[:1000]
+    except Exception:
+        txt = (getattr(upstream, "text", "") or "")[:1000]
+    ir.status = "REQUESTED"
+    ir.results = {"upstream_status": upstream.status_code, "error": txt}
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+    return False, txt or f"Upstream returned HTTP {upstream.status_code}"
+
+
+def _retry_read_input_asset(ir, kind):
+    """Bytes + content-type of the request's stored input asset of ``kind``
+    (INPUT_AUDIO / INPUT_IMAGE), or (None, None) if it wasn't kept."""
+    from .models import MediaAsset  # noqa: F811
+
+    a = ir.assets.filter(kind=kind).order_by("created_on").first()
+    if a is None or not a.file:
+        return None, None
+    try:
+        with a.file.open("rb") as f:
+            return f.read(), (a.content_type or "")
+    except Exception as e:
+        logger.warning("retry: reading input asset failed: %s", e)
+        return None, None
+
+
+def _retry_save_output_audio(ir, audio, out_ct, ext, seconds):
+    from django.core.files.base import ContentFile
+
+    from .models import MediaAsset  # noqa: F811
+
+    asset = None
+    try:
+        asset = MediaAsset(
+            user=ir.user, inference_request=ir, kind=MediaAsset.OUTPUT_AUDIO,
+            content_type=out_ct, size_bytes=len(audio), duration_seconds=seconds,
+        )
+        asset.file.save(f"output.{ext}", ContentFile(audio), save=False)
+        asset.save()
+    except Exception as e:
+        logger.warning("retry: output-audio store failed: %s", e)
+    return asset
+
+
+def _rerun_llm(ir, provider_model):
+    provider = provider_model.provider
+    body = dict(ir.payload or {})
+    body["model"] = provider_model.name or body.get("model") or ir.model_name
+    body["stream"] = False  # retries are always buffered
+    path = "/chat/completions" if "messages" in body else "/completions"
+    started = time.monotonic()
+    try:
+        upstream = requests.post(
+            _retry_endpoint(provider, path), json=body,
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+    try:
+        data = upstream.json()
+    except ValueError:
+        data = {"raw": upstream.text}
+    ir.status = "PROCESSED"
+    ir.results = data
+    ir.prompt_tokens, ir.completion_tokens, ir.total_tokens = _usage_tokens(data)
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=[
+        "status", "results", "prompt_tokens", "completion_tokens",
+        "total_tokens", "latency_ms", "modified_on",
+    ])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
+def _rerun_stt(ir, provider_model):
+    from .models import MediaAsset  # noqa: F811
+
+    provider = provider_model.provider
+    audio, ctype = _retry_read_input_asset(ir, MediaAsset.INPUT_AUDIO)
+    if audio is None:
+        return _retry_simple_fail(
+            ir, "The original audio wasn't stored, so this transcription can't be retried."
+        )
+    p = ir.payload or {}
+    caps = _model_caps(provider_model)
+    supports_ts = "timestamps" in (caps.get("supported_features") or [])
+    requested_format = p.get("response_format") or "json"
+    fmt = requested_format
+    if fmt == "verbose_json" and not supports_ts:
+        fmt = "json"
+    data_fields = [("model", provider_model.name or p.get("model") or ir.model_name),
+                   ("response_format", fmt)]
+    if p.get("language"):
+        data_fields.append(("language", p["language"]))
+    if p.get("prompt"):
+        data_fields.append(("prompt", p["prompt"]))
+    started = time.monotonic()
+    try:
+        upstream = requests.post(
+            _retry_endpoint(provider, "/audio/transcriptions"),
+            files={"file": (p.get("filename") or "audio", audio, ctype or "application/octet-stream")},
+            data=data_fields,
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+    try:
+        payload = upstream.json()
+    except ValueError:
+        payload = {"text": upstream.text}
+    ir.status = "PROCESSED"
+    ir.results = payload
+    ir.audio_seconds = _audio_seconds(payload)
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "results", "audio_seconds", "latency_ms", "modified_on"])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
+def _rerun_tts(ir, provider_model):
+    provider = provider_model.provider
+    p = ir.payload or {}
+    text = p.get("input") or ""
+    voice = p.get("voice") or settings.TTS_DEFAULT_VOICE
+    language = p.get("language") or settings.TTS_DEFAULT_LANGUAGE
+    requested_format = p.get("response_format") or "wav"
+    encoding, content_type, ext = _riva_encoding(requested_format)
+    fields = {
+        "text": (None, text),
+        "language": (None, language),
+        "voice": (None, voice),
+        "sample_rate_hz": (None, str(settings.TTS_DEFAULT_SAMPLE_RATE)),
+        "encoding": (None, encoding),
+    }
+    started = time.monotonic()
+    try:
+        upstream = requests.post(
+            _retry_endpoint(provider, "/audio/synthesize"), files=fields,
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+    audio = upstream.content
+    out_ct = upstream.headers.get("content-type") or content_type
+    seconds = _wav_seconds(audio)
+    asset = _retry_save_output_audio(ir, audio, out_ct, ext, seconds)
+    ir.status = "PROCESSED"
+    ir.audio_seconds = seconds
+    ir.results = {"audio_asset_id": asset.id if asset else None,
+                  "content_type": out_ct, "voice": voice, "characters": len(text)}
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
+def _rerun_image(ir, provider_model):
+    provider = provider_model.provider
+    p = ir.payload or {}
+    requested_format = p.get("response_format") or "url"
+    forward = {
+        "model": provider_model.name or p.get("model") or ir.model_name,
+        "prompt": p.get("prompt") or "",
+        "response_format": "b64_json",
+    }
+    if p.get("n") is not None:
+        forward["n"] = p["n"]
+    if p.get("size"):
+        forward["size"] = p["size"]
+    if p.get("quality"):
+        forward["quality"] = p["quality"]
+    started = time.monotonic()
+    try:
+        upstream = requests.post(
+            _retry_endpoint(provider, "/images/generations"), json=forward,
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+    try:
+        payload = upstream.json()
+    except ValueError:
+        payload = {}
+    data = payload.get("data") if isinstance(payload, dict) else None
+    asset_ids = []
+    for i, item in enumerate(data or []):
+        if not isinstance(item, dict):
+            continue
+        b64 = item.get("b64_json")
+        asset = _store_output_image(ir.user, ir, b64, i) if b64 else None
+        if asset is not None:
+            asset_ids.append(asset.id)
+    ir.status = "PROCESSED"
+    ir.image_count = len(asset_ids)
+    ir.results = {
+        "created": payload.get("created") if isinstance(payload, dict) else None,
+        "image_asset_ids": asset_ids, "count": len(asset_ids),
+    }
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "image_count", "results", "latency_ms", "modified_on"])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
+def _rerun_mesh(ir, provider_model):
+    from django.core.files.base import ContentFile
+
+    from .models import MediaAsset  # noqa: F811
+
+    provider = provider_model.provider
+    image, ctype = _retry_read_input_asset(ir, MediaAsset.INPUT_IMAGE)
+    if image is None:
+        return _retry_simple_fail(
+            ir, "The original image wasn't stored, so this 3D generation can't be retried."
+        )
+    p = ir.payload or {}
+    options = p.get("options") or {}
+    files = {"image": (p.get("source_filename") or "image.png", image, ctype or "application/octet-stream")}
+    data_fields = [("options", json.dumps(options))]
+    if provider_model.name:
+        data_fields.append(("model", provider_model.name))
+    started = time.monotonic()
+    try:
+        upstream = requests.post(
+            _retry_endpoint(provider, "/3d/generations"), files=files, data=data_fields,
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+    glb = upstream.content
+    meta = _parse_trellis_metadata(upstream.headers.get("X-Trellis-Metadata"))
+    out_ct = (upstream.headers.get("content-type") or "model/gltf-binary").split(";", 1)[0]
+    asset = None
+    try:
+        asset = MediaAsset(
+            user=ir.user, inference_request=ir, kind=MediaAsset.OUTPUT_MODEL,
+            content_type=out_ct or "model/gltf-binary", size_bytes=len(glb), metadata=meta,
+        )
+        asset.file.save("model.glb", ContentFile(glb), save=False)
+        asset.save()
+    except Exception as e:
+        logger.warning("retry: mesh output store failed: %s", e)
+    ir.status = "PROCESSED"
+    ir.results = {"model_asset_id": asset.id if asset else None,
+                  "content_type": out_ct, "metadata": meta, "options": options}
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
+def _rerun_music(ir, provider_model):
+    provider = provider_model.provider
+    p = ir.payload or {}
+    audio_format = str(p.get("audio_format") or "mp3").lower()
+    out_ct_fallback, ext = _MUSIC_FORMATS.get(audio_format, _MUSIC_FORMATS["mp3"])
+    forward = {
+        "model": provider_model.name or p.get("model") or ir.model_name,
+        "prompt": p.get("prompt") or "",
+        "lyrics": p.get("lyrics") or "",
+        "inference_steps": p.get("inference_steps") or 8,
+        "guidance_scale": p.get("guidance_scale") if p.get("guidance_scale") is not None else 7.0,
+        "use_random_seed": p.get("use_random_seed", True),
+        "seed": p.get("seed", -1),
+        "audio_format": audio_format,
+        "task_type": "text2music",
+    }
+    duration = p.get("audio_duration")
+    if duration is not None:
+        forward["audio_duration"] = duration
+    if isinstance(p.get("bpm"), (int, float)):
+        forward["bpm"] = int(p["bpm"])
+    if isinstance(p.get("key_scale"), str) and p["key_scale"].strip():
+        forward["key_scale"] = p["key_scale"].strip()
+    started = time.monotonic()
+    try:
+        upstream = requests.post(
+            _retry_endpoint(provider, "/music/generations"), json=forward,
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+    audio = upstream.content
+    out_ct = (upstream.headers.get("content-type") or out_ct_fallback).split(";", 1)[0]
+    seconds = _wav_seconds(audio) or duration
+    asset = _retry_save_output_audio(ir, audio, out_ct, ext, seconds)
+    ir.status = "PROCESSED"
+    ir.audio_seconds = seconds
+    ir.results = {"audio_asset_id": asset.id if asset else None,
+                  "content_type": out_ct, "characters": len(forward["prompt"]) + len(forward["lyrics"])}
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
+def _retry_simple_fail(ir, message):
+    ir.status = "REQUESTED"
+    ir.results = {"error": message}
+    ir.save(update_fields=["status", "results", "modified_on"])
+    return False, message
+
+
+_RETRY_RUNNERS = {
+    "LLM": _rerun_llm, "STT": _rerun_stt, "TTS": _rerun_tts,
+    "IMAGE": _rerun_image, "MESH": _rerun_mesh, "MUSIC": _rerun_music,
+}
+
+
+def rerun_inference_request(ir):
+    """Re-run a failed InferenceRequest in place. Resolves a current provider,
+    resets the row to PROCESSING (dropping any stale OUTPUT_* assets but keeping
+    INPUT_* ones), then dispatches to the modality runner. Returns (ok, error)."""
+    from .models import MediaAsset  # noqa: F811
+
+    itype = ir.inference_type
+    if itype not in _RETRY_RUNNERS:
+        return False, f"Retry isn't supported for {itype} requests."
+
+    model_name = ir.model_name or (ir.payload or {}).get("model")
+    provider_model = _find_provider_for_model(
+        ir.user, model_name, service_type=_RETRY_SERVICE_TYPE[itype]
+    )
+    if provider_model is None:
+        return _retry_simple_fail(
+            ir, f"No online provider is serving '{model_name}' right now."
+        )
+
+    # Clear stale outputs; keep stored inputs (needed to re-run STT/MESH).
+    ir.assets.filter(kind__in=[
+        MediaAsset.OUTPUT_AUDIO, MediaAsset.OUTPUT_IMAGE, MediaAsset.OUTPUT_MODEL,
+    ]).delete()
+    ir.provider = provider_model.provider
+    ir.status = "PROCESSING"
+    ir.results = None
+    ir.latency_ms = None
+    ir.ttft_ms = None
+    ir.prompt_tokens = ir.completion_tokens = ir.total_tokens = None
+    ir.audio_seconds = None
+    ir.image_count = None
+    ir.save(update_fields=[
+        "provider", "status", "results", "latency_ms", "ttft_ms",
+        "prompt_tokens", "completion_tokens", "total_tokens",
+        "audio_seconds", "image_count", "modified_on",
+    ])
+    return _RETRY_RUNNERS[itype](ir, provider_model)
+
+
+class RetryInferenceRequestView(_RateLimitHeadersMixin, APIView):
+    """``POST /api/inference/requests/<id>/retry/`` — re-run a FAILED request in
+    place (owner only). Synchronous, like the original endpoints."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "inference"
+
+    def post(self, request, id):
+        from .models import InferenceRequest
+
+        ir = InferenceRequest.objects.filter(id=id).first()
+        if ir is None:
+            return Response(
+                {"error": {"message": "No such inference request.", "type": "not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if ir.user_id != request.user.id:
+            return Response(
+                {"error": {"message": "You can only retry your own requests.", "type": "forbidden"}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if ir.status == "PROCESSING":
+            return Response(
+                {"error": {"message": "This request is still running.", "type": "conflict"}},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if ir.status == "PROCESSED":
+            return Response(
+                {"error": {"message": "This request already succeeded.", "type": "conflict"}},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        ok, err = rerun_inference_request(ir)
+        if not ok:
+            return Response(
+                {"error": {"message": err or "Retry failed.", "type": "upstream_error"},
+                 "id": ir.id, "status": ir.status},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"id": ir.id, "status": ir.status}, status=status.HTTP_200_OK)
