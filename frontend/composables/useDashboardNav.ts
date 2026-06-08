@@ -28,6 +28,7 @@ export const dashboardNav: DashboardNavGroup[] = [
       { titleKey: 'dashboard.items.chat', url: '/dashboard/playground' },
       { titleKey: 'dashboard.items.transcription', url: '/dashboard/playground/transcribe' },
       { titleKey: 'dashboard.items.images', url: '/dashboard/playground/images' },
+      { titleKey: 'dashboard.items.imageTo3d', url: '/dashboard/playground/model3d' },
       { titleKey: 'dashboard.items.textToSpeech', url: '/dashboard/playground/speech' },
     ],
   },

@@ -122,6 +122,7 @@
       "chat": "Chat",
       "transcription": "Transcription",
       "images": "Images",
+      "imageTo3d": "Image to 3D",
       "textToSpeech": "Text to speech",
       "catalog": "Catalog",
       "yourRequests": "Your requests",
@@ -145,5 +146,29 @@
       "activity": "Activity",
       "moderation": "Moderation"
     }
+  },
+  "model3d": {
+    "title": "Image to 3D",
+    "subtitle": "Turn a single image into a textured 3D model (GLB).",
+    "loadingModels": "Loading models…",
+    "selectModel": "Select a model",
+    "noModels": "No image-to-3D models are available to you yet. Run an agent with a service of type: mesh to add one.",
+    "loadFailed": "Failed to load models",
+    "tooLarge": "Image too large (max {mb} MB)",
+    "dropImage": "Please drop an image file",
+    "willConvert": "Converting",
+    "dropPrompt": "Drag an image here, or",
+    "browse": "browse",
+    "timingHint": "~30s on a warm GPU",
+    "stop": "Stop",
+    "generate": "Generate",
+    "generating": "Generating your 3D model — this usually takes about 30 seconds…",
+    "options": "Options",
+    "resolution": "Resolution",
+    "seed": "Seed",
+    "randomize": "Randomize",
+    "note": "Models are generated on a provider's GPU and stored on inference.club.",
+    "failed": "Generation failed",
+    "openDetail": "Open"
   }
 }

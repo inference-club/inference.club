@@ -154,11 +154,13 @@ class ProviderService(BaseModel):
     TYPE_STT = "stt"
     TYPE_TTS = "tts"
     TYPE_IMAGE = "image"
+    TYPE_MESH = "mesh"
     SERVICE_TYPE_CHOICES = (
         (TYPE_LLM, "Language model"),
         (TYPE_STT, "Speech to text"),
         (TYPE_TTS, "Text to speech"),
         (TYPE_IMAGE, "Image generation"),
+        (TYPE_MESH, "Image to 3D"),
     )
 
     # Who may route inference requests to this service.
@@ -432,6 +434,7 @@ class InferenceRequest(BaseModel):
         ("IMAGE", "Image Generation"),
         ("VIDEO", "Video Generation"),
         ("TTS", "Text to Speech"),
+        ("MESH", "Image to 3D"),
     )
 
     STATUS_CHOICES = (
@@ -574,16 +577,19 @@ class MediaAsset(BaseModel):
     OUTPUT_AUDIO = "OUTPUT_AUDIO"
     INPUT_IMAGE = "INPUT_IMAGE"
     OUTPUT_IMAGE = "OUTPUT_IMAGE"
+    OUTPUT_MODEL = "OUTPUT_MODEL"  # generated 3D mesh (GLB), image-to-3D
     KIND_CHOICES = (
         (INPUT_AUDIO, "Input audio"),
         (OUTPUT_AUDIO, "Output audio"),
         (INPUT_IMAGE, "Input image"),
         (OUTPUT_IMAGE, "Output image"),
+        (OUTPUT_MODEL, "Output 3D model"),
     )
-    # Kinds served publicly (by URL, no auth) so generated images/audio embed
-    # in <img>/<audio> tags and show on profiles. Generated output is open by
-    # default; uploaded input audio (STT) stays owner-gated/private.
-    PUBLIC_KINDS = {INPUT_IMAGE, OUTPUT_IMAGE, OUTPUT_AUDIO}
+    # Kinds served publicly (by URL, no auth) so generated images/audio/3D
+    # models embed in <img>/<audio>/<model-viewer> tags and show on profiles.
+    # Generated output is open by default; uploaded input audio (STT) stays
+    # owner-gated/private.
+    PUBLIC_KINDS = {INPUT_IMAGE, OUTPUT_IMAGE, OUTPUT_AUDIO, OUTPUT_MODEL}
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

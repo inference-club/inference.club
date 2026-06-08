@@ -8,6 +8,7 @@ from .openai_views import (
     CompletionsView,
     ImageEditsView,
     ImageGenerationsView,
+    Mesh3DGenerationsView,
     ModelsView,
 )
 
@@ -30,4 +31,6 @@ urlpatterns = [
     path("images/generations/", ImageGenerationsView.as_view()),
     path("images/edits", ImageEditsView.as_view(), name="images-edits"),
     path("images/edits/", ImageEditsView.as_view()),
+    path("3d/generations", Mesh3DGenerationsView.as_view(), name="mesh-generations"),
+    path("3d/generations/", Mesh3DGenerationsView.as_view()),
 ]

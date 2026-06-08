@@ -19,6 +19,7 @@ const notFound = computed(() => !!error.value)
 const isStt = computed(() => req.value?.inference_type === 'STT')
 const isImage = computed(() => req.value?.inference_type === 'IMAGE')
 const isTts = computed(() => req.value?.inference_type === 'TTS')
+const isMesh = computed(() => req.value?.inference_type === 'MESH')
 const lightbox = useImageLightbox()
 
 // Social/OG preview so shared links unfurl nicely in chat apps.
@@ -32,7 +33,8 @@ useSeoMeta({
   ogTitle: () =>
     req.value ? `${req.value.inference_type} on inference.club` : 'inference.club',
   ogDescription: () => req.value?.prompt_preview || 'Shared inference request',
-  ogImage: () => req.value?.image_urls?.[0] || undefined,
+  // WebGL can't be scraped, so a shared 3D model unfurls with its source image.
+  ogImage: () => req.value?.image_urls?.[0] || req.value?.input_image_url || undefined,
   twitterCard: 'summary_large_image',
 })
 </script>
@@ -96,6 +98,20 @@ useSeoMeta({
             class="max-h-[70vh] w-auto cursor-zoom-in rounded-lg border object-contain"
             @click="lightbox.open(url)"
           />
+        </div>
+      </Card>
+
+      <!-- Image to 3D -->
+      <Card v-else-if="isMesh" class="p-4 mb-4">
+        <ModelViewer
+          v-if="req.model_url"
+          :src="req.model_url"
+          :poster-src="req.input_image_url"
+          alt="Generated 3D model"
+        />
+        <div v-if="req.mesh" class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span v-if="req.mesh.vertices != null">{{ req.mesh.vertices.toLocaleString() }} vertices</span>
+          <span v-if="req.mesh.faces != null">{{ req.mesh.faces.toLocaleString() }} faces</span>
         </div>
       </Card>
 

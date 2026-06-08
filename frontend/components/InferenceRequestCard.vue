@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon,
+  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { statusVariant, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
@@ -26,6 +26,7 @@ const lightbox = useImageLightbox()
 const isStt = computed(() => props.request.inference_type === 'STT')
 const isImage = computed(() => props.request.inference_type === 'IMAGE')
 const isTts = computed(() => props.request.inference_type === 'TTS')
+const isMesh = computed(() => props.request.inference_type === 'MESH')
 const fmtSeconds = (s?: number | null) =>
   s == null ? null : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`
 
@@ -168,6 +169,20 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
       <p v-else class="text-sm text-muted-foreground">—</p>
     </div>
 
+    <!-- MESH: input image → interactive 3D model (lazy-mounted in feeds) -->
+    <div v-else-if="isMesh" class="mt-3">
+      <ModelViewer
+        v-if="props.request.model_url"
+        :src="props.request.model_url"
+        :poster-src="props.request.input_image_url"
+        :lazy="true"
+        :downloadable="false"
+        alt="Generated 3D model"
+        @click.stop
+      />
+      <p v-else class="text-sm text-muted-foreground">—</p>
+    </div>
+
     <!-- LLM: prompt → response -->
     <div v-else class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
@@ -195,6 +210,15 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
         title="Images generated"
       >
         <ImageIcon class="size-3.5" /> {{ props.request.image_count ?? 0 }} image{{ (props.request.image_count ?? 0) === 1 ? '' : 's' }}
+      </span>
+      <span
+        v-else-if="isMesh && props.request.mesh"
+        class="inline-flex items-center gap-1"
+        title="Mesh geometry"
+      >
+        <Box class="size-3.5" />
+        {{ (props.request.mesh.vertices ?? 0).toLocaleString() }} verts ·
+        {{ (props.request.mesh.faces ?? 0).toLocaleString() }} faces
       </span>
       <template v-else>
         <span class="inline-flex items-center gap-1" title="Messages in this request">

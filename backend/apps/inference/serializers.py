@@ -306,6 +306,23 @@ def _asset_urls(obj, request, kind: str) -> list[str]:
     return out
 
 
+def _model_url(obj, request) -> str | None:
+    """Absolute URL to this request's generated 3D model (the GLB), or None.
+    OUTPUT_MODEL assets are public, like generated images."""
+    urls = _asset_urls(obj, request, "OUTPUT_MODEL")
+    return urls[0] if urls else None
+
+
+def _mesh_meta(obj) -> dict | None:
+    """The image-to-3D generation stats (seed, vertices, faces, timing) for a
+    MESH request, mirrored from the upstream ``X-Trellis-Metadata``. None for
+    other request types or when no metadata was captured."""
+    if obj.inference_type != "MESH" or not isinstance(obj.results, dict):
+        return None
+    meta = obj.results.get("metadata")
+    return meta if isinstance(meta, dict) and meta else None
+
+
 def _transcription(results) -> dict | None:
     """Structured transcription extras (segments/words/language/duration) from
     a verbose_json STT response, for the timestamp visualization. None when the
@@ -471,6 +488,9 @@ class InferenceRequestListSerializer(
     audio_url = serializers.SerializerMethodField()
     output_audio_url = serializers.SerializerMethodField()
     image_urls = serializers.SerializerMethodField()
+    input_image_url = serializers.SerializerMethodField()
+    model_url = serializers.SerializerMethodField()
+    mesh = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -491,6 +511,9 @@ class InferenceRequestListSerializer(
             "output_audio_url",
             "image_count",
             "image_urls",
+            "input_image_url",
+            "model_url",
+            "mesh",
             "prompt_preview",
             "response_preview",
             "message_count",
@@ -511,6 +534,16 @@ class InferenceRequestListSerializer(
         if obj.inference_type != "IMAGE":
             return []
         return _asset_urls(obj, self.context.get("request"), "OUTPUT_IMAGE")
+
+    def get_input_image_url(self, obj):
+        urls = _asset_urls(obj, self.context.get("request"), "INPUT_IMAGE")
+        return urls[0] if urls else None
+
+    def get_model_url(self, obj):
+        return _model_url(obj, self.context.get("request"))
+
+    def get_mesh(self, obj):
+        return _mesh_meta(obj)
 
     def get_usage(self, obj):
         return _extract_usage(obj.results)
@@ -559,6 +592,8 @@ class InferenceRequestDetailSerializer(
     transcription = serializers.SerializerMethodField()
     image_urls = serializers.SerializerMethodField()
     input_image_url = serializers.SerializerMethodField()
+    model_url = serializers.SerializerMethodField()
+    mesh = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -584,6 +619,8 @@ class InferenceRequestDetailSerializer(
             "image_count",
             "image_urls",
             "input_image_url",
+            "model_url",
+            "mesh",
             "messages",
             "response_text",
             "reasoning",
@@ -613,6 +650,12 @@ class InferenceRequestDetailSerializer(
     def get_input_image_url(self, obj):
         urls = _asset_urls(obj, self.context.get("request"), "INPUT_IMAGE")
         return urls[0] if urls else None
+
+    def get_model_url(self, obj):
+        return _model_url(obj, self.context.get("request"))
+
+    def get_mesh(self, obj):
+        return _mesh_meta(obj)
 
     def get_usage(self, obj):
         return _extract_usage(obj.results)

@@ -1419,3 +1419,233 @@ class ImageEditsView(_ImageProxyBase):
         except requests.RequestException as e:
             return self._forward_error(ir, started, e)
         return self._finalize(request, ir, upstream, started, requested_format)
+
+
+# --- image-to-3D (mesh) ----------------------------------------------------
+
+# Valid TRELLIS.2 render resolutions: 512 (fast) · 1024 · 1536 (sharpest).
+MESH_RESOLUTIONS = {"512", "1024", "1536"}
+
+
+def _coerce_mesh_options(raw):
+    """Validate & whitelist the client's ``options`` JSON for a mesh request.
+
+    Returns ``(options_dict, error_message)``. The error is a string when the
+    options are malformed (the caller turns it into a 400), else None. Only the
+    knobs we expose pass through; ``formats`` is always forced to GLB (our
+    canonical artifact) and ``response_mode`` is left to the agent.
+    """
+    opts = {"formats": ["glb"]}
+    if raw in (None, ""):
+        return opts, None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return None, "`options` was not valid JSON."
+    if not isinstance(raw, dict):
+        return None, "`options` must be a JSON object."
+
+    if "resolution" in raw and raw["resolution"] is not None:
+        res = str(raw["resolution"])
+        if res not in MESH_RESOLUTIONS:
+            return None, f"resolution must be one of {sorted(MESH_RESOLUTIONS)}."
+        opts["resolution"] = res
+    if raw.get("randomize_seed"):
+        opts["randomize_seed"] = True
+    if "seed" in raw and raw["seed"] is not None:
+        try:
+            opts["seed"] = int(raw["seed"])
+        except (TypeError, ValueError):
+            return None, "seed must be an integer."
+    if "texture_size" in raw and raw["texture_size"] is not None:
+        try:
+            ts = int(raw["texture_size"])
+        except (TypeError, ValueError):
+            return None, "texture_size must be an integer."
+        if not (512 <= ts <= 4096):
+            return None, "texture_size must be between 512 and 4096."
+        opts["texture_size"] = ts
+    return opts, None
+
+
+def _parse_trellis_metadata(header_value):
+    """Parse the ``X-Trellis-Metadata`` response header (seed, vertices, faces,
+    timing). Returns a dict (possibly empty) — never raises."""
+    if not header_value:
+        return {}
+    try:
+        meta = json.loads(header_value)
+    except (ValueError, TypeError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
+    """``POST /v1/3d/generations`` — image-to-3D (multipart: ``image`` +
+    optional ``options`` JSON string). Routes only to ``mesh`` services
+    (e.g. TRELLIS.2): one image in, a textured GLB out.
+
+    The agent speaks the same multipart shape upstream and returns the raw GLB
+    bytes plus generation metadata in the ``X-Trellis-Metadata`` header. We
+    store the GLB as an ``OUTPUT_MODEL`` asset (and the source as
+    ``INPUT_IMAGE``), then hand the client a JSON manifest with the stored
+    model URL — the dashboard loads that straight into a three.js viewer.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "inference"
+    upstream_path = "/3d/generations"
+
+    def _no_provider(self, model_name):
+        return Response(
+            {"error": {"message": (
+                f"No online image-to-3D provider serving model '{model_name}' "
+                "for this user. Run an agent with a service of type: mesh."),
+                "type": "no_provider"}},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    def post(self, request):
+        upload = request.FILES.get("image")
+        if upload is None:
+            return Response(
+                {"error": {"message": "`image` file is required.", "type": "missing_file"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if upload.size and upload.size > settings.IMAGE_MAX_UPLOAD_BYTES:
+            return Response(
+                {"error": {"message": "Image too large.", "type": "file_too_large"}},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+        ctype = (upload.content_type or "").split(";", 1)[0].strip().lower()
+        if ctype and ctype not in settings.IMAGE_ALLOWED_CONTENT_TYPES:
+            return Response(
+                {"error": {"message": f"Unsupported image type: {ctype!r}.",
+                           "type": "unsupported_media_type"}},
+                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
+
+        options, opt_err = _coerce_mesh_options(request.data.get("options"))
+        if opt_err is not None:
+            return Response(
+                {"error": {"message": opt_err, "type": "invalid_options"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        model_name = request.data.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="mesh"
+        )
+        if provider_model is None:
+            return self._no_provider(model_name)
+
+        provider = provider_model.provider
+        served_name = provider_model.name
+        canonical = _model_slug(provider_model)
+        image_bytes = upload.read()
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="MESH",
+            payload={
+                "model": canonical or model_name or "",
+                "options": options,
+                "source_filename": getattr(upload, "name", "input.png"),
+            },
+            status="PROCESSING",
+        )
+
+        from django.core.files.base import ContentFile
+
+        from .models import MediaAsset
+
+        # Store the source image (public, like outputs) so every surface can
+        # show "the image that became this model" and the run is replayable.
+        try:
+            src = MediaAsset(
+                user=request.user, inference_request=ir, kind=MediaAsset.INPUT_IMAGE,
+                content_type=ctype or "image/png", size_bytes=len(image_bytes),
+            )
+            src.file.save(getattr(upload, "name", "source.png") or "source.png",
+                          ContentFile(image_bytes), save=False)
+            src.save()
+        except Exception as e:  # storage hiccup shouldn't fail the generation
+            logger.warning("mesh input-image store failed: %s", e)
+
+        files = {"image": (getattr(upload, "name", "image.png"), image_bytes,
+                           ctype or "application/octet-stream")}
+        data_fields = [("options", json.dumps(options))]
+        if served_name:
+            data_fields.append(("model", served_name))
+
+        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
+        started = time.monotonic()
+        try:
+            upstream = requests.post(
+                endpoint, files=files, data=data_fields,
+                timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+            )
+        except requests.RequestException as e:
+            ir.status = "REQUESTED"
+            ir.results = {"error": str(e)}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            logger.error("Upstream mesh request failed: %s", e)
+            return Response(
+                {"error": {"message": str(e), "type": "upstream_error"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not upstream.ok:
+            ir.status = "REQUESTED"
+            ir.results = {"upstream_status": upstream.status_code}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            return Response(
+                upstream.json()
+                if upstream.headers.get("content-type", "").startswith("application/json")
+                else {"error": upstream.text[:500]},
+                status=upstream.status_code,
+            )
+
+        glb = upstream.content
+        meta = _parse_trellis_metadata(upstream.headers.get("X-Trellis-Metadata"))
+        out_ct = (upstream.headers.get("content-type") or "model/gltf-binary").split(";", 1)[0]
+
+        asset = None
+        try:
+            asset = MediaAsset(
+                user=request.user, inference_request=ir, kind=MediaAsset.OUTPUT_MODEL,
+                content_type=out_ct or "model/gltf-binary", size_bytes=len(glb),
+                metadata=meta,
+            )
+            asset.file.save("model.glb", ContentFile(glb), save=False)
+            asset.save()
+        except Exception as e:
+            logger.warning("mesh output-model store failed: %s", e)
+
+        ir.status = "PROCESSED"
+        ir.results = {
+            "model_asset_id": asset.id if asset else None,
+            "content_type": out_ct,
+            "metadata": meta,
+            "options": options,
+        }
+        ir.latency_ms = int((time.monotonic() - started) * 1000)
+        ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+        Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+
+        model_url = _asset_url(request, asset) if asset else None
+        return Response(
+            {
+                "created": int(timezone.now().timestamp()),
+                "request_id": str(ir.id),
+                "metadata": meta,
+                "data": [{"url": model_url, "type": "model/gltf-binary"}],
+            },
+            status=status.HTTP_200_OK,
+        )

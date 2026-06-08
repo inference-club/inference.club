@@ -1,4 +1,14 @@
-export type InferenceType = 'LLM' | 'STT' | 'IMAGE' | 'VIDEO' | 'TTS'
+export type InferenceType = 'LLM' | 'STT' | 'IMAGE' | 'VIDEO' | 'TTS' | 'MESH'
+
+// Generation stats for an image-to-3D (MESH) request, mirrored from the
+// upstream X-Trellis-Metadata header.
+export interface MeshMeta {
+  seed?: number
+  resolution?: string
+  vertices?: number
+  faces?: number
+  timing_sec?: Record<string, number>
+}
 
 // Content visibility — see docs/prd/01-content-sharing.md.
 export type Visibility = 'PUBLIC' | 'UNLISTED' | 'PRIVATE' | 'SECRET'
@@ -71,6 +81,11 @@ export interface InferenceRequest {
   image_count?: number | null
   image_urls?: string[]
   input_image_url?: string | null
+
+  // Image-to-3D (MESH): the generated GLB + its generation stats. The input
+  // image is carried in `input_image_url` above (shared with image edits).
+  model_url?: string | null
+  mesh?: MeshMeta | null
 
   // Owner attribution (present on both list and detail)
   owner?: string

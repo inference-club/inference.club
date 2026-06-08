@@ -122,6 +122,7 @@
       "chat": "Chat",
       "transcription": "Transcription",
       "images": "Images",
+      "imageTo3d": "Image vers 3D",
       "textToSpeech": "Synthèse vocale",
       "catalog": "Catalogue",
       "yourRequests": "Vos requêtes",

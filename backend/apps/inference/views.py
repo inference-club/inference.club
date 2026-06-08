@@ -952,7 +952,9 @@ def _manifest_services(parsed) -> list[dict]:
                     }
                 )
             svc_type = svc.get("type")
-            if not isinstance(svc_type, str) or svc_type not in ("llm", "stt", "tts", "image"):
+            if not isinstance(svc_type, str) or svc_type not in (
+                "llm", "stt", "tts", "image", "mesh"
+            ):
                 svc_type = "llm"
             features = [
                 f.strip()
@@ -1093,6 +1095,7 @@ _SERVICE_TYPE_MODALITIES = {
     "stt": (["audio"], ["text"]),
     "tts": (["text"], ["audio"]),
     "image": (["text", "image"], ["image"]),
+    "mesh": (["image"], ["model"]),
     "llm": (["text"], ["text"]),
 }
 

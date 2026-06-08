@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { onMounted, computed } from 'vue'
-import { RefreshCw, Cpu } from 'lucide-vue-next'
-import { useProviders } from '@/composables/useProviders'
+import { RefreshCw, Cpu, Server, Sparkles, Wrench } from 'lucide-vue-next'
+import { useProviders, type Provider } from '@/composables/useProviders'
+import {
+  ENGINE_LABELS,
+  VENDOR_LABELS,
+  type ManifestModel,
+  type ManifestService,
+} from '@/composables/useManifest'
+import { fmtCtx } from '@/utils/modelCapabilities'
 
 definePageMeta({
   layout: 'app',
@@ -15,6 +22,13 @@ const onlineCount = computed(() => providers.value.filter(p => p.is_online).leng
 const totalModels = computed(() =>
   providers.value.reduce(
     (sum, p) => sum + p.models.filter(m => m.is_active).length,
+    0,
+  ),
+)
+const totalServices = computed(() =>
+  providers.value.reduce(
+    (sum, p) =>
+      sum + (p.manifest?.parsed.hosts ?? []).reduce((n, h) => n + (h.services?.length ?? 0), 0),
     0,
   ),
 )
@@ -35,6 +49,68 @@ const formatDate = (iso: string | null) => {
     month: 'short',
     day: 'numeric',
   })
+}
+
+const engineLabel = (e: string) => ENGINE_LABELS[e] ?? e
+const vendorLabel = (v?: string) => (v ? VENDOR_LABELS[v] ?? v : '')
+const modelLabel = (m: ManifestModel) => m.id || m.hf || 'model'
+const modelSlug = (m: ManifestModel) => (m.hf || m.id || '').trim().toLowerCase()
+const playgroundLink = (slug: string) => `/dashboard/playground?model=${encodeURIComponent(slug)}`
+
+// A manifest-declared model is matched to the live ProviderModel rows (the
+// serializer already filters `provider.models` to is_active=True) by served
+// id / hf repo / slug, so we can show its real context window + active dot.
+const modelKeys = (m: ManifestModel) =>
+  new Set([modelSlug(m), (m.id || '').toLowerCase(), (m.hf || '').toLowerCase()].filter(Boolean))
+
+const isModelActive = (provider: Provider, m: ManifestModel) => {
+  const keys = modelKeys(m)
+  return provider.models.some(pm => pm.is_active && keys.has(pm.name.toLowerCase()))
+}
+const ctxFor = (provider: Provider, m: ManifestModel) => {
+  const keys = modelKeys(m)
+  const pm = provider.models.find(p => keys.has(p.name.toLowerCase()))
+  return fmtCtx(pm?.context_window ?? null)
+}
+
+// There's no real per-service health probe server-side, so derive a status
+// from the node's online-state plus how many of the service's declared models
+// are currently active (per the agent's latest /v1/models sync).
+type SvcState = 'online' | 'degraded' | 'offline'
+const serviceStatus = (provider: Provider, svc: ManifestService) => {
+  const models = svc.models ?? []
+  const total = models.length
+  const active = models.filter(m => isModelActive(provider, m)).length
+  let state: SvcState
+  let detail: string
+  if (!provider.is_online) {
+    state = 'offline'
+    detail = 'node offline'
+  } else if (total === 0) {
+    state = 'online'
+    detail = 'node online'
+  } else if (active === total) {
+    state = 'online'
+    detail = `${active}/${total} models active`
+  } else if (active > 0) {
+    state = 'degraded'
+    detail = `${active}/${total} models active`
+  } else {
+    state = 'offline'
+    detail = 'no models active'
+  }
+  return { state, detail }
+}
+
+const STATUS_BADGE: Record<SvcState, string> = {
+  online: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  degraded: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  offline: 'bg-muted text-muted-foreground',
+}
+const STATUS_DOT: Record<SvcState, string> = {
+  online: 'bg-emerald-500',
+  degraded: 'bg-amber-500',
+  offline: 'bg-muted-foreground/50',
 }
 </script>
 
@@ -70,7 +146,7 @@ const formatDate = (iso: string | null) => {
         </button>
       </div>
 
-      <div class="grid gap-3 sm:grid-cols-3">
+      <div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Card class="p-4">
           <p class="text-xs uppercase text-muted-foreground tracking-wide">Nodes</p>
           <p class="text-2xl font-semibold mt-1">{{ providers.length }}</p>
@@ -83,6 +159,10 @@ const formatDate = (iso: string | null) => {
           >
             {{ onlineCount }}
           </p>
+        </Card>
+        <Card class="p-4">
+          <p class="text-xs uppercase text-muted-foreground tracking-wide">Services</p>
+          <p class="text-2xl font-semibold mt-1">{{ totalServices }}</p>
         </Card>
         <Card class="p-4">
           <p class="text-xs uppercase text-muted-foreground tracking-wide">Models served</p>
@@ -127,9 +207,10 @@ const formatDate = (iso: string | null) => {
         <Card
           v-for="provider in providers"
           :key="provider.id"
-          class="p-5"
+          class="p-5 space-y-4"
         >
-          <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+          <!-- node header -->
+          <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="flex items-center gap-2">
                 <h3 class="font-semibold truncate">{{ provider.name }}</h3>
@@ -147,38 +228,152 @@ const formatDate = (iso: string | null) => {
                 >:{{ provider.agent_port }}</template>
               </p>
             </div>
-            <div class="text-right text-xs text-muted-foreground space-y-0.5 shrink-0">
-              <p>last seen {{ formatRelative(provider.last_seen_at) }}</p>
-              <p>registered {{ formatDate(provider.registered_at) }}</p>
+            <div class="flex flex-col items-end gap-1.5 shrink-0">
+              <div class="text-right text-xs text-muted-foreground space-y-0.5">
+                <p>last seen {{ formatRelative(provider.last_seen_at) }}</p>
+                <p>registered {{ formatDate(provider.registered_at) }}</p>
+              </div>
+              <button
+                class="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 disabled:opacity-50"
+                :disabled="isLoading"
+                @click="refreshModels(provider.id)"
+              >
+                <RefreshCw class="h-3 w-3" :class="{ 'animate-spin': isLoading }" />
+                Refresh models
+              </button>
             </div>
           </div>
 
-          <div class="flex items-center justify-between gap-3 border-t pt-3">
-            <div class="min-w-0 flex-1">
-              <p class="text-xs uppercase text-muted-foreground tracking-wide mb-1.5">
-                Models ({{ provider.models.filter(m => m.is_active).length }})
-              </p>
-              <div v-if="provider.models.length > 0" class="flex flex-wrap gap-1.5">
+          <!-- hosts → services → models (from the uploaded manifest) -->
+          <template v-if="provider.manifest && provider.manifest.parsed.hosts.length">
+            <div
+              v-for="host in provider.manifest.parsed.hosts"
+              :key="host.id"
+              class="border-t pt-3 space-y-3"
+            >
+              <!-- host line: id, network, GPU -->
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <Server class="size-4 text-muted-foreground shrink-0" />
+                <span class="font-medium text-sm">{{ host.id }}</span>
                 <span
-                  v-for="m in provider.models.filter(x => x.is_active)"
-                  :key="m.id"
-                  class="px-1.5 py-0.5 text-xs rounded bg-muted font-mono"
+                  v-if="host.hostname || host.address"
+                  class="text-xs text-muted-foreground font-mono"
                 >
-                  {{ m.name }}
+                  <template v-if="host.hostname">{{ host.hostname }}</template><template
+                    v-if="host.hostname && host.address"
+                  > · </template><template v-if="host.address">{{ host.address }}</template>
+                </span>
+                <span v-if="host.gpu" class="inline-flex items-center gap-1.5 text-xs">
+                  <Cpu class="size-3.5 text-muted-foreground" />
+                  <span class="font-medium">{{ host.gpu.model || 'GPU' }}</span>
+                  <span
+                    v-if="host.gpu.vendor"
+                    class="rounded bg-muted px-1 py-0.5"
+                  >{{ vendorLabel(host.gpu.vendor) }}</span>
+                  <span
+                    v-if="host.gpu.vram_gb"
+                    class="text-muted-foreground"
+                  >{{ host.gpu.vram_gb }}&thinsp;GB</span>
+                  <span
+                    v-if="host.gpu.count && host.gpu.count > 1"
+                    class="text-muted-foreground"
+                  >× {{ host.gpu.count }}</span>
                 </span>
               </div>
+              <p v-if="host.notes" class="text-xs text-muted-foreground italic">{{ host.notes }}</p>
+
+              <!-- services on this host -->
+              <div v-if="host.services && host.services.length" class="space-y-3">
+                <div
+                  v-for="svc in host.services"
+                  :key="svc.name"
+                  class="rounded-md border bg-background/40 p-3 space-y-2"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 flex-wrap min-w-0">
+                      <span
+                        class="rounded bg-primary/10 text-primary px-1.5 py-0.5 text-xs font-medium"
+                      >{{ engineLabel(svc.engine) }}</span>
+                      <span class="text-sm font-medium truncate">{{ svc.name }}</span>
+                    </div>
+                    <span
+                      class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
+                      :class="STATUS_BADGE[serviceStatus(provider, svc).state]"
+                      :title="serviceStatus(provider, svc).detail"
+                    >
+                      <span
+                        class="size-1.5 rounded-full"
+                        :class="STATUS_DOT[serviceStatus(provider, svc).state]"
+                      />
+                      {{ serviceStatus(provider, svc).state }}
+                    </span>
+                  </div>
+                  <p class="text-xs text-muted-foreground font-mono break-all">{{ svc.url }}</p>
+
+                  <!-- models served by this service -->
+                  <div v-if="svc.models && svc.models.length" class="space-y-1.5">
+                    <div
+                      v-for="m in svc.models"
+                      :key="modelSlug(m)"
+                      class="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1.5"
+                    >
+                      <div class="flex items-center gap-2 min-w-0">
+                        <span
+                          class="size-1.5 rounded-full shrink-0"
+                          :class="isModelActive(provider, m) ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
+                          :title="isModelActive(provider, m) ? 'active' : 'inactive'"
+                        />
+                        <span class="font-mono text-xs truncate">{{ modelLabel(m) }}</span>
+                        <span
+                          v-if="ctxFor(provider, m)"
+                          class="shrink-0 rounded bg-muted px-1 py-0.5 text-[11px] font-mono text-muted-foreground"
+                        >{{ ctxFor(provider, m) }}</span>
+                      </div>
+                      <NuxtLink
+                        v-if="modelSlug(m)"
+                        :to="playgroundLink(modelSlug(m))"
+                        class="shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:underline underline-offset-4"
+                      >
+                        <Sparkles class="size-3" /> playground
+                      </NuxtLink>
+                    </div>
+                  </div>
+
+                  <details v-if="svc.command" class="group">
+                    <summary
+                      class="text-xs text-muted-foreground cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <Wrench class="size-3" /> command
+                    </summary>
+                    <pre
+                      class="mt-1 rounded bg-muted/60 p-2 text-xs overflow-auto whitespace-pre-wrap font-mono"
+                    >{{ svc.command }}</pre>
+                  </details>
+                </div>
+              </div>
               <p v-else class="text-xs text-muted-foreground italic">
-                No models reported yet.
+                no services configured on this host
               </p>
             </div>
-            <button
-              class="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 shrink-0 disabled:opacity-50"
-              :disabled="isLoading"
-              @click="refreshModels(provider.id)"
-            >
-              <RefreshCw class="h-3 w-3" />
-              Refresh models
-            </button>
+          </template>
+
+          <!-- fallback: no manifest yet — flat list of live-discovered models -->
+          <div v-else class="border-t pt-3">
+            <p class="text-xs uppercase text-muted-foreground tracking-wide mb-1.5">
+              Models ({{ provider.models.filter(m => m.is_active).length }})
+            </p>
+            <div v-if="provider.models.length > 0" class="flex flex-wrap gap-1.5">
+              <span
+                v-for="m in provider.models.filter(x => x.is_active)"
+                :key="m.id"
+                class="px-1.5 py-0.5 text-xs rounded bg-muted font-mono"
+              >
+                {{ m.name }}
+              </span>
+            </div>
+            <p v-else class="text-xs text-muted-foreground italic">
+              No models reported yet. Upload a service manifest from your agent for a richer view.
+            </p>
           </div>
         </Card>
       </div>

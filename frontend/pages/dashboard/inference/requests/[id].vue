@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge,
+  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge, Download, Loader2,
 } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
@@ -22,7 +22,9 @@ const req = computed(() => store.currentRequest)
 const isStt = computed(() => req.value?.inference_type === 'STT')
 const isImage = computed(() => req.value?.inference_type === 'IMAGE')
 const isTts = computed(() => req.value?.inference_type === 'TTS')
+const isMesh = computed(() => req.value?.inference_type === 'MESH')
 const lightbox = useImageLightbox()
+const { downloading: downloadingModel, download } = useFileDownload()
 
 const finishReason = computed<string | null>(() => {
   const choices = (req.value?.results as any)?.choices
@@ -286,8 +288,43 @@ onMounted(() => {
         </div>
       </Card>
 
+      <!-- Image to 3D -->
+      <Card v-if="isMesh" class="p-4 mb-4">
+        <div class="mb-3 flex items-center justify-between gap-2">
+          <h2 class="text-lg font-semibold flex items-center gap-2">
+            3D model
+            <Badge v-if="req.mesh?.resolution" variant="outline">{{ req.mesh.resolution }}</Badge>
+          </h2>
+          <Button
+            v-if="req.model_url"
+            variant="outline"
+            size="sm"
+            class="gap-2"
+            :disabled="downloadingModel"
+            @click="download(req.model_url, `inference-club-${req.id}.glb`)"
+          >
+            <component :is="downloadingModel ? Loader2 : Download" class="size-4" :class="downloadingModel ? 'animate-spin' : ''" />
+            Download .glb
+          </Button>
+        </div>
+        <ModelViewer
+          v-if="req.model_url"
+          :src="req.model_url"
+          :poster-src="req.input_image_url"
+          alt="Generated 3D model"
+          :download-name="`inference-club-${req.id}.glb`"
+          class="max-w-2xl"
+        />
+        <div v-else class="text-sm text-muted-foreground">No 3D model stored for this request.</div>
+        <div v-if="req.mesh" class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span v-if="req.mesh.vertices != null">{{ req.mesh.vertices.toLocaleString() }} vertices</span>
+          <span v-if="req.mesh.faces != null">{{ req.mesh.faces.toLocaleString() }} faces</span>
+          <span v-if="req.mesh.seed != null">seed {{ req.mesh.seed }}</span>
+        </div>
+      </Card>
+
       <!-- Conversation -->
-      <Card v-if="!isStt && !isImage && !isTts" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage && !isTts && !isMesh" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3">
           Conversation
           <span class="text-sm font-normal text-muted-foreground">

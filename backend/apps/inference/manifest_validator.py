@@ -17,8 +17,9 @@ ENGINES = {"vllm", "lmstudio", "ollama", "sglang", "llamacpp", "tgi", "other"}
 # What a service provides (orthogonal to engine). Defaults to "llm" when a
 # service omits ``type``, so manifests written before this field stay valid.
 # "tts" is accepted now — the agent and server stay in lockstep for the next
-# modality — even though no TTS endpoint ships yet.
-SERVICE_TYPES = {"llm", "stt", "tts", "image"}
+# modality — even though no TTS endpoint ships yet. "mesh" is image-to-3D
+# (e.g. TRELLIS.2): one image in, a textured GLB out.
+SERVICE_TYPES = {"llm", "stt", "tts", "image", "mesh"}
 
 # Limits — see `docs/plans/service-manifest.md` §6.
 MAX_RAW_YAML_BYTES = 64 * 1024

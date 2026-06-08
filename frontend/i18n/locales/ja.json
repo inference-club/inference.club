@@ -122,6 +122,7 @@
       "chat": "チャット",
       "transcription": "文字起こし",
       "images": "画像",
+      "imageTo3d": "画像から3D",
       "textToSpeech": "テキスト読み上げ",
       "catalog": "カタログ",
       "yourRequests": "自分のリクエスト",
