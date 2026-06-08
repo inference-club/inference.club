@@ -193,9 +193,30 @@ const num = (v: string) => {
   return v.trim() !== '' && !Number.isNaN(n) ? n : undefined
 }
 
+// OpenAI's audio content part is `input_audio`, carrying the *bare* base64
+// bytes plus a short format hint — not a data: URL. (We previously sent a
+// non-standard `audio_url`, which audio-capable servers like vLLM reject with
+// "content objects must have a 'type' field that is either 'text' or
+// 'image_url'".)
+const audioFormat = (mime: string): string => {
+  const m = mime.toLowerCase()
+  if (m.includes('wav')) return 'wav'
+  if (m.includes('mpeg') || m.includes('mp3')) return 'mp3'
+  if (m.includes('ogg') || m.includes('opus')) return 'ogg'
+  if (m.includes('flac')) return 'flac'
+  if (m.includes('mp4') || m.includes('m4a') || m.includes('aac')) return 'm4a'
+  if (m.includes('webm')) return 'webm'
+  return 'wav'
+}
+const base64FromDataUrl = (dataUrl: string) => dataUrl.split(',', 2)[1] ?? dataUrl
+
 const mediaPart = (a: Attachment) => {
   if (a.kind === 'image') return { type: 'image_url', image_url: { url: a.dataUrl } }
-  if (a.kind === 'audio') return { type: 'audio_url', audio_url: { url: a.dataUrl } }
+  if (a.kind === 'audio')
+    return {
+      type: 'input_audio',
+      input_audio: { data: base64FromDataUrl(a.dataUrl), format: audioFormat(a.mime) },
+    }
   return { type: 'video_url', video_url: { url: a.dataUrl } }
 }
 

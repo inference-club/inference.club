@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { Box, Clock, Dices, ExternalLink, Loader2, Shapes, Sparkles, Square, Upload, X } from 'lucide-vue-next'
+import { Box, Clock, Dices, ExternalLink, Images, Loader2, Shapes, Sparkles, Square, Upload, X } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useMeshGeneration, type MeshResult } from '@/composables/useMeshGeneration'
 import type { ModelInfo } from '@/composables/usePlayground'
@@ -71,6 +71,13 @@ const onDrop = (e: DragEvent) => {
 const clearSource = () => {
   if (source.value) URL.revokeObjectURL(source.value.url)
   source.value = null
+}
+
+// Pick an existing inference.club image (recent / starred / bookmarked /
+// collection / public search) as the source instead of uploading a file.
+const pickerOpen = ref(false)
+const onPickImage = ({ blob, name }: { blob: Blob; name: string }) => {
+  setSource(blob, name)
 }
 
 const canRun = computed(() => !!model.value && !!source.value && !running.value)
@@ -184,6 +191,11 @@ onBeforeUnmount(() => {
             <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onFiles" />
           </div>
 
+          <!-- Or pick an existing image from the network -->
+          <Button variant="outline" size="sm" class="w-full gap-2" @click="pickerOpen = true">
+            <Images class="size-4" /> {{ t('model3d.picker.trigger') }}
+          </Button>
+
           <div class="flex items-center gap-2">
             <span class="text-xs text-muted-foreground">{{ t('model3d.timingHint') }}</span>
             <div class="ml-auto flex items-center gap-2">
@@ -267,5 +279,7 @@ onBeforeUnmount(() => {
         <p class="text-[11px] text-muted-foreground">{{ t('model3d.note') }}</p>
       </Card>
     </div>
+
+    <ImageSourcePicker v-model:open="pickerOpen" @select="onPickImage" />
   </div>
 </template>

@@ -169,6 +169,30 @@
     "randomize": "Randomize",
     "note": "Models are generated on a provider's GPU and stored on inference.club.",
     "failed": "Generation failed",
-    "openDetail": "Open"
+    "openDetail": "Open",
+    "picker": {
+      "trigger": "Pick from your images",
+      "title": "Pick a source image",
+      "description": "Choose one of your generated images, something you've saved, or any public image on the network.",
+      "recent": "Recent",
+      "starred": "Starred",
+      "bookmarked": "Bookmarked",
+      "collections": "Collections",
+      "search": "Search all",
+      "searchPlaceholder": "Search public images…",
+      "searchAction": "Search",
+      "loadMore": "Load more",
+      "loading": "Loading…",
+      "loadFailed": "Failed to load images",
+      "fetchFailed": "Couldn't load that image — please try another",
+      "allCollections": "All collections",
+      "itemCount": "{count} item | {count} items",
+      "emptyRecent": "You haven't generated any images yet.",
+      "emptyStarred": "You haven't starred any images yet.",
+      "emptyBookmarked": "You haven't bookmarked any images yet.",
+      "emptyCollections": "You don't have any collections yet.",
+      "emptyCollectionImages": "This collection has no images.",
+      "emptySearch": "No images found."
+    }
   }
 }

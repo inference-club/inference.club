@@ -20,6 +20,30 @@ const voice = ref('')
 const loadingVoices = ref(false)
 const format = ref('wav')
 
+// --- playback speed --------------------------------------------------------
+// One control drives every result player. We track the live <audio> elements
+// (registered via a function ref) so changing the speed retroactively applies
+// to clips already rendered or playing, and new clips inherit it on mount.
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const playbackRate = ref(1)
+const speed = computed({
+  get: () => String(playbackRate.value),
+  set: (v: string) => (playbackRate.value = Number(v) || 1),
+})
+const players = new Set<HTMLAudioElement>()
+const registerPlayer = (el: unknown) => {
+  const audio = el as HTMLAudioElement | null
+  if (!audio) return
+  audio.playbackRate = playbackRate.value
+  players.add(audio)
+}
+watch(playbackRate, (r) => {
+  for (const a of players) {
+    if (!a.isConnected) players.delete(a)
+    else a.playbackRate = r
+  }
+})
+
 const running = ref(false)
 let controller: AbortController | null = null
 
@@ -172,7 +196,7 @@ onBeforeUnmount(() => {
           </div>
           <p class="text-sm">{{ r.text }}</p>
           <div class="flex items-center gap-2">
-            <audio :src="r.audio.url" controls class="h-10 flex-1" />
+            <audio :ref="registerPlayer" :src="r.audio.url" controls class="h-10 flex-1" />
             <Button variant="ghost" size="icon" title="Download" @click="download(r)">
               <Download class="size-4" />
             </Button>
@@ -206,6 +230,18 @@ onBeforeUnmount(() => {
               <SelectItem value="opus" class="text-sm">Opus</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div>
+          <Label class="text-xs text-muted-foreground">Playback speed</Label>
+          <Select v-model="speed">
+            <SelectTrigger class="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="s in SPEEDS" :key="s" :value="String(s)" class="text-sm">
+                {{ s }}×{{ s === 1 ? ' (normal)' : '' }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p class="mt-1 text-[11px] text-muted-foreground">Applies to all clips below.</p>
         </div>
       </Card>
     </div>
