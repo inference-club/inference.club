@@ -1,16 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { ChevronDown, Clock, Download, Image as ImageIcon, Lightbulb, Loader2, Sparkles, Square, Upload, X } from 'lucide-vue-next'
-import { useImageGeneration, type GeneratedImage } from '@/composables/useImageGeneration'
-import { useImageLightbox } from '@/composables/useImageLightbox'
+import { ChevronDown, Image as ImageIcon, Lightbulb, Loader2, Sparkles, Square, Upload, X } from 'lucide-vue-next'
+import { useImageGeneration } from '@/composables/useImageGeneration'
 import { SUGGESTED_IMAGE_PROMPTS } from '@/utils/imagePrompts'
 import type { ModelInfo } from '@/composables/usePlayground'
 
 definePageMeta({ layout: 'app' })
 
 const { listImageModels, generate, edit } = useImageGeneration()
-const lightbox = useImageLightbox()
 
 // Suggested prompts — collapsible; clicking one fills the prompt box.
 const showSuggestions = ref(false)
@@ -53,18 +51,9 @@ const MAX_MB = 25
 const running = ref(false)
 let controller: AbortController | null = null
 
-interface ResultRow {
-  id: string
-  prompt: string
-  sourceUrl?: string
-  images: GeneratedImage[]
-  latencyMs: number
-  model: string
-}
-const results = ref<ResultRow[]>([])
-
-const uid = () =>
-  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+// Bumped after each successful generation so the recent-for-this-model strip
+// refetches and flashes the image that just finished.
+const refreshKey = ref(0)
 
 const setSource = (blob: Blob, name: string) => {
   if (blob.size > MAX_MB * 1024 * 1024) {
@@ -97,21 +86,15 @@ const run = async () => {
   if (!canRun.value) return
   running.value = true
   controller = new AbortController()
-  const start = performance.now()
   const p = prompt.value.trim()
   const src = source.value
   try {
-    const images = src
-      ? await edit(src.blob, src.name, { model: model.value, prompt: p, n: n.value, size: size.value }, controller.signal)
-      : await generate({ model: model.value, prompt: p, n: n.value, size: size.value }, controller.signal)
-    results.value.unshift({
-      id: uid(),
-      prompt: p,
-      sourceUrl: src ? URL.createObjectURL(src.blob) : undefined,
-      images,
-      latencyMs: Math.round(performance.now() - start),
-      model: model.value,
-    })
+    if (src) {
+      await edit(src.blob, src.name, { model: model.value, prompt: p, n: n.value, size: size.value }, controller.signal)
+    } else {
+      await generate({ model: model.value, prompt: p, n: n.value, size: size.value }, controller.signal)
+    }
+    refreshKey.value++
   } catch (e: unknown) {
     const err = e as { name?: string; message?: string }
     if (err?.name !== 'AbortError') toast.error(err?.message || 'Generation failed')
@@ -129,14 +112,6 @@ const onPromptKeydown = (e: KeyboardEvent) => {
     e.preventDefault()
     run()
   }
-}
-
-const download = (url: string, i: number) => {
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `image-${i}.png`
-  a.target = '_blank'
-  a.click()
 }
 
 onMounted(async () => {
@@ -165,7 +140,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (source.value) URL.revokeObjectURL(source.value.url)
-  results.value.forEach((r) => r.sourceUrl && URL.revokeObjectURL(r.sourceUrl))
 })
 </script>
 
@@ -264,6 +238,7 @@ onBeforeUnmount(() => {
 
           <div class="flex items-center gap-2">
             <span class="text-xs text-muted-foreground">{{ source ? 'Edit mode' : 'Generate mode' }}</span>
+            <ElapsedTimer :running="running" class="text-xs text-muted-foreground" />
             <div class="ml-auto flex items-center gap-2">
               <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
                 <Square class="size-4" /> Stop
@@ -276,41 +251,8 @@ onBeforeUnmount(() => {
           </div>
         </Card>
 
-        <!-- Results -->
-        <Card v-for="r in results" :key="r.id" class="p-4 space-y-3">
-          <div class="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
-            <Badge variant="outline" class="font-mono">{{ r.model }}</Badge>
-            <span class="inline-flex items-center gap-1"><Clock class="size-3" /> {{ r.latencyMs }} ms</span>
-            <span class="truncate flex-1">{{ r.prompt }}</span>
-          </div>
-          <div class="flex flex-wrap items-start gap-3">
-            <div v-if="r.sourceUrl" class="relative">
-              <img
-                :src="r.sourceUrl"
-                class="max-h-[70vh] w-auto cursor-zoom-in rounded-lg border object-contain opacity-80 transition-opacity hover:opacity-100"
-                @click="lightbox.open(r.sourceUrl)"
-              />
-              <Badge class="absolute top-1.5 left-1.5" variant="secondary">source</Badge>
-            </div>
-            <div v-for="(img, i) in r.images" :key="i" class="relative group">
-              <img
-                v-if="img.url"
-                :src="img.url"
-                class="max-h-[70vh] w-auto cursor-zoom-in rounded-lg border object-contain transition-opacity hover:opacity-90"
-                @click="lightbox.open(img.url)"
-              />
-              <Button
-                v-if="img.url"
-                variant="secondary"
-                size="icon"
-                class="absolute top-1.5 right-1.5 size-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                @click="download(img.url, i)"
-              >
-                <Download class="size-3.5" />
-              </Button>
-            </div>
-          </div>
-        </Card>
+        <!-- Recent images for this model (the just-finished one flashes in) -->
+        <RecentGenerations :model="model" type="IMAGE" :refresh-key="refreshKey" title="Recent images" />
       </div>
 
       <!-- Options -->

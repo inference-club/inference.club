@@ -171,6 +171,7 @@
     "note": "Models are generated on a provider's GPU and stored on inference.club.",
     "failed": "Generation failed",
     "openDetail": "Open",
+    "recentTitle": "Recent models",
     "picker": {
       "trigger": "Pick from your images",
       "title": "Pick a source image",

@@ -63,12 +63,13 @@ export function useInferenceRequest() {
   }
 
   // Optional filters shared by the list endpoints: ?type=IMAGE narrows to a
-  // modality, ?search= matches the stored prompt / model name, ?sort=popular
-  // orders by star count.
-  interface ListFilters { type?: string; search?: string; sort?: string }
+  // modality, ?model=<name> narrows to one exact model, ?search= matches the
+  // stored prompt / model name, ?sort=popular orders by star count.
+  interface ListFilters { type?: string; model?: string; search?: string; sort?: string }
   const buildQuery = (limit: number, offset: number, filters: ListFilters = {}) => {
     const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
     if (filters.type) qs.set('type', filters.type)
+    if (filters.model) qs.set('model', filters.model)
     if (filters.search) qs.set('search', filters.search)
     if (filters.sort) qs.set('sort', filters.sort)
     return qs.toString()

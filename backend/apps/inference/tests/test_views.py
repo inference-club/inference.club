@@ -117,3 +117,21 @@ class TestInferenceViews:
         assert response.status_code == 200
         assert response.data["count"] == 1  # only the requesting user's own
         assert response.data["results"][0]["id"] == inference_request.id
+
+    def test_list_inference_requests_model_filter(self, authenticated_client, test_user):
+        # ?model=<name> narrows to one exact model (powers each playground's
+        # "recent for this model" strip).
+        keep = InferenceRequest.objects.create(
+            user=test_user, inference_type="MUSIC", model_name="ace-step",
+            payload={"prompt": "a song"},
+        )
+        InferenceRequest.objects.create(
+            user=test_user, inference_type="MUSIC", model_name="other-model",
+            payload={"prompt": "another"},
+        )
+        url = reverse("inference:inference-requests")
+        response = authenticated_client.get(url, {"model": "ace-step"})
+
+        assert response.status_code == 200
+        assert response.data["count"] == 1
+        assert response.data["results"][0]["id"] == keep.id

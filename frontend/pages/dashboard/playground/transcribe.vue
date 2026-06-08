@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { AudioLines, Clock, FileAudio, Loader2, Mic, Square, Upload, X } from 'lucide-vue-next'
-import { useTranscription, type TranscriptionResult } from '@/composables/useTranscription'
+import { AudioLines, FileAudio, Loader2, Mic, Square, Upload, X } from 'lucide-vue-next'
+import { useTranscription } from '@/composables/useTranscription'
 import { useAudioRecorder } from '@/composables/useAudioRecorder'
 import type { ModelInfo } from '@/composables/usePlayground'
 
@@ -40,19 +40,11 @@ const wantTimestamps = ref(false)
 const running = ref(false)
 let controller: AbortController | null = null
 
-interface ResultItem {
-  id: string
-  audioUrl: string
-  filename: string
-  result: TranscriptionResult
-  latencyMs: number
-  model: string
-}
-const results = ref<ResultItem[]>([])
+// Bumped after each successful transcription so the recent-for-this-model strip
+// refetches and flashes the one that just finished.
+const refreshKey = ref(0)
 
 const MAX_MB = 25
-const uid = () =>
-  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`
 
 const setPending = (blob: Blob, name: string) => {
   if (blob.size > MAX_MB * 1024 * 1024) {
@@ -106,10 +98,9 @@ const run = async () => {
   if (!canRun.value || !pending.value) return
   running.value = true
   controller = new AbortController()
-  const start = performance.now()
   const src = pending.value
   try {
-    const result = await transcribe(
+    await transcribe(
       src.blob,
       src.name,
       {
@@ -120,16 +111,7 @@ const run = async () => {
       },
       controller.signal,
     )
-    results.value.unshift({
-      id: uid(),
-      // Keep this object URL alive for replay in the result card; it's revoked
-      // on unmount. Detach from `pending` so clearing the composer won't kill it.
-      audioUrl: URL.createObjectURL(src.blob),
-      filename: src.name,
-      result,
-      latencyMs: Math.round(performance.now() - start),
-      model: model.value,
-    })
+    refreshKey.value++
     clearPending()
   } catch (e: unknown) {
     const err = e as { name?: string; message?: string }
@@ -141,9 +123,6 @@ const run = async () => {
 }
 
 const stop = () => controller?.abort()
-
-const fmtSeconds = (s?: number | null) =>
-  s == null ? null : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`
 
 onMounted(async () => {
   try {
@@ -164,7 +143,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (pending.value) URL.revokeObjectURL(pending.value.url)
-  results.value.forEach((r) => URL.revokeObjectURL(r.audioUrl))
 })
 </script>
 
@@ -251,6 +229,7 @@ onBeforeUnmount(() => {
             <component :is="recorder.recording.value ? Square : Mic" class="size-4" />
             {{ recorder.recording.value ? 'Stop' : 'Record' }}
           </Button>
+          <ElapsedTimer :running="running" class="text-xs text-muted-foreground" />
           <div class="ml-auto flex items-center gap-2">
             <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
               <Square class="size-4" /> Stop
@@ -262,27 +241,14 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <!-- Results -->
-        <div v-if="results.length" class="space-y-3 pt-2">
-          <Card v-for="r in results" :key="r.id" class="p-4 space-y-3">
-            <div class="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
-              <Badge variant="outline" class="font-mono">{{ r.model }}</Badge>
-              <span v-if="fmtSeconds(r.result.seconds)" class="inline-flex items-center gap-1">
-                <AudioLines class="size-3" /> {{ fmtSeconds(r.result.seconds) }} audio
-              </span>
-              <span class="inline-flex items-center gap-1">
-                <Clock class="size-3" /> {{ r.latencyMs }} ms
-              </span>
-            </div>
-            <TranscriptView
-              :text="r.result.text"
-              :src="r.audioUrl"
-              :words="r.result.words"
-              :segments="r.result.segments"
-              :language="r.result.language"
-            />
-          </Card>
-        </div>
+        <!-- Recent transcriptions for this model (the just-finished one flashes in) -->
+        <RecentGenerations
+          :model="model"
+          type="STT"
+          :refresh-key="refreshKey"
+          title="Recent transcriptions"
+          class="pt-2"
+        />
       </div>
 
       <!-- Options panel -->

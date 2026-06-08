@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { Box, Clock, Dices, ExternalLink, Images, Loader2, Shapes, Sparkles, Square, Upload, X } from 'lucide-vue-next'
+import { Dices, Images, Loader2, Shapes, Sparkles, Square, Upload, X } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-import { useMeshGeneration, type MeshResult } from '@/composables/useMeshGeneration'
+import { useMeshGeneration } from '@/composables/useMeshGeneration'
 import type { ModelInfo } from '@/composables/usePlayground'
 
 definePageMeta({ layout: 'app' })
@@ -36,17 +36,9 @@ const randomizeSeed = ref(false)
 const running = ref(false)
 let controller: AbortController | null = null
 
-interface ResultRow {
-  id: string
-  sourceUrl: string
-  result: MeshResult
-  latencyMs: number
-  model: string
-}
-const results = ref<ResultRow[]>([])
-
-const uid = () =>
-  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+// Bumped after each successful generation so the recent-for-this-model strip
+// refetches and flashes the model that just finished.
+const refreshKey = ref(0)
 
 const setSource = (blob: Blob, name: string) => {
   if (blob.size > MAX_MB * 1024 * 1024) {
@@ -86,10 +78,9 @@ const run = async () => {
   if (!canRun.value || !source.value) return
   running.value = true
   controller = new AbortController()
-  const start = performance.now()
   const src = source.value
   try {
-    const result = await generate(
+    await generate(
       src.blob,
       src.name,
       model.value,
@@ -99,13 +90,7 @@ const run = async () => {
       },
       controller.signal,
     )
-    results.value.unshift({
-      id: uid(),
-      sourceUrl: URL.createObjectURL(src.blob),
-      result,
-      latencyMs: Math.round(performance.now() - start),
-      model: model.value,
-    })
+    refreshKey.value++
   } catch (e: unknown) {
     const err = e as { name?: string; message?: string }
     if (err?.name !== 'AbortError') toast.error(err?.message || t('model3d.failed'))
@@ -134,7 +119,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (source.value) URL.revokeObjectURL(source.value.url)
-  results.value.forEach((r) => URL.revokeObjectURL(r.sourceUrl))
 })
 </script>
 
@@ -212,32 +196,13 @@ onBeforeUnmount(() => {
 
         <!-- In-flight notice (generation is slow) -->
         <Card v-if="running" class="p-4 flex items-center gap-3 text-sm text-muted-foreground">
-          <Loader2 class="size-4 animate-spin" /> {{ t('model3d.generating') }}
+          <Loader2 class="size-4 animate-spin shrink-0" />
+          <span class="flex-1">{{ t('model3d.generating') }}</span>
+          <ElapsedTimer :running="running" class="shrink-0 font-medium text-foreground" />
         </Card>
 
-        <!-- Results -->
-        <Card v-for="r in results" :key="r.id" class="p-4 space-y-3">
-          <div class="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
-            <Badge variant="outline" class="font-mono">{{ r.model }}</Badge>
-            <span class="inline-flex items-center gap-1"><Clock class="size-3" /> {{ r.latencyMs }} ms</span>
-            <span v-if="r.result.metadata?.vertices" class="inline-flex items-center gap-1">
-              <Box class="size-3" /> {{ r.result.metadata.vertices.toLocaleString() }} verts
-            </span>
-            <NuxtLink
-              v-if="r.result.requestId"
-              :to="`/dashboard/inference/requests/${r.result.requestId}`"
-              class="ml-auto inline-flex items-center gap-1 underline hover:text-foreground"
-            >
-              {{ t('model3d.openDetail') }} <ExternalLink class="size-3" />
-            </NuxtLink>
-          </div>
-          <ModelViewer
-            v-if="r.result.url"
-            :src="r.result.url"
-            :poster-src="r.sourceUrl"
-            alt="Generated 3D model"
-          />
-        </Card>
+        <!-- Recent models for this model (the just-finished one flashes in) -->
+        <RecentGenerations :model="model" type="MESH" :refresh-key="refreshKey" :title="t('model3d.recentTitle')" />
       </div>
 
       <!-- Options -->

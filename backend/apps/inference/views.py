@@ -93,14 +93,19 @@ def _apply_request_filters(qs, params):
     """Shared list-filtering for the request endpoints.
 
     ``?type=IMAGE`` narrows to a single modality (powers the image gallery and
-    the profile "recent images" strip). ``?search=`` matches the stored prompt
-    (image/TTS payloads carry it directly) and the model name, case-insensitive.
-    ``?sort=popular`` orders by star count (most-starred first). All optional
-    and composable.
+    the profile "recent images" strip). ``?model=<name>`` narrows to one exact
+    model (powers each playground's "recent for this model" strip). ``?search=``
+    matches the stored prompt (image/TTS payloads carry it directly) and the
+    model name, case-insensitive. ``?sort=popular`` orders by star count
+    (most-starred first). All optional and composable.
     """
     itype = (params.get("type") or "").upper().strip()
     if itype in _INFERENCE_TYPES:
         qs = qs.filter(inference_type=itype)
+
+    model = (params.get("model") or "").strip()
+    if model:
+        qs = qs.filter(model_name=model)
 
     search = (params.get("search") or "").strip()
     if search:

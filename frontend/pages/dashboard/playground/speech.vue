@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { AudioLines, Clock, Download, Loader2, Mic2, Square } from 'lucide-vue-next'
-import { useTextToSpeech, type SynthesizedAudio } from '@/composables/useTextToSpeech'
+import { AudioLines, Loader2, Mic2, Square } from 'lucide-vue-next'
+import { useTextToSpeech } from '@/composables/useTextToSpeech'
 import type { ModelInfo } from '@/composables/usePlayground'
 
 definePageMeta({ layout: 'app' })
@@ -20,45 +20,12 @@ const voice = ref('')
 const loadingVoices = ref(false)
 const format = ref('wav')
 
-// --- playback speed --------------------------------------------------------
-// One control drives every result player. We track the live <audio> elements
-// (registered via a function ref) so changing the speed retroactively applies
-// to clips already rendered or playing, and new clips inherit it on mount.
-const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
-const playbackRate = ref(1)
-const speed = computed({
-  get: () => String(playbackRate.value),
-  set: (v: string) => (playbackRate.value = Number(v) || 1),
-})
-const players = new Set<HTMLAudioElement>()
-const registerPlayer = (el: unknown) => {
-  const audio = el as HTMLAudioElement | null
-  if (!audio) return
-  audio.playbackRate = playbackRate.value
-  players.add(audio)
-}
-watch(playbackRate, (r) => {
-  for (const a of players) {
-    if (!a.isConnected) players.delete(a)
-    else a.playbackRate = r
-  }
-})
-
 const running = ref(false)
 let controller: AbortController | null = null
 
-interface ResultRow {
-  id: string
-  text: string
-  voice: string
-  audio: SynthesizedAudio
-  latencyMs: number
-  model: string
-}
-const results = ref<ResultRow[]>([])
-
-const uid = () =>
-  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+// Bumped after each successful synthesis so the recent-for-this-model strip
+// refetches and flashes the clip that just finished.
+const refreshKey = ref(0)
 
 const canRun = computed(() => !!model.value && !!text.value.trim() && !running.value)
 
@@ -80,21 +47,16 @@ const run = async () => {
   if (!canRun.value) return
   running.value = true
   controller = new AbortController()
-  const start = performance.now()
   const t = text.value.trim()
   try {
     const audio = await synthesize(
       { model: model.value, input: t, voice: voice.value || undefined, response_format: format.value },
       controller.signal,
     )
-    results.value.unshift({
-      id: uid(),
-      text: t,
-      voice: voice.value,
-      audio,
-      latencyMs: Math.round(performance.now() - start),
-      model: model.value,
-    })
+    // Play it back from its persisted TTS request (in the recent strip), not the
+    // transient blob — so release the object URL the client made.
+    URL.revokeObjectURL(audio.url)
+    refreshKey.value++
   } catch (e: unknown) {
     const err = e as { name?: string; message?: string }
     if (err?.name !== 'AbortError') toast.error(err?.message || 'Speech synthesis failed')
@@ -104,13 +66,6 @@ const run = async () => {
   }
 }
 const stop = () => controller?.abort()
-
-const download = (r: ResultRow) => {
-  const a = document.createElement('a')
-  a.href = r.audio.url
-  a.download = `speech.${format.value}`
-  a.click()
-}
 
 onMounted(async () => {
   try {
@@ -137,10 +92,6 @@ onMounted(async () => {
   } finally {
     loadingModels.value = false
   }
-})
-
-onBeforeUnmount(() => {
-  results.value.forEach((r) => URL.revokeObjectURL(r.audio.url))
 })
 </script>
 
@@ -184,6 +135,7 @@ onBeforeUnmount(() => {
           />
           <div class="flex items-center gap-2">
             <span class="text-xs text-muted-foreground">{{ text.length }} characters</span>
+            <ElapsedTimer :running="running" class="text-xs text-muted-foreground" />
             <div class="ml-auto flex items-center gap-2">
               <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
                 <Square class="size-4" /> Stop
@@ -196,21 +148,8 @@ onBeforeUnmount(() => {
           </div>
         </Card>
 
-        <!-- Results -->
-        <Card v-for="r in results" :key="r.id" class="p-4 space-y-3">
-          <div class="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
-            <Badge variant="outline" class="font-mono">{{ r.model }}</Badge>
-            <Badge v-if="r.voice" variant="secondary">{{ r.voice }}</Badge>
-            <span class="inline-flex items-center gap-1"><Clock class="size-3" /> {{ r.latencyMs }} ms</span>
-          </div>
-          <p class="text-sm">{{ r.text }}</p>
-          <div class="flex items-center gap-2">
-            <audio :ref="registerPlayer" :src="r.audio.url" controls class="h-10 flex-1" />
-            <Button variant="ghost" size="icon" title="Download" @click="download(r)">
-              <Download class="size-4" />
-            </Button>
-          </div>
-        </Card>
+        <!-- Recent speech for this model (the just-finished one flashes in) -->
+        <RecentGenerations :model="model" type="TTS" :refresh-key="refreshKey" title="Recent speech" />
       </div>
 
       <!-- Options -->
@@ -239,18 +178,6 @@ onBeforeUnmount(() => {
               <SelectItem value="opus" class="text-sm">Opus</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-        <div>
-          <Label class="text-xs text-muted-foreground">Playback speed</Label>
-          <Select v-model="speed">
-            <SelectTrigger class="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="s in SPEEDS" :key="s" :value="String(s)" class="text-sm">
-                {{ s }}×{{ s === 1 ? ' (normal)' : '' }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <p class="mt-1 text-[11px] text-muted-foreground">Applies to all clips below.</p>
         </div>
       </Card>
     </div>

@@ -2,9 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  AudioLines, ChevronDown, Clock, Dices, Download, Loader2, Music2, Sparkles, Square, Wand2,
+  AudioLines, ChevronDown, Dices, Loader2, Music2, Sparkles, Square, Wand2,
 } from 'lucide-vue-next'
-import { useMusicGeneration, type GeneratedSong } from '@/composables/useMusicGeneration'
+import { useMusicGeneration } from '@/composables/useMusicGeneration'
 import {
   useMusicAssist, ASSIST_PRESETS, type SongIdea,
 } from '@/composables/useMusicAssist'
@@ -85,18 +85,9 @@ const keyScale = ref('')
 const running = ref(false)
 let controller: AbortController | null = null
 
-interface ResultRow {
-  id: string
-  prompt: string
-  song: GeneratedSong
-  latencyMs: number
-  model: string
-  duration: number
-}
-const results = ref<ResultRow[]>([])
-
-const uid = () =>
-  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+// Bumped after each successful generation so the recent-for-this-model strip
+// refetches and flashes the song that just finished.
+const refreshKey = ref(0)
 
 const canRun = computed(() => !!model.value && !!prompt.value.trim() && !running.value)
 
@@ -109,7 +100,6 @@ const run = async () => {
   if (!canRun.value) return
   running.value = true
   controller = new AbortController()
-  const start = performance.now()
   const p = prompt.value.trim()
   try {
     const song = await generate(
@@ -128,14 +118,10 @@ const run = async () => {
       },
       controller.signal,
     )
-    results.value.unshift({
-      id: uid(),
-      prompt: p,
-      song,
-      latencyMs: Math.round(performance.now() - start),
-      model: model.value,
-      duration: duration.value,
-    })
+    // We play the song from its persisted MUSIC request (in the recent strip),
+    // not the transient blob — so release the object URL the client made.
+    URL.revokeObjectURL(song.url)
+    refreshKey.value++
   } catch (e: unknown) {
     const err = e as { name?: string; message?: string }
     if (err?.name !== 'AbortError') toast.error(err?.message || 'Music generation failed')
@@ -145,13 +131,6 @@ const run = async () => {
   }
 }
 const stop = () => controller?.abort()
-
-const download = (r: ResultRow) => {
-  const a = document.createElement('a')
-  a.href = r.song.url
-  a.download = `song.${format.value}`
-  a.click()
-}
 
 const fmtDuration = (s: number) =>
   s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s}s`
@@ -200,7 +179,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   assistController?.abort()
-  results.value.forEach((r) => URL.revokeObjectURL(r.song.url))
 })
 </script>
 
@@ -382,26 +360,12 @@ onBeforeUnmount(() => {
         <!-- In-flight notice -->
         <Card v-if="running" class="p-4 flex items-center gap-3 text-sm text-muted-foreground">
           <Loader2 class="size-4 animate-spin shrink-0" />
-          Composing your song — this usually takes under a minute…
+          <span class="flex-1">Composing your song — this usually takes under a minute…</span>
+          <ElapsedTimer :running="running" class="shrink-0 font-medium text-foreground" />
         </Card>
 
-        <!-- Results -->
-        <Card v-for="r in results" :key="r.id" class="p-4 space-y-3">
-          <div class="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
-            <Badge variant="outline" class="font-mono">{{ r.model }}</Badge>
-            <span class="inline-flex items-center gap-1">
-              <AudioLines class="size-3" /> {{ fmtDuration(r.duration) }}
-            </span>
-            <span class="inline-flex items-center gap-1"><Clock class="size-3" /> {{ r.latencyMs }} ms</span>
-          </div>
-          <p class="text-sm line-clamp-2">{{ r.prompt }}</p>
-          <div class="flex items-center gap-2">
-            <audio :src="r.song.url" controls class="h-10 flex-1" />
-            <Button variant="ghost" size="icon" title="Download" @click="download(r)">
-              <Download class="size-4" />
-            </Button>
-          </div>
-        </Card>
+        <!-- Recent songs for this model (the just-finished one flashes in) -->
+        <RecentGenerations :model="model" type="MUSIC" :refresh-key="refreshKey" title="Recent songs" />
       </div>
 
       <!-- Options -->

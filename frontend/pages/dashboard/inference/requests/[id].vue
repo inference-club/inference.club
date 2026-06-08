@@ -24,6 +24,7 @@ const isStt = computed(() => req.value?.inference_type === 'STT')
 const isImage = computed(() => req.value?.inference_type === 'IMAGE')
 const isTts = computed(() => req.value?.inference_type === 'TTS')
 const isMesh = computed(() => req.value?.inference_type === 'MESH')
+const isMusic = computed(() => req.value?.inference_type === 'MUSIC')
 const lightbox = useImageLightbox()
 const { downloading: downloadingModel, download } = useFileDownload()
 
@@ -356,8 +357,25 @@ onMounted(() => {
         </div>
       </Card>
 
+      <!-- Music generation -->
+      <Card v-if="isMusic" class="p-4 mb-4">
+        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+          Song
+          <Badge v-if="req.audio_seconds != null" variant="outline">{{ req.audio_seconds.toFixed(1) }}s</Badge>
+        </h2>
+        <div v-if="req.payload?.prompt" class="text-sm mb-3">
+          <span class="text-muted-foreground">Prompt:</span> {{ req.payload.prompt }}
+        </div>
+        <div v-if="req.payload?.lyrics" class="text-sm mb-3">
+          <span class="text-muted-foreground">Lyrics:</span>
+          <pre class="mt-1 whitespace-pre-wrap font-sans text-sm">{{ req.payload.lyrics }}</pre>
+        </div>
+        <audio v-if="req.output_audio_url" :src="req.output_audio_url" controls class="w-full h-10" />
+        <div v-else class="text-sm text-muted-foreground">No audio stored for this request.</div>
+      </Card>
+
       <!-- Conversation -->
-      <Card v-if="!isStt && !isImage && !isTts && !isMesh" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage && !isTts && !isMesh && !isMusic" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3">
           Conversation
           <span class="text-sm font-normal text-muted-foreground">
@@ -407,7 +425,7 @@ onMounted(() => {
       </Card>
 
       <!-- Response -->
-      <Card v-if="!isStt && !isImage && !isTts" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage && !isTts && !isMusic" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
           Response
           <Badge v-if="req.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">
