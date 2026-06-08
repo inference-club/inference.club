@@ -155,12 +155,14 @@ class ProviderService(BaseModel):
     TYPE_TTS = "tts"
     TYPE_IMAGE = "image"
     TYPE_MESH = "mesh"
+    TYPE_MUSIC = "music"
     SERVICE_TYPE_CHOICES = (
         (TYPE_LLM, "Language model"),
         (TYPE_STT, "Speech to text"),
         (TYPE_TTS, "Text to speech"),
         (TYPE_IMAGE, "Image generation"),
         (TYPE_MESH, "Image to 3D"),
+        (TYPE_MUSIC, "Music generation"),
     )
 
     # Who may route inference requests to this service.
@@ -435,6 +437,7 @@ class InferenceRequest(BaseModel):
         ("VIDEO", "Video Generation"),
         ("TTS", "Text to Speech"),
         ("MESH", "Image to 3D"),
+        ("MUSIC", "Music Generation"),
     )
 
     STATUS_CHOICES = (

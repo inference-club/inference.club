@@ -27,6 +27,7 @@ const isStt = computed(() => props.request.inference_type === 'STT')
 const isImage = computed(() => props.request.inference_type === 'IMAGE')
 const isTts = computed(() => props.request.inference_type === 'TTS')
 const isMesh = computed(() => props.request.inference_type === 'MESH')
+const isMusic = computed(() => props.request.inference_type === 'MUSIC')
 const fmtSeconds = (s?: number | null) =>
   s == null ? null : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`
 
@@ -146,6 +147,25 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
       </div>
     </div>
 
+    <!-- MUSIC: prompt → generated song -->
+    <div v-else-if="isMusic" class="mt-3 grid gap-4 sm:grid-cols-2">
+      <div class="min-w-0">
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
+        <p class="text-sm line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
+      </div>
+      <div class="min-w-0">
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Song</p>
+        <audio
+          v-if="props.request.output_audio_url"
+          :src="props.request.output_audio_url"
+          controls
+          class="w-full h-9"
+          @click.stop
+        />
+        <p v-else class="text-sm text-muted-foreground">—</p>
+      </div>
+    </div>
+
     <!-- IMAGE: prompt → generated images (images feature large on the right) -->
     <div v-else-if="isImage" class="mt-3 grid gap-4 sm:grid-cols-2 sm:items-stretch">
       <div class="min-w-0 flex flex-col">
@@ -198,7 +218,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <!-- Footer metadata -->
     <div class="mt-3 pt-3 border-t flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
       <span
-        v-if="isStt || isTts"
+        v-if="isStt || isTts || isMusic"
         class="inline-flex items-center gap-1"
         title="Audio duration"
       >

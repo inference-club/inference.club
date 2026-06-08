@@ -40,6 +40,8 @@ tags:
     description: Image generation and editing.
   - name: 3D
     description: Image-to-3D (mesh) — turn one image into a textured GLB model.
+  - name: Music
+    description: Text-to-music — generate a song from a prompt (and optional lyrics).
 
 paths:
   /models:
@@ -396,6 +398,58 @@ paths:
         "404": { $ref: "#/components/responses/NoProvider" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "415": { $ref: "#/components/responses/UnsupportedMedia" }
+
+  /music/generations:
+    post:
+      tags: [Music]
+      summary: Generate music from a prompt
+      description: |
+        Text-to-music. Describe a song — style, mood, instruments — with an
+        optional `lyrics` block, and get back the **raw audio** (MP3 by default).
+        A copy is stored on inference.club for your history. Metered by audio
+        duration.
+
+        Routes to a `music` model (e.g. ACE-Step). The underlying engine is
+        async (it queues a job), but inference.club waits for the render and
+        returns the finished audio in a single response — generation is
+        typically under a minute, so keep client timeouts generous.
+      operationId: createMusic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, prompt]
+              properties:
+                model: { type: string, description: "A `music` model id from /models." }
+                prompt: { type: string, description: "Describe the song (style, mood, instruments)." }
+                lyrics: { type: string, description: "Optional lyrics; leave blank for an instrumental." }
+                audio_duration: { type: number, description: "Length in seconds (clamped 5–300).", default: 30 }
+                inference_steps: { type: integer, description: "Denoising steps (clamped 1–200).", default: 8 }
+                guidance_scale: { type: number, description: "Prompt adherence (clamped 0–30).", default: 7 }
+                use_random_seed: { type: boolean, default: true }
+                seed: { type: integer, description: "Used when use_random_seed is false." }
+                audio_format: { type: string, enum: [mp3, wav, flac, opus], default: mp3 }
+                bpm: { type: integer, description: "Optional tempo." }
+                key_scale: { type: string, description: "Optional key/scale, e.g. \"C Major\"." }
+            example:
+              model: acestep-v15-turbo
+              prompt: "dreamy lo-fi hip-hop with mellow piano and soft vinyl crackle"
+              audio_duration: 30
+              audio_format: mp3
+      responses:
+        "200":
+          description: The generated song audio bytes.
+          content:
+            audio/mpeg:
+              schema: { type: string, format: binary }
+            audio/wav:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
 
 components:
   securitySchemes:

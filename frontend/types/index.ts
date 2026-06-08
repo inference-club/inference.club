@@ -1,4 +1,4 @@
-export type InferenceType = 'LLM' | 'STT' | 'IMAGE' | 'VIDEO' | 'TTS' | 'MESH'
+export type InferenceType = 'LLM' | 'STT' | 'IMAGE' | 'VIDEO' | 'TTS' | 'MESH' | 'MUSIC'
 
 // Generation stats for an image-to-3D (MESH) request, mirrored from the
 // upstream X-Trellis-Metadata header.
@@ -71,10 +71,10 @@ export interface InferenceRequest {
   created_on: string
   modified_on: string
 
-  // Audio modalities (STT now; TTS later)
+  // Audio modalities (STT, TTS, and MUSIC)
   audio_seconds?: number | null
   audio_url?: string | null // input audio (STT)
-  output_audio_url?: string | null // generated audio (TTS)
+  output_audio_url?: string | null // generated audio (TTS / MUSIC)
   transcription?: TranscriptionExtras | null
 
   // Image generation

@@ -19,7 +19,7 @@ ENGINES = {"vllm", "lmstudio", "ollama", "sglang", "llamacpp", "tgi", "other"}
 # "tts" is accepted now — the agent and server stay in lockstep for the next
 # modality — even though no TTS endpoint ships yet. "mesh" is image-to-3D
 # (e.g. TRELLIS.2): one image in, a textured GLB out.
-SERVICE_TYPES = {"llm", "stt", "tts", "image", "mesh"}
+SERVICE_TYPES = {"llm", "stt", "tts", "image", "mesh", "music"}
 
 # Limits — see `docs/plans/service-manifest.md` §6.
 MAX_RAW_YAML_BYTES = 64 * 1024

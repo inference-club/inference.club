@@ -1198,6 +1198,204 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
         return resp
 
 
+# Output format → (content_type, file extension) for generated music. The agent
+# passes the real Content-Type back from ACE-Step's audio download, so this is
+# only the fallback + the stored-file extension.
+_MUSIC_FORMATS = {
+    "mp3": ("audio/mpeg", "mp3"),
+    "wav": ("audio/wav", "wav"),
+    "wav32": ("audio/wav", "wav"),
+    "flac": ("audio/flac", "flac"),
+    "opus": ("audio/ogg", "opus"),
+    "aac": ("audio/aac", "aac"),
+}
+
+
+class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
+    """``POST /v1/music/generations`` — text-to-music (generate a song).
+
+    The request is a simple JSON shape (``model``, ``prompt``, optional
+    ``lyrics`` and generation controls). It routes only to ``music`` services
+    (e.g. ACE-Step). ACE-Step's own API is async (submit a job, poll, download),
+    but the agent runs that whole loop and hands us the finished audio in one
+    reply — so this view looks just like TTS: forward, store the generated
+    audio (public ``OUTPUT_AUDIO``), and return the raw bytes.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "inference"
+    inference_type = "MUSIC"
+    upstream_path = "/music/generations"
+
+    def post(self, request):
+        body = request.data if isinstance(request.data, dict) else {}
+        prompt = body.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            return Response(
+                {"error": {"message": "`prompt` is required.", "type": "missing_prompt"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        lyrics = body.get("lyrics") if isinstance(body.get("lyrics"), str) else ""
+        if len(prompt) + len(lyrics) > settings.TTS_MAX_INPUT_CHARS:
+            return Response(
+                {"error": {"message": "Prompt/lyrics too long.", "type": "request_too_large"}},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        model_name = body.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="music"
+        )
+        if provider_model is None:
+            return Response(
+                {
+                    "error": {
+                        "message": f"No online music-generation provider serving model "
+                        f"'{model_name}' for this user.",
+                        "type": "no_provider",
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        provider = provider_model.provider
+        served_name = provider_model.name
+        canonical = _model_slug(provider_model)
+
+        # --- coerce generation controls to safe ranges --------------------
+        def _num(val, lo, hi, default):
+            try:
+                n = float(val)
+            except (TypeError, ValueError):
+                return default
+            return max(lo, min(hi, n))
+
+        audio_format = str(body.get("audio_format") or "mp3").lower()
+        if audio_format not in _MUSIC_FORMATS:
+            audio_format = "mp3"
+        out_ct_fallback, ext = _MUSIC_FORMATS[audio_format]
+        steps = int(_num(body.get("inference_steps"), 1, 200, 8))
+        guidance = _num(body.get("guidance_scale"), 0, 30, 7.0)
+        randomize = body.get("use_random_seed")
+        randomize = True if randomize is None else bool(randomize)
+        try:
+            seed = int(body.get("seed"))
+        except (TypeError, ValueError):
+            seed = -1
+        duration = body.get("audio_duration")
+        duration = _num(duration, 5, 300, None) if duration is not None else None
+
+        # ACE-Step's /release_task request shape. The agent forwards this body
+        # verbatim, then polls and downloads the rendered audio.
+        forward = {
+            "model": served_name or canonical or model_name or "",
+            "prompt": prompt,
+            "lyrics": lyrics,
+            "inference_steps": steps,
+            "guidance_scale": guidance,
+            "use_random_seed": randomize,
+            "seed": seed,
+            "audio_format": audio_format,
+            "task_type": "text2music",
+        }
+        if duration is not None:
+            forward["audio_duration"] = duration
+        if isinstance(body.get("bpm"), (int, float)):
+            forward["bpm"] = int(body["bpm"])
+        if isinstance(body.get("key_scale"), str) and body["key_scale"].strip():
+            forward["key_scale"] = body["key_scale"].strip()
+        if isinstance(body.get("vocal_language"), str) and body["vocal_language"].strip():
+            forward["vocal_language"] = body["vocal_language"].strip()
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="MUSIC",
+            payload={
+                "model": canonical or model_name or "",
+                "prompt": prompt,
+                "lyrics": lyrics,
+                "audio_duration": duration,
+                "inference_steps": steps,
+                "guidance_scale": guidance,
+                "seed": seed,
+                "use_random_seed": randomize,
+                "audio_format": audio_format,
+            },
+            status="PROCESSING",
+        )
+
+        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
+        started = time.monotonic()
+        try:
+            upstream = requests.post(
+                endpoint, json=forward, timeout=UPSTREAM_TIMEOUT_SECONDS,
+                verify=False, proxies=_tailnet_proxies(),
+            )
+        except requests.RequestException as e:
+            ir.status = "REQUESTED"
+            ir.results = {"error": str(e)}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            logger.error("Upstream music generation failed: %s", e)
+            return Response(
+                {"error": {"message": str(e), "type": "upstream_error"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not upstream.ok:
+            ir.status = "REQUESTED"
+            ir.results = {"upstream_status": upstream.status_code}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            return Response(
+                upstream.json()
+                if upstream.headers.get("content-type", "").startswith("application/json")
+                else {"error": upstream.text[:500]},
+                status=upstream.status_code,
+            )
+
+        audio = upstream.content
+        out_ct = (upstream.headers.get("content-type") or out_ct_fallback).split(";", 1)[0]
+        seconds = _wav_seconds(audio) or duration
+
+        from django.core.files.base import ContentFile
+
+        from .models import MediaAsset
+
+        asset = None
+        try:
+            asset = MediaAsset(
+                user=request.user, inference_request=ir, kind=MediaAsset.OUTPUT_AUDIO,
+                content_type=out_ct, size_bytes=len(audio), duration_seconds=seconds,
+            )
+            asset.file.save(f"song.{ext}", ContentFile(audio), save=False)
+            asset.save()
+        except Exception as e:
+            logger.warning("music output-audio store failed: %s", e)
+
+        ir.status = "PROCESSED"
+        ir.audio_seconds = seconds
+        ir.results = {
+            "audio_asset_id": asset.id if asset else None,
+            "content_type": out_ct,
+            "characters": len(prompt) + len(lyrics),
+        }
+        ir.latency_ms = int((time.monotonic() - started) * 1000)
+        ir.save(
+            update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"]
+        )
+        Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+
+        from django.http import HttpResponse
+
+        resp = HttpResponse(audio, content_type=out_ct)
+        resp["Content-Disposition"] = f'inline; filename="song.{ext}"'
+        return resp
+
+
 class AudioVoicesView(_RateLimitHeadersMixin, APIView):
     """``GET /v1/audio/voices?model=<id>`` — the voices a TTS model offers.
 
