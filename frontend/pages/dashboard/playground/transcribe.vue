@@ -198,7 +198,7 @@ onBeforeUnmount(() => {
 
     <div v-if="selected" class="grid lg:grid-cols-[1fr_18rem] gap-4 items-start">
       <!-- Composer -->
-      <div class="space-y-4">
+      <div class="min-w-0 space-y-4">
         <!-- Drop zone -->
         <div
           class="rounded-2xl border-2 border-dashed transition-colors p-6 text-center"

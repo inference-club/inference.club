@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { Copy, Check } from 'lucide-vue-next'
 import type { TranscriptWord, TranscriptSegment } from '@/types'
 
@@ -25,9 +25,27 @@ const hasSegments = computed(
 )
 const interactive = computed(() => hasWords.value || hasSegments.value)
 
+// `timeupdate` fires only ~4×/s, which makes word-level highlighting trail the
+// audio by up to ~250ms. While playing we poll currentTime via rAF (~60fps) so
+// the active word lines up with what's being spoken; we still listen to
+// timeupdate/seeked for the paused/scrubbing cases.
+let raf = 0
 const onTime = () => {
   currentTime.value = audio.value?.currentTime ?? 0
 }
+const tick = () => {
+  onTime()
+  raf = requestAnimationFrame(tick)
+}
+const onPlay = () => {
+  cancelAnimationFrame(raf)
+  raf = requestAnimationFrame(tick)
+}
+const onPause = () => {
+  cancelAnimationFrame(raf)
+  onTime()
+}
+onBeforeUnmount(() => cancelAnimationFrame(raf))
 
 const isActive = (start?: number, end?: number) => {
   if (start == null) return false
@@ -62,6 +80,11 @@ const copy = async () => {
       controls
       class="w-full h-10"
       @timeupdate="onTime"
+      @play="onPlay"
+      @playing="onPlay"
+      @pause="onPause"
+      @ended="onPause"
+      @seeked="onTime"
     />
 
     <div class="flex items-center justify-between gap-2">
@@ -76,12 +99,14 @@ const copy = async () => {
       </Button>
     </div>
 
-    <!-- Word-level karaoke transcript -->
-    <p v-if="hasWords" class="text-base leading-relaxed">
+    <!-- Word-level karaoke transcript. flex-wrap + gap supplies the spacing so
+         words always wrap (the source tokens may not carry their own spaces),
+         avoiding a single unbreakable run that overflows horizontally. -->
+    <p v-if="hasWords" class="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 text-base leading-relaxed">
       <span
         v-for="(w, i) in words"
         :key="i"
-        class="rounded px-0.5 transition-colors"
+        class="rounded px-0.5 transition-colors duration-75"
         :class="[
           src ? 'cursor-pointer hover:bg-accent' : '',
           isActive(w.start, w.end)
@@ -89,7 +114,7 @@ const copy = async () => {
             : '',
         ]"
         @click="seek(w.start)"
-        >{{ w.word }}<span> </span></span>
+        >{{ w.word.trim() }}</span>
     </p>
 
     <!-- Segment-level transcript -->

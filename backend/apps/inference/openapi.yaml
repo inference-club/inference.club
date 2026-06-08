@@ -15,7 +15,7 @@ info:
     Get an API key from **Dashboard → Settings → Token**.
 
     Each model on `GET /models` reports a `service_type` (`llm`, `stt`,
-    `image`, or `tts`) plus its modalities, and requests only route to a
+    `image`, `tts`, or `mesh`) plus its modalities, and requests only route to a
     matching service — a transcription never lands on a chat model, an image
     request never on a text model.
 
@@ -38,6 +38,8 @@ tags:
     description: Speech-to-text (STT) and text-to-speech (TTS).
   - name: Images
     description: Image generation and editing.
+  - name: 3D
+    description: Image-to-3D (mesh) — turn one image into a textured GLB model.
 
 paths:
   /models:
@@ -340,6 +342,61 @@ paths:
         "404": { $ref: "#/components/responses/NoProvider" }
         "415": { $ref: "#/components/responses/UnsupportedMedia" }
 
+  /3d/generations:
+    post:
+      tags: ["3D"]
+      summary: Generate a 3D model from an image
+      description: |
+        Image-to-3D. Send **one image**; get back a textured **GLB** mesh
+        (geometry + PBR textures in a single self-contained file that loads
+        directly in three.js `GLTFLoader`). `multipart/form-data`.
+
+        Routes to a `mesh` model (e.g. TRELLIS.2). The GLB is generated on a
+        provider's GPU and stored on inference.club; the response returns a
+        `url` to the stored model plus generation `metadata` (seed, vertices,
+        faces, timing). Generation takes ~30s once the provider is warm — keep
+        client timeouts generous.
+      operationId: createModel3D
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image, model]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: "Source image (png, jpeg, webp). A transparent background is used if present; otherwise it's removed automatically. Up to 25 MB."
+                model: { type: string, description: "A `mesh` model id from /models." }
+                options:
+                  type: string
+                  description: |
+                    Optional JSON string of generation options:
+                    `resolution` (`"512"` fast · `"1024"` · `"1536"` sharpest),
+                    `seed` (integer), `randomize_seed` (boolean), `texture_size`
+                    (512–4096). Output is always a single GLB.
+                  example: '{"resolution":"512","seed":42}'
+      responses:
+        "200":
+          description: The generated 3D model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Mesh3DResponse" }
+              example:
+                created: 1780266332
+                request_id: "98"
+                metadata: { seed: 42, resolution: "512", vertices: 332812, faces: 499906 }
+                data:
+                  - url: "https://api.inference.club/api/inference/assets/51/"
+                    type: model/gltf-binary
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMedia" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -405,7 +462,7 @@ components:
         object: { type: string, example: model }
         created: { type: integer }
         owned_by: { type: string }
-        service_type: { type: string, enum: [llm, stt, image, tts], description: "Which surface this model serves." }
+        service_type: { type: string, enum: [llm, stt, image, tts, mesh], description: "Which surface this model serves." }
         input_modalities: { type: array, items: { type: string }, example: [text] }
         output_modalities: { type: array, items: { type: string }, example: [text] }
         supported_features: { type: array, items: { type: string }, example: [reasoning] }
@@ -490,3 +547,24 @@ components:
               url: { type: string, description: "inference.club asset URL (default)." }
               b64_json: { type: string, description: "Base64 image bytes (when response_format=b64_json)." }
               revised_prompt: { type: string }
+    Mesh3DResponse:
+      type: object
+      properties:
+        created: { type: integer }
+        request_id: { type: string, description: "Id of the stored inference request (view at /dashboard/inference/requests/<id>)." }
+        metadata:
+          type: object
+          description: "Generation stats from the provider."
+          properties:
+            seed: { type: integer }
+            resolution: { type: string }
+            vertices: { type: integer }
+            faces: { type: integer }
+            timing_sec: { type: object, additionalProperties: { type: number } }
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              url: { type: string, description: "inference.club asset URL for the GLB." }
+              type: { type: string, example: model/gltf-binary }
