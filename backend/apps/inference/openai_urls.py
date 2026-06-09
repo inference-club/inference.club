@@ -11,6 +11,7 @@ from .openai_views import (
     Mesh3DGenerationsView,
     ModelsView,
     MusicGenerationsView,
+    VideoGenerationsView,
 )
 
 app_name = "openai"
@@ -36,4 +37,6 @@ urlpatterns = [
     path("3d/generations/", Mesh3DGenerationsView.as_view()),
     path("music/generations", MusicGenerationsView.as_view(), name="music-generations"),
     path("music/generations/", MusicGenerationsView.as_view()),
+    path("videos/generations", VideoGenerationsView.as_view(), name="videos-generations"),
+    path("videos/generations/", VideoGenerationsView.as_view()),
 ]

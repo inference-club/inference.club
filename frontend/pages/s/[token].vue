@@ -21,6 +21,7 @@ const isImage = computed(() => req.value?.inference_type === 'IMAGE')
 const isTts = computed(() => req.value?.inference_type === 'TTS')
 const isMesh = computed(() => req.value?.inference_type === 'MESH')
 const isMusic = computed(() => req.value?.inference_type === 'MUSIC')
+const isVideo = computed(() => req.value?.inference_type === 'VIDEO')
 const lightbox = useImageLightbox()
 
 // The shared endpoint uses the detail serializer, which carries `payload` but
@@ -43,8 +44,12 @@ useSeoMeta({
   ogTitle: () =>
     req.value ? `${req.value.inference_type} on inference.club` : 'inference.club',
   ogDescription: () => promptText.value || 'Shared inference request',
-  // WebGL can't be scraped, so a shared 3D model unfurls with its source image.
+  // WebGL can't be scraped, so a shared 3D model unfurls with its source image;
+  // a video unfurls with its first-frame image (input_image_url).
   ogImage: () => req.value?.image_urls?.[0] || req.value?.input_image_url || undefined,
+  // Platforms that support og:video embed the clip itself (image-to-video still
+  // gets the first-frame og:image above for the static preview).
+  ogVideo: () => req.value?.video_url || undefined,
   twitterCard: 'summary_large_image',
 })
 </script>
@@ -122,6 +127,28 @@ useSeoMeta({
         <div v-if="req.mesh" class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span v-if="req.mesh.vertices != null">{{ req.mesh.vertices.toLocaleString() }} vertices</span>
           <span v-if="req.mesh.faces != null">{{ req.mesh.faces.toLocaleString() }} faces</span>
+        </div>
+      </Card>
+
+      <!-- Video -->
+      <Card v-else-if="isVideo" class="p-4 mb-4">
+        <p v-if="promptText" class="text-sm mb-3">
+          <span class="text-muted-foreground">Prompt:</span> {{ promptText }}
+        </p>
+        <video
+          v-if="req.video_url"
+          :src="req.video_url"
+          :poster="req.input_image_url || undefined"
+          controls
+          loop
+          playsinline
+          preload="metadata"
+          class="max-h-[70vh] w-full rounded-lg border bg-black object-contain"
+        />
+        <div v-if="req.video" class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span v-if="req.video.seconds != null">{{ req.video.seconds.toFixed(1) }}s</span>
+          <span v-if="req.video.width && req.video.height">{{ req.video.width }}×{{ req.video.height }}</span>
+          <span v-if="req.video.fps != null">{{ req.video.fps }} fps</span>
         </div>
       </Card>
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box,
+  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box, Clapperboard,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { statusVariant, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
@@ -28,6 +28,7 @@ const isImage = computed(() => props.request.inference_type === 'IMAGE')
 const isTts = computed(() => props.request.inference_type === 'TTS')
 const isMesh = computed(() => props.request.inference_type === 'MESH')
 const isMusic = computed(() => props.request.inference_type === 'MUSIC')
+const isVideo = computed(() => props.request.inference_type === 'VIDEO')
 const fmtSeconds = (s?: number | null) =>
   s == null ? null : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`
 
@@ -190,6 +191,26 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
       <p v-else class="text-sm text-muted-foreground">—</p>
     </div>
 
+    <!-- VIDEO: prompt (+ optional first frame) → generated video -->
+    <div v-else-if="isVideo" class="mt-3 grid gap-4 sm:grid-cols-2 sm:items-stretch">
+      <div class="min-w-0 flex flex-col">
+        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
+        <p class="text-sm line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
+      </div>
+      <video
+        v-if="props.request.video_url"
+        :src="props.request.video_url"
+        :poster="props.request.input_image_url || undefined"
+        controls
+        loop
+        playsinline
+        preload="metadata"
+        class="max-h-80 w-full rounded-lg border bg-black object-contain"
+        @click.stop
+      />
+      <p v-else class="text-sm text-muted-foreground">—</p>
+    </div>
+
     <!-- MESH: input image → interactive 3D model (lazy-mounted in feeds) -->
     <div v-else-if="isMesh" class="mt-3">
       <ModelViewer
@@ -231,6 +252,17 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
         title="Images generated"
       >
         <ImageIcon class="size-3.5" /> {{ props.request.image_count ?? 0 }} image{{ (props.request.image_count ?? 0) === 1 ? '' : 's' }}
+      </span>
+      <span
+        v-else-if="isVideo"
+        class="inline-flex items-center gap-1"
+        title="Video duration"
+      >
+        <Clapperboard class="size-3.5" />
+        {{ fmtSeconds(props.request.video?.seconds ?? props.request.audio_seconds) ?? '—' }}
+        <template v-if="props.request.video?.width && props.request.video?.height">
+          · {{ props.request.video.width }}×{{ props.request.video.height }}
+        </template>
       </span>
       <span
         v-else-if="isMesh && props.request.mesh"

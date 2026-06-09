@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework.views import APIView
 
+from .manifest_validator import SERVICE_TYPES
 from .manifest_validator import validate as validate_manifest
 from .models import (
     Bookmark,
@@ -957,9 +958,10 @@ def _manifest_services(parsed) -> list[dict]:
                     }
                 )
             svc_type = svc.get("type")
-            if not isinstance(svc_type, str) or svc_type not in (
-                "llm", "stt", "tts", "image", "mesh", "music"
-            ):
+            # Defaults to "llm" for an omitted/unknown type. Uses the validator's
+            # SERVICE_TYPES (the single source of truth) so a newly-added modality
+            # can't be silently coerced back to llm by a stale literal list here.
+            if not isinstance(svc_type, str) or svc_type not in SERVICE_TYPES:
                 svc_type = "llm"
             features = [
                 f.strip()
@@ -1102,6 +1104,7 @@ _SERVICE_TYPE_MODALITIES = {
     "image": (["text", "image"], ["image"]),
     "mesh": (["image"], ["model"]),
     "music": (["text"], ["audio"]),
+    "video": (["text", "image"], ["video"]),
     "llm": (["text"], ["text"]),
 }
 

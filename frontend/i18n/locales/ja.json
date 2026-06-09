@@ -123,6 +123,7 @@
       "transcription": "文字起こし",
       "images": "画像",
       "imageTo3d": "画像から3D",
+      "videoGeneration": "動画生成",
       "textToSpeech": "テキスト読み上げ",
       "musicGeneration": "音楽生成",
       "catalog": "カタログ",

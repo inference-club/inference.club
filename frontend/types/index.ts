@@ -10,6 +10,17 @@ export interface MeshMeta {
   timing_sec?: Record<string, number>
 }
 
+// Generation stats for a text/image-to-video (VIDEO) request, derived from the
+// resolved params LTX returns in its X-LTX-Params header.
+export interface VideoMeta {
+  seconds?: number
+  width?: number
+  height?: number
+  fps?: number
+  num_frames?: number
+  seed?: number
+}
+
 // Content visibility — see docs/prd/01-content-sharing.md.
 export type Visibility = 'PUBLIC' | 'UNLISTED' | 'PRIVATE' | 'SECRET'
 
@@ -86,6 +97,11 @@ export interface InferenceRequest {
   // image is carried in `input_image_url` above (shared with image edits).
   model_url?: string | null
   mesh?: MeshMeta | null
+
+  // Text/image-to-video (VIDEO): the generated MP4 + its generation stats. The
+  // optional first-frame image is carried in `input_image_url` above.
+  video_url?: string | null
+  video?: VideoMeta | null
 
   // Owner attribution (present on both list and detail)
   owner?: string

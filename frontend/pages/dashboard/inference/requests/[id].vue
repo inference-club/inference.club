@@ -25,6 +25,7 @@ const isImage = computed(() => req.value?.inference_type === 'IMAGE')
 const isTts = computed(() => req.value?.inference_type === 'TTS')
 const isMesh = computed(() => req.value?.inference_type === 'MESH')
 const isMusic = computed(() => req.value?.inference_type === 'MUSIC')
+const isVideo = computed(() => req.value?.inference_type === 'VIDEO')
 const lightbox = useImageLightbox()
 const { downloading: downloadingModel, download } = useFileDownload()
 
@@ -374,8 +375,46 @@ onMounted(() => {
         <div v-else class="text-sm text-muted-foreground">No audio stored for this request.</div>
       </Card>
 
+      <!-- Video generation -->
+      <Card v-if="isVideo" class="p-4 mb-4">
+        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+          Video
+          <Badge v-if="req.video?.seconds != null" variant="outline">{{ req.video.seconds.toFixed(1) }}s</Badge>
+          <Badge v-if="req.video?.width && req.video?.height" variant="outline">
+            {{ req.video.width }}×{{ req.video.height }}
+          </Badge>
+        </h2>
+        <div v-if="req.payload?.prompt" class="text-sm mb-3">
+          <span class="text-muted-foreground">Prompt:</span> {{ req.payload.prompt }}
+        </div>
+        <video
+          v-if="req.video_url"
+          :src="req.video_url"
+          :poster="req.input_image_url || undefined"
+          controls
+          loop
+          playsinline
+          preload="metadata"
+          class="max-h-[75vh] w-full rounded-lg border bg-black object-contain"
+        />
+        <div v-else class="text-sm text-muted-foreground">No video stored for this request.</div>
+        <div v-if="req.video" class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span v-if="req.video.fps != null">{{ req.video.fps }} fps</span>
+          <span v-if="req.video.num_frames != null">{{ req.video.num_frames }} frames</span>
+          <span v-if="req.video.seed != null">seed {{ req.video.seed }}</span>
+        </div>
+        <div v-if="req.input_image_url" class="mt-3">
+          <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">First frame</p>
+          <img
+            :src="req.input_image_url"
+            class="max-h-48 w-auto cursor-zoom-in rounded-lg border object-contain"
+            @click="lightbox.open(req.input_image_url)"
+          />
+        </div>
+      </Card>
+
       <!-- Conversation -->
-      <Card v-if="!isStt && !isImage && !isTts && !isMesh && !isMusic" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage && !isTts && !isMesh && !isMusic && !isVideo" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3">
           Conversation
           <span class="text-sm font-normal text-muted-foreground">
@@ -425,7 +464,7 @@ onMounted(() => {
       </Card>
 
       <!-- Response -->
-      <Card v-if="!isStt && !isImage && !isTts && !isMusic" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage && !isTts && !isMusic && !isVideo" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
           Response
           <Badge v-if="req.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">

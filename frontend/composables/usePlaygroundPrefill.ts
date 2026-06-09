@@ -17,6 +17,7 @@ export interface PlaygroundPrefill {
 export const REPRODUCE_ROUTES: Record<string, string> = {
   MUSIC: '/dashboard/playground/music',
   IMAGE: '/dashboard/playground/images',
+  VIDEO: '/dashboard/playground/videos',
   TTS: '/dashboard/playground/speech',
 }
 

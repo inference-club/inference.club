@@ -1403,6 +1403,294 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
         return resp
 
 
+def _decode_image_input(image):
+    """Decode an inbound conditioning image (``data:`` URI or raw base64) to
+    ``(bytes, content_type)``, or ``(None, None)`` when it's an http(s) URL or
+    unparseable. Used to persist the first-frame image as an INPUT_IMAGE asset
+    so an image-to-video run is replayable and unfurls with its source frame."""
+    import base64
+
+    if not isinstance(image, str) or not image.strip():
+        return None, None
+    s = image.strip()
+    if s.startswith("http://") or s.startswith("https://"):
+        return None, None  # a remote URL — nothing to store locally
+    ct = "image/png"
+    if s.startswith("data:"):
+        header, _, b64 = s.partition(",")
+        if ";base64" not in header or not b64:
+            return None, None
+        mime = header[5:].split(";", 1)[0].strip()
+        if mime:
+            ct = mime
+        s = b64
+    try:
+        return base64.b64decode(s), ct
+    except (ValueError, TypeError):
+        return None, None
+
+
+def _ltx_params(upstream) -> dict:
+    """The resolved (snapped) generation params LTX returns in the
+    ``X-LTX-Params`` response header, as a dict. Empty when absent/unparseable."""
+    raw = upstream.headers.get("X-LTX-Params") or upstream.headers.get("x-ltx-params")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
+    """``POST /v1/videos/generations`` — text/image-to-video (generate an MP4).
+
+    A simple JSON shape (``model``, ``prompt``, optional first-frame ``image``
+    and generation controls). It routes only to ``video`` services (e.g. LTX-2).
+    Like music/TTS this is one-shot: forward, store the generated video (public
+    ``OUTPUT_VIDEO``), persist the optional conditioning image (``INPUT_IMAGE``,
+    used as the share/OG preview), and return the raw MP4 bytes.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "inference"
+    inference_type = "VIDEO"
+    upstream_path = "/videos/generations"
+
+    def post(self, request):
+        body = request.data if isinstance(request.data, dict) else {}
+        prompt = body.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            return Response(
+                {"error": {"message": "`prompt` is required.", "type": "missing_prompt"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(prompt) > settings.IMAGE_MAX_PROMPT_CHARS:
+            return Response(
+                {"error": {"message": "Prompt too long.", "type": "request_too_large"}},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        model_name = body.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="video"
+        )
+        if provider_model is None:
+            return Response(
+                {
+                    "error": {
+                        "message": f"No online video-generation provider serving model "
+                        f"'{model_name}' for this user.",
+                        "type": "no_provider",
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        provider = provider_model.provider
+        served_name = provider_model.name
+        canonical = _model_slug(provider_model)
+
+        def _num(val, lo, hi, default):
+            try:
+                n = float(val)
+            except (TypeError, ValueError):
+                return default
+            return max(lo, min(hi, n))
+
+        def _int(val, lo, hi, default):
+            v = _num(val, lo, hi, default)
+            return int(v) if v is not None else None
+
+        # --- generation controls, coerced to LTX's safe ranges -------------
+        negative_prompt = body.get("negative_prompt")
+        negative_prompt = negative_prompt.strip() if isinstance(negative_prompt, str) else ""
+        image = body.get("image") if isinstance(body.get("image"), str) else ""
+        image_strength = _num(body.get("image_strength"), 0.0, 1.0, 1.0)
+        duration = body.get("duration")
+        duration = _num(duration, 1, 20, None) if duration is not None else None
+        num_frames = (
+            _int(body.get("num_frames"), 1, 1281, None)
+            if body.get("num_frames") is not None
+            else None
+        )
+        fps = _num(body.get("fps"), 1, 60, None) if body.get("fps") is not None else None
+        width = _int(body.get("width"), 64, 1920, None) if body.get("width") is not None else None
+        height = _int(body.get("height"), 64, 1920, None) if body.get("height") is not None else None
+        steps = (
+            _int(body.get("num_inference_steps"), 1, 100, None)
+            if body.get("num_inference_steps") is not None
+            else None
+        )
+        guidance = (
+            _num(body.get("guidance_scale"), 0, 30, None)
+            if body.get("guidance_scale") is not None
+            else None
+        )
+        enhance_prompt = bool(body.get("enhance_prompt"))
+        try:
+            seed = int(body.get("seed"))
+        except (TypeError, ValueError):
+            seed = None
+
+        # The LTX /generate request shape. The agent forwards this body verbatim
+        # to the upstream server's POST /generate and streams the MP4 back.
+        forward = {"prompt": prompt, "enhance_prompt": enhance_prompt}
+        if served_name or canonical or model_name:
+            forward["model"] = served_name or canonical or model_name
+        if negative_prompt:
+            forward["negative_prompt"] = negative_prompt
+        if image:
+            forward["image"] = image
+            forward["image_strength"] = image_strength
+        if duration is not None:
+            forward["duration"] = duration
+        if num_frames is not None:
+            forward["num_frames"] = num_frames
+        if fps is not None:
+            forward["fps"] = fps
+        if width is not None:
+            forward["width"] = width
+        if height is not None:
+            forward["height"] = height
+        if steps is not None:
+            forward["num_inference_steps"] = steps
+        if guidance is not None:
+            forward["guidance_scale"] = guidance
+        if seed is not None:
+            forward["seed"] = seed
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="VIDEO",
+            payload={
+                # Stored so a retry / "reproduce in playground" is faithful. The
+                # (potentially large) base64 image is NOT stored here — the
+                # persisted INPUT_IMAGE asset is the source of truth for replay.
+                "model": canonical or model_name or "",
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "has_image": bool(image),
+                "image_strength": image_strength if image else None,
+                "duration": duration,
+                "num_frames": num_frames,
+                "fps": fps,
+                "width": width,
+                "height": height,
+                "num_inference_steps": steps,
+                "guidance_scale": guidance,
+                "enhance_prompt": enhance_prompt,
+                "seed": seed,
+            },
+            status="PROCESSING",
+        )
+
+        # Persist the optional first-frame image (public, like outputs) so the
+        # image-to-video run is replayable and its share link unfurls nicely.
+        if image:
+            from django.core.files.base import ContentFile
+
+            from .models import MediaAsset
+
+            raw_img, img_ct = _decode_image_input(image)
+            if raw_img:
+                try:
+                    src = MediaAsset(
+                        user=request.user, inference_request=ir,
+                        kind=MediaAsset.INPUT_IMAGE,
+                        content_type=img_ct or "image/png", size_bytes=len(raw_img),
+                    )
+                    ext = (img_ct or "image/png").rsplit("/", 1)[-1] or "png"
+                    src.file.save(f"first-frame.{ext}", ContentFile(raw_img), save=False)
+                    src.save()
+                except Exception as e:
+                    logger.warning("video input-image store failed: %s", e)
+
+        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
+        started = time.monotonic()
+        try:
+            upstream = requests.post(
+                endpoint, json=forward, timeout=UPSTREAM_TIMEOUT_SECONDS,
+                verify=False, proxies=_tailnet_proxies(),
+            )
+        except requests.RequestException as e:
+            ir.status = "REQUESTED"
+            ir.results = {"error": str(e)}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            logger.error("Upstream video generation failed: %s", e)
+            return Response(
+                {"error": {"message": str(e), "type": "upstream_error"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not upstream.ok:
+            err_text = (upstream.text or "")[:1000]
+            ir.status = "REQUESTED"
+            ir.results = {"upstream_status": upstream.status_code, "error": err_text}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            return Response(
+                upstream.json()
+                if upstream.headers.get("content-type", "").startswith("application/json")
+                else {"error": {"message": err_text, "type": "upstream_error"}},
+                status=upstream.status_code,
+            )
+
+        video = upstream.content
+        out_ct = (upstream.headers.get("content-type") or "video/mp4").split(";", 1)[0]
+        resolved = _ltx_params(upstream)
+        # Duration: prefer the resolved frame count / fps the server actually
+        # used, falling back to the requested duration.
+        r_frames = resolved.get("num_frames")
+        r_fps = resolved.get("fps")
+        if isinstance(r_frames, (int, float)) and isinstance(r_fps, (int, float)) and r_fps:
+            seconds = round(r_frames / float(r_fps), 3)
+        else:
+            seconds = duration
+
+        from django.core.files.base import ContentFile
+
+        from .models import MediaAsset
+
+        asset = None
+        try:
+            asset = MediaAsset(
+                user=request.user, inference_request=ir, kind=MediaAsset.OUTPUT_VIDEO,
+                content_type=out_ct, size_bytes=len(video), duration_seconds=seconds,
+                metadata={k: resolved[k] for k in ("width", "height", "fps", "num_frames")
+                          if isinstance(resolved.get(k), (int, float))},
+            )
+            asset.file.save("video.mp4", ContentFile(video), save=False)
+            asset.save()
+        except Exception as e:
+            logger.warning("video output store failed: %s", e)
+
+        ir.status = "PROCESSED"
+        ir.audio_seconds = seconds  # reused as the duration meter for video
+        ir.results = {
+            "video_asset_id": asset.id if asset else None,
+            "content_type": out_ct,
+            "duration": seconds,
+            "params": resolved or None,
+        }
+        ir.latency_ms = int((time.monotonic() - started) * 1000)
+        ir.save(
+            update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"]
+        )
+        Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+
+        from django.http import HttpResponse
+
+        resp = HttpResponse(video, content_type=out_ct)
+        resp["Content-Disposition"] = 'inline; filename="video.mp4"'
+        return resp
+
+
 class AudioVoicesView(_RateLimitHeadersMixin, APIView):
     """``GET /v1/audio/voices?model=<id>`` — the voices a TTS model offers.
 
@@ -1870,7 +2158,7 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
 # inference_type → routing service_type (None = LLM, no restriction).
 _RETRY_SERVICE_TYPE = {
     "LLM": None, "STT": "stt", "TTS": "tts",
-    "IMAGE": "image", "MESH": "mesh", "MUSIC": "music",
+    "IMAGE": "image", "MESH": "mesh", "MUSIC": "music", "VIDEO": "video",
 }
 
 
@@ -2202,6 +2490,73 @@ def _rerun_music(ir, provider_model):
     return True, None
 
 
+def _rerun_video(ir, provider_model):
+    import base64
+
+    from .models import MediaAsset  # noqa: F811
+
+    provider = provider_model.provider
+    p = ir.payload or {}
+    forward = {
+        "model": provider_model.name or p.get("model") or ir.model_name,
+        "prompt": p.get("prompt") or "",
+        "enhance_prompt": bool(p.get("enhance_prompt")),
+    }
+    if p.get("negative_prompt"):
+        forward["negative_prompt"] = p["negative_prompt"]
+    if p.get("has_image"):
+        image, ctype = _retry_read_input_asset(ir, MediaAsset.INPUT_IMAGE)
+        if image is None:
+            return _retry_simple_fail(
+                ir, "The original first-frame image wasn't stored, so this video can't be retried."
+            )
+        forward["image"] = f"data:{ctype or 'image/png'};base64,{base64.b64encode(image).decode('ascii')}"
+        if p.get("image_strength") is not None:
+            forward["image_strength"] = p["image_strength"]
+    for key in ("duration", "num_frames", "fps", "width", "height",
+                "num_inference_steps", "guidance_scale", "seed"):
+        if p.get(key) is not None:
+            forward[key] = p[key]
+    started = time.monotonic()
+    try:
+        upstream = requests.post(
+            _retry_endpoint(provider, "/videos/generations"), json=forward,
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+    video = upstream.content
+    out_ct = (upstream.headers.get("content-type") or "video/mp4").split(";", 1)[0]
+    resolved = _ltx_params(upstream)
+    r_frames, r_fps = resolved.get("num_frames"), resolved.get("fps")
+    if isinstance(r_frames, (int, float)) and isinstance(r_fps, (int, float)) and r_fps:
+        seconds = round(r_frames / float(r_fps), 3)
+    else:
+        seconds = p.get("duration")
+    asset = None
+    try:
+        asset = MediaAsset(
+            user=ir.user, inference_request=ir, kind=MediaAsset.OUTPUT_VIDEO,
+            content_type=out_ct, size_bytes=len(video), duration_seconds=seconds,
+            metadata={k: resolved[k] for k in ("width", "height", "fps", "num_frames")
+                      if isinstance(resolved.get(k), (int, float))},
+        )
+        asset.file.save("video.mp4", ContentFile(video), save=False)
+        asset.save()
+    except Exception as e:
+        logger.warning("retry: video output store failed: %s", e)
+    ir.status = "PROCESSED"
+    ir.audio_seconds = seconds
+    ir.results = {"video_asset_id": asset.id if asset else None,
+                  "content_type": out_ct, "duration": seconds, "params": resolved or None}
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
 def _retry_simple_fail(ir, message):
     ir.status = "REQUESTED"
     ir.results = {"error": message}
@@ -2212,6 +2567,7 @@ def _retry_simple_fail(ir, message):
 _RETRY_RUNNERS = {
     "LLM": _rerun_llm, "STT": _rerun_stt, "TTS": _rerun_tts,
     "IMAGE": _rerun_image, "MESH": _rerun_mesh, "MUSIC": _rerun_music,
+    "VIDEO": _rerun_video,
 }
 
 
@@ -2237,6 +2593,7 @@ def rerun_inference_request(ir):
     # Clear stale outputs; keep stored inputs (needed to re-run STT/MESH).
     ir.assets.filter(kind__in=[
         MediaAsset.OUTPUT_AUDIO, MediaAsset.OUTPUT_IMAGE, MediaAsset.OUTPUT_MODEL,
+        MediaAsset.OUTPUT_VIDEO,
     ]).delete()
     ir.provider = provider_model.provider
     ir.status = "PROCESSING"
