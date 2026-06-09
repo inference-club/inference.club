@@ -21,7 +21,26 @@ export function useContentSharing() {
   const config = useRuntimeConfig()
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const base = `${config.public.apiBase}/api/inference`
+  // During SSR (inside the container) the browser-facing apiBase may be
+  // unreachable; use the server-only internal base when set. This is what makes
+  // public share pages (/s/<token>) render server-side — otherwise the SSR fetch
+  // to localhost:<port> fails and the page falls back to "Not available".
+  const apiOrigin =
+    import.meta.server && config.apiBaseInternal
+      ? (config.apiBaseInternal as string)
+      : config.public.apiBase
+  const base = `${apiOrigin}/api/inference`
+
+  // When SSR fetches through the internal base, the backend builds absolute
+  // asset URLs (audio/image/3D) from that internal host — e.g.
+  // http://backend:8001/... — which the *browser* can't reach. Rewrite those
+  // back to the public origin so the hydrated page points at reachable URLs.
+  // No-op in prod, where the internal base is unset and origins already match.
+  const publicOrigin = config.public.apiBase
+  const rewriteAssetUrls = <T>(data: T): T => {
+    if (apiOrigin === publicOrigin) return data
+    return JSON.parse(JSON.stringify(data).split(apiOrigin).join(publicOrigin)) as T
+  }
 
   const getCsrfToken = (): string | null => {
     const name = 'csrftoken'
@@ -57,7 +76,7 @@ export function useContentSharing() {
       throw new Error(`Request failed (${resp.status})`)
     }
     if (resp.status === 204) return undefined as T
-    return (await resp.json()) as T
+    return rewriteAssetUrls((await resp.json()) as T)
   }
 
   const buildQuery = (limit: number, offset: number, filters: ListFilters = {}) => {
@@ -200,12 +219,12 @@ export function useContentSharing() {
   // an absolute URL rather than the `base` prefix.
 
   const publicGet = async <T>(path: string): Promise<T> => {
-    const resp = await fetch(`${config.public.apiBase}/api${path}`, {
+    const resp = await fetch(`${apiOrigin}/api${path}`, {
       credentials: 'include',
       headers: { Accept: 'application/json' },
     })
     if (!resp.ok) throw new Error(`Request failed (${resp.status})`)
-    return (await resp.json()) as T
+    return rewriteAssetUrls((await resp.json()) as T)
   }
 
   const listPublicCollections = (githubLogin: string) =>

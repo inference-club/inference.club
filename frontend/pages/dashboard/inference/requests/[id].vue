@@ -370,7 +370,7 @@ onMounted(() => {
           <span class="text-muted-foreground">Lyrics:</span>
           <pre class="mt-1 whitespace-pre-wrap font-sans text-sm">{{ req.payload.lyrics }}</pre>
         </div>
-        <audio v-if="req.output_audio_url" :src="req.output_audio_url" controls class="w-full h-10" />
+        <MusicVisualizer v-if="req.output_audio_url" :src="req.output_audio_url" />
         <div v-else class="text-sm text-muted-foreground">No audio stored for this request.</div>
       </Card>
 

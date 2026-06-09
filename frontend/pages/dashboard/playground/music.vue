@@ -32,7 +32,7 @@ const presetId = ref(ASSIST_PRESETS[0].id)
 // The meta-prompt (system message) is seeded from the chosen preset but fully
 // editable — picking a preset repopulates it.
 const metaPrompt = ref(ASSIST_PRESETS[0].system)
-const showAssist = ref(true)
+const showAssist = ref(false)
 const showMeta = ref(false)
 const brief = ref('')
 const ideas = ref<SongIdea[]>([])
@@ -72,7 +72,7 @@ const useIdea = (idea: SongIdea) => {
 }
 
 // --- options ---------------------------------------------------------------
-const duration = ref(30)
+const duration = ref(90)
 const steps = ref(8)
 const guidance = ref(7)
 const format = ref('wav')

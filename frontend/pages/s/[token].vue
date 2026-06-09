@@ -20,7 +20,17 @@ const isStt = computed(() => req.value?.inference_type === 'STT')
 const isImage = computed(() => req.value?.inference_type === 'IMAGE')
 const isTts = computed(() => req.value?.inference_type === 'TTS')
 const isMesh = computed(() => req.value?.inference_type === 'MESH')
+const isMusic = computed(() => req.value?.inference_type === 'MUSIC')
 const lightbox = useImageLightbox()
+
+// The shared endpoint uses the detail serializer, which carries `payload` but
+// not `prompt_preview`. Pull the human-readable prompt from the payload (image/
+// music use `prompt`; TTS uses `input`) for display and the OG description.
+const promptText = computed(() => {
+  const p = req.value?.payload as Record<string, unknown> | undefined
+  const v = p?.prompt ?? p?.input
+  return typeof v === 'string' ? v : ''
+})
 
 // Social/OG preview so shared links unfurl nicely in chat apps.
 useSeoMeta({
@@ -29,10 +39,10 @@ useSeoMeta({
       ? `${req.value.inference_type} request by @${req.value.github_login || req.value.owner || 'someone'} · inference.club`
       : 'Shared inference request · inference.club',
   description: () =>
-    req.value?.prompt_preview || 'A shared inference request on inference.club.',
+    promptText.value || 'A shared inference request on inference.club.',
   ogTitle: () =>
     req.value ? `${req.value.inference_type} on inference.club` : 'inference.club',
-  ogDescription: () => req.value?.prompt_preview || 'Shared inference request',
+  ogDescription: () => promptText.value || 'Shared inference request',
   // WebGL can't be scraped, so a shared 3D model unfurls with its source image.
   ogImage: () => req.value?.image_urls?.[0] || req.value?.input_image_url || undefined,
   twitterCard: 'summary_large_image',
@@ -87,8 +97,8 @@ useSeoMeta({
 
       <!-- Images -->
       <Card v-if="isImage" class="p-4 mb-4">
-        <p v-if="req.prompt_preview" class="text-sm mb-3">
-          <span class="text-muted-foreground">Prompt:</span> {{ req.prompt_preview }}
+        <p v-if="promptText" class="text-sm mb-3">
+          <span class="text-muted-foreground">Prompt:</span> {{ promptText }}
         </p>
         <div class="flex flex-wrap gap-3">
           <img
@@ -117,7 +127,7 @@ useSeoMeta({
 
       <!-- Audio (TTS / STT) -->
       <Card v-else-if="isTts || isStt" class="p-4 mb-4">
-        <p v-if="req.prompt_preview" class="text-sm mb-3">{{ req.prompt_preview }}</p>
+        <p v-if="isTts && promptText" class="text-sm mb-3">{{ promptText }}</p>
         <audio
           v-if="req.output_audio_url || req.audio_url"
           :src="req.output_audio_url || req.audio_url || ''"
@@ -125,6 +135,18 @@ useSeoMeta({
           class="w-full h-10"
         />
         <p v-if="isStt && req.response_text" class="text-sm mt-3">{{ req.response_text }}</p>
+      </Card>
+
+      <!-- Music -->
+      <Card v-else-if="isMusic" class="p-4 mb-4">
+        <p v-if="promptText" class="text-sm mb-3">
+          <span class="text-muted-foreground">Prompt:</span> {{ promptText }}
+        </p>
+        <MusicVisualizer v-if="req.output_audio_url" :src="req.output_audio_url" />
+        <div v-if="req.payload?.lyrics" class="mt-3 text-sm">
+          <span class="text-muted-foreground">Lyrics:</span>
+          <pre class="mt-1 whitespace-pre-wrap font-sans text-sm">{{ req.payload.lyrics }}</pre>
+        </div>
       </Card>
 
       <!-- Conversation + response (LLM) -->
