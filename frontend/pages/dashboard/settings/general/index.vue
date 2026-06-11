@@ -50,7 +50,7 @@ const onProfileToggle = async (value: boolean) => {
 </script>
 
 <template>
-  <div class="container max-w-2xl mx-auto p-6 space-y-6">
+  <div class="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6 space-y-6">
     <div>
       <h1 class="text-2xl font-bold">General</h1>
       <p class="text-muted-foreground text-sm mt-1">

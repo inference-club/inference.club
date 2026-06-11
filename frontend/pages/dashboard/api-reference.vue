@@ -63,7 +63,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="container mx-auto py-6 max-w-6xl">
+  <div class="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6">
     <header class="mb-6">
       <h1 class="text-2xl font-bold">API reference</h1>
       <p class="mt-2 max-w-2xl text-sm text-muted-foreground">

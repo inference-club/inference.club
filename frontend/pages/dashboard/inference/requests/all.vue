@@ -57,7 +57,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="container mx-auto py-6">
+  <div class="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6">
     <div ref="resultsTopRef" />
     <div class="flex flex-wrap items-end justify-between gap-y-2 mb-6">
       <div>

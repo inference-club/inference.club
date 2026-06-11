@@ -6,7 +6,7 @@ const badgeVariants = ['default', 'secondary', 'outline', 'destructive'] as cons
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl p-6">
+  <div class="mx-auto w-full max-w-3xl px-4 sm:px-6 py-6">
     <h1 class="text-2xl font-semibold tracking-tight">Primitives</h1>
 
     <section class="mt-8">

@@ -69,7 +69,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="container mx-auto py-6">
+  <div class="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6">
     <div class="flex flex-wrap items-end justify-between gap-3 mb-6">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight flex items-center gap-2">

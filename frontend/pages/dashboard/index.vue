@@ -115,7 +115,7 @@ const STATUS_DOT: Record<SvcState, string> = {
 </script>
 
 <template>
-  <div class="container mx-auto p-6 space-y-8">
+  <div class="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 space-y-8">
     <DashboardPageHeader
       title="Dashboard"
       description="Overview of your compute and inference activity."

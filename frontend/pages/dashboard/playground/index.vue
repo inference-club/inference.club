@@ -443,7 +443,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="container mx-auto py-6 max-w-6xl">
+  <div class="mx-auto w-full max-w-5xl px-4 sm:px-6 py-6">
     <!-- Header -->
     <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
       <div>

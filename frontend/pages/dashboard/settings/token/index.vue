@@ -35,7 +35,7 @@ definePageMeta({
 </script>
 
 <template>
-  <div class="container max-w-2xl pt-16 px-4 mx-auto">
+  <div class="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6">
     <div class="space-y-10">
       <div class="mb-6">
         <h1 class="text-3xl font-bold mb-2">API Token</h1>

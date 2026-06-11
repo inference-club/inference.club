@@ -7,7 +7,7 @@ definePageMeta({
 </script>
 
 <template>
-  <div class="container mx-auto py-6 max-w-3xl">
+  <div class="mx-auto w-full max-w-3xl px-4 sm:px-6 py-6">
     <div class="mb-6">
       <h1 class="text-2xl font-bold flex items-center gap-2">
         <Gauge class="h-6 w-6" />

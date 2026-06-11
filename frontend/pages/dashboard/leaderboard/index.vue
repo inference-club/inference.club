@@ -29,7 +29,7 @@ const medal = (rank: number) =>
 </script>
 
 <template>
-  <div class="container mx-auto py-6 max-w-3xl">
+  <div class="mx-auto w-full max-w-3xl px-4 sm:px-6 py-6">
     <div class="mb-4">
       <h1 class="text-2xl font-bold flex items-center gap-2">
         <Trophy class="h-6 w-6 text-amber-500" />

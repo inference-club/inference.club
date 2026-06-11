@@ -100,7 +100,7 @@ const fmtDate = (iso: string) => {
 </script>
 
 <template>
-  <div class="container mx-auto p-6 space-y-6 max-w-4xl">
+  <div class="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6 space-y-6">
     <div>
       <h1 class="text-2xl font-bold">Moderation</h1>
       <p class="text-muted-foreground text-sm mt-1">
