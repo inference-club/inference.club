@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Github, ExternalLink } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,25 @@ const onVisibilityChange = async (value: Visibility) => {
     toast.error('Failed to update default visibility')
   } finally {
     savingVis.value = false
+  }
+}
+
+const defaultCollection = computed(() => user.value?.default_collection_name ?? '')
+const collectionDraft = ref(defaultCollection.value)
+watch(defaultCollection, (v) => (collectionDraft.value = v))
+const savingCollection = ref(false)
+
+const onCollectionSave = async () => {
+  const name = collectionDraft.value.trim()
+  if (name === defaultCollection.value) return
+  savingCollection.value = true
+  try {
+    await updateAccount({ default_collection_name: name })
+    toast.success(name ? `New requests will be saved to “${name}”` : 'Default collection cleared')
+  } catch {
+    toast.error('Failed to update default collection')
+  } finally {
+    savingCollection.value = false
   }
 }
 
@@ -126,6 +145,31 @@ const onProfileToggle = async (value: boolean) => {
         <p class="text-xs text-muted-foreground">
           {{ VISIBILITY_META[defaultVisibility].description }}
           New requests use this unless you change them individually.
+        </p>
+      </div>
+
+      <div class="space-y-2 pt-4 border-t">
+        <Label for="default-collection">Default collection for new requests</Label>
+        <div class="flex items-center gap-2">
+          <Input
+            id="default-collection"
+            v-model="collectionDraft"
+            placeholder="None"
+            class="sm:max-w-xs"
+            @keyup.enter="onCollectionSave"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="savingCollection || collectionDraft.trim() === defaultCollection"
+            @click="onCollectionSave"
+          >
+            Save
+          </Button>
+        </div>
+        <p class="text-xs text-muted-foreground">
+          New requests are added to this collection (created on first use).
+          Leave empty for none.
         </p>
       </div>
 

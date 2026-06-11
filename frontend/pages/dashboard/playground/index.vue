@@ -643,6 +643,7 @@ onBeforeUnmount(() => {
               </Button>
 
               <div class="ml-auto flex items-center gap-1">
+                <GenerationSharingPicker compact />
                 <Button
                   v-if="micSupported && caps.includes('audio')"
                   variant="ghost"

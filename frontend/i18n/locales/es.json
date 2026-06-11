@@ -42,7 +42,6 @@
     "runAnAgent": "Ejecutar un agente",
     "getApiKey": "Obtener una API key",
     "needsNode": "Aún no has puesto un nodo en la red — completa la configuración",
-    "betaNote": "Inicio de sesión con GitHub · Gratis durante la beta · Sin tarjeta de crédito",
     "topologyEyebrow": "Cómo encaja todo",
     "topologyTitleLead": "GPUs caseras, una",
     "topologyTitleHighlight": "red privada",
@@ -204,5 +203,16 @@
     "generationDetails": "Detalles de generación",
     "upNext": "A continuación",
     "autoplayNext": "Reproducir siguiente automáticamente"
+  },
+  "sharing": {
+    "triggerLabel": "Visibilidad y colección para nuevas generaciones",
+    "visibilityHeading": "Visibilidad de las nuevas generaciones",
+    "collectionHeading": "Guardar en una colección",
+    "noCollection": "Sin colección",
+    "newCollectionPlaceholder": "Nombre de la nueva colección",
+    "use": "Usar",
+    "appliesEverywhere": "Se aplica a todos los playgrounds y solicitudes de API hasta que lo cambies.",
+    "updateFailed": "No se pudo guardar tu preferencia de compartición",
+    "loadCollectionsFailed": "No se pudieron cargar las colecciones"
   }
 }

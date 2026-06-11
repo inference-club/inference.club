@@ -42,7 +42,6 @@
     "runAnAgent": "에이전트 실행",
     "getApiKey": "API key 발급",
     "needsNode": "아직 네트워크에 노드를 추가하지 않았습니다 — 설정을 완료하세요",
-    "betaNote": "GitHub 로그인 · 베타 기간 무료 · 신용카드 불필요",
     "topologyEyebrow": "어떻게 연결되는가",
     "topologyTitleLead": "집의 GPU, 하나의",
     "topologyTitleHighlight": "사설 네트워크",
@@ -204,5 +203,16 @@
     "generationDetails": "생성 정보",
     "upNext": "다음 동영상",
     "autoplayNext": "다음 동영상 자동 재생"
+  },
+  "sharing": {
+    "triggerLabel": "새 생성의 공개 범위 및 컬렉션",
+    "visibilityHeading": "새 생성의 공개 범위",
+    "collectionHeading": "컬렉션에 저장",
+    "noCollection": "컬렉션 없음",
+    "newCollectionPlaceholder": "새 컬렉션 이름",
+    "use": "사용",
+    "appliesEverywhere": "변경하기 전까지 모든 플레이그라운드와 API 요청에 적용됩니다.",
+    "updateFailed": "공유 설정을 저장하지 못했습니다",
+    "loadCollectionsFailed": "컬렉션을 불러오지 못했습니다"
   }
 }

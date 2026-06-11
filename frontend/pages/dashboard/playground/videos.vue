@@ -282,6 +282,7 @@ onBeforeUnmount(() => {
           <div class="flex items-center gap-2">
             <span class="text-xs text-muted-foreground">{{ prompt.length }} chars</span>
             <div class="ml-auto flex items-center gap-2">
+              <GenerationSharingPicker />
               <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
                 <Square class="size-4" /> Stop
               </Button>

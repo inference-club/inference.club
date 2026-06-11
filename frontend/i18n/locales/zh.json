@@ -42,7 +42,6 @@
     "runAnAgent": "运行 agent",
     "getApiKey": "获取 API key",
     "needsNode": "你还没有把节点接入网络——完成设置",
-    "betaNote": "GitHub 登录 · 公测期间免费 · 无需信用卡",
     "topologyEyebrow": "它们如何协作",
     "topologyTitleLead": "家用 GPU，一个",
     "topologyTitleHighlight": "私有网络",
@@ -204,5 +203,16 @@
     "generationDetails": "生成详情",
     "upNext": "即将播放",
     "autoplayNext": "自动播放下一个"
+  },
+  "sharing": {
+    "triggerLabel": "新生成内容的可见性与收藏集",
+    "visibilityHeading": "新生成内容的可见性",
+    "collectionHeading": "保存到收藏集",
+    "noCollection": "不使用收藏集",
+    "newCollectionPlaceholder": "新收藏集名称",
+    "use": "使用",
+    "appliesEverywhere": "在你更改之前，适用于所有演练场和 API 请求。",
+    "updateFailed": "无法保存共享偏好",
+    "loadCollectionsFailed": "无法加载收藏集"
   }
 }

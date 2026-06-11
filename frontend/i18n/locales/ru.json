@@ -42,7 +42,6 @@
     "runAnAgent": "Запустить агента",
     "getApiKey": "Получить API key",
     "needsNode": "Вы ещё не добавили узел в сеть — завершите настройку",
-    "betaNote": "Вход через GitHub · Бесплатно во время беты · Без банковской карты",
     "topologyEyebrow": "Как это устроено",
     "topologyTitleLead": "Домашние GPU, одна",
     "topologyTitleHighlight": "частная сеть",
@@ -204,5 +203,16 @@
     "generationDetails": "Параметры генерации",
     "upNext": "Далее",
     "autoplayNext": "Автовоспроизведение следующего"
+  },
+  "sharing": {
+    "triggerLabel": "Видимость и коллекция для новых генераций",
+    "visibilityHeading": "Видимость новых генераций",
+    "collectionHeading": "Сохранять в коллекцию",
+    "noCollection": "Без коллекции",
+    "newCollectionPlaceholder": "Название новой коллекции",
+    "use": "Выбрать",
+    "appliesEverywhere": "Применяется ко всем плейграундам и API-запросам, пока вы не измените настройку.",
+    "updateFailed": "Не удалось сохранить настройку доступа",
+    "loadCollectionsFailed": "Не удалось загрузить коллекции"
   }
 }

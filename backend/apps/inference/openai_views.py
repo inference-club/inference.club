@@ -29,6 +29,7 @@ from .models import (
     slugify_model_id,
 )
 from .serializers import _user_github_login
+from .sharing import SHARING_KEYS, file_into_collection, pop_sharing_params
 from .views import _tailnet_proxies, refresh_provider_models, scope_usage
 
 logger = logging.getLogger("django")
@@ -477,6 +478,9 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
 
     def post(self, request):
         body = request.data
+        # Popped here so the verbatim body forward (and stored payload) never
+        # includes the inference.club sharing extensions.
+        visibility, collection_name = pop_sharing_params(request)
         model_name = body.get("model")
 
         # Guardrails: reject oversized inputs and clamp runaway output budgets
@@ -534,7 +538,9 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
             inference_type=self.inference_type,
             payload=body,
             status="PROCESSING",
+            visibility=visibility or "",
         )
+        file_into_collection(request.user, ir, collection_name)
         started = time.monotonic()
 
         try:
@@ -733,6 +739,7 @@ class AudioTranscriptionsView(_RateLimitHeadersMixin, APIView):
                 status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             )
 
+        visibility, collection_name = pop_sharing_params(request)
         model_name = request.data.get("model")
         provider_model = _find_provider_for_model(
             request.user, model_name, service_type="stt"
@@ -762,7 +769,9 @@ class AudioTranscriptionsView(_RateLimitHeadersMixin, APIView):
         # (some ASR servers, e.g. Qwen3-ASR, 400 on verbose_json).
         data_fields, granularities = [], []
         for key in request.data.keys():
-            if key == "file":
+            # The multipart QueryDict is immutable, so sharing extensions are
+            # skipped here instead of popped.
+            if key == "file" or key in SHARING_KEYS:
                 continue
             values = (
                 request.data.getlist(key)
@@ -803,7 +812,9 @@ class AudioTranscriptionsView(_RateLimitHeadersMixin, APIView):
                 "prompt": request.data.get("prompt") or None,
             },
             status="PROCESSING",
+            visibility=visibility or "",
         )
+        file_into_collection(request.user, ir, collection_name)
 
         asset = None
         if settings.STT_STORE_INPUT_AUDIO:
@@ -1071,6 +1082,7 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
 
     def post(self, request):
         body = request.data if isinstance(request.data, dict) else {}
+        visibility, collection_name = pop_sharing_params(request)
         text = body.get("input")
         if not isinstance(text, str) or not text.strip():
             return Response(
@@ -1123,7 +1135,9 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
                 "response_format": requested_format,
             },
             status="PROCESSING",
+            visibility=visibility or "",
         )
+        file_into_collection(request.user, ir, collection_name)
 
         # Adapt to Riva's multipart /audio/synthesize. Sent as multipart form
         # fields (files with (None, value)) to match the NIM's expectation.
@@ -1236,6 +1250,7 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
 
     def post(self, request):
         body = request.data if isinstance(request.data, dict) else {}
+        visibility, collection_name = pop_sharing_params(request)
         prompt = body.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             return Response(
@@ -1334,7 +1349,9 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
                 "key_scale": forward.get("key_scale", ""),
             },
             status="PROCESSING",
+            visibility=visibility or "",
         )
+        file_into_collection(request.user, ir, collection_name)
 
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
         started = time.monotonic()
@@ -1467,6 +1484,7 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
 
     def post(self, request):
         body = request.data if isinstance(request.data, dict) else {}
+        visibility, collection_name = pop_sharing_params(request)
         prompt = body.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             return Response(
@@ -1593,7 +1611,9 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
                 "seed": seed,
             },
             status="PROCESSING",
+            visibility=visibility or "",
         )
+        file_into_collection(request.user, ir, collection_name)
 
         # Persist the optional first-frame image (public, like outputs) so the
         # image-to-video run is replayable and its share link unfurls nicely.
@@ -1747,6 +1767,8 @@ class ImageGenerationsView(_ImageProxyBase):
                 {"error": {"message": "JSON body required.", "type": "invalid_request"}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Popped before `forward = dict(body)` below so the copy is clean.
+        visibility, collection_name = pop_sharing_params(request)
         prompt = body.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             return Response(
@@ -1795,7 +1817,9 @@ class ImageGenerationsView(_ImageProxyBase):
                 "response_format": requested_format,
             },
             status="PROCESSING",
+            visibility=visibility or "",
         )
+        file_into_collection(request.user, ir, collection_name)
 
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
         started = time.monotonic()
@@ -1840,6 +1864,7 @@ class ImageEditsView(_ImageProxyBase):
                 {"error": {"message": "`prompt` is required.", "type": "missing_prompt"}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        visibility, collection_name = pop_sharing_params(request)
 
         model_name = request.data.get("model")
         provider_model = _find_provider_for_model(
@@ -1871,7 +1896,9 @@ class ImageEditsView(_ImageProxyBase):
                 "edit": True,
             },
             status="PROCESSING",
+            visibility=visibility or "",
         )
+        file_into_collection(request.user, ir, collection_name)
 
         # Store the source image (public, like outputs) so the edit is replayable.
         from django.core.files.base import ContentFile
@@ -2026,6 +2053,7 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
                 status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             )
 
+        visibility, collection_name = pop_sharing_params(request)
         options, opt_err = _coerce_mesh_options(request.data.get("options"))
         if opt_err is not None:
             return Response(
@@ -2056,7 +2084,9 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
                 "source_filename": getattr(upload, "name", "input.png"),
             },
             status="PROCESSING",
+            visibility=visibility or "",
         )
+        file_into_collection(request.user, ir, collection_name)
 
         from django.core.files.base import ContentFile
 

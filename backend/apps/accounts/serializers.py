@@ -22,6 +22,7 @@ class UserSerializer(serializers.ModelSerializer):
             "api_token",
             "routing_preference",
             "default_request_visibility",
+            "default_collection_name",
             "public_profile_enabled",
         )
 
@@ -49,8 +50,12 @@ class AccountUpdateSerializer(serializers.ModelSerializer):
         fields = (
             "routing_preference",
             "default_request_visibility",
+            "default_collection_name",
             "public_profile_enabled",
         )
+
+    def validate_default_collection_name(self, value):
+        return value.strip()
 
     def validate_default_request_visibility(self, value):
         # Import here to keep accounts decoupled from inference at module load.

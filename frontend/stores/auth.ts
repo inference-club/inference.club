@@ -10,6 +10,7 @@ interface User {
   api_token: string
   routing_preference: 'ANY' | 'PREFER_OWN' | 'ONLY_OWN'
   default_request_visibility: 'PUBLIC' | 'UNLISTED' | 'PRIVATE' | 'SECRET'
+  default_collection_name: string
   public_profile_enabled: boolean
 }
 

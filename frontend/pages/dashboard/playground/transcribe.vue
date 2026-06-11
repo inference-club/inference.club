@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { AudioLines, FileAudio, Loader2, Mic, Square, Upload, X } from 'lucide-vue-next'
+import { AudioLines, FileAudio, Library, Loader2, Mic, Square, Upload, X } from 'lucide-vue-next'
 import { useTranscription } from '@/composables/useTranscription'
 import { useAudioRecorder } from '@/composables/useAudioRecorder'
 import type { ModelInfo } from '@/composables/usePlayground'
@@ -75,6 +75,13 @@ const onDrop = (e: DragEvent) => {
 const clearPending = () => {
   if (pending.value) URL.revokeObjectURL(pending.value.url)
   pending.value = null
+}
+
+// Pick an existing speech generation (recent / starred / bookmarked / public
+// search) as the source instead of uploading or recording.
+const pickerOpen = ref(false)
+const onPickClip = ({ blob, name }: { blob: Blob; name: string }) => {
+  setPending(blob, name)
 }
 
 // --- mic -------------------------------------------------------------------
@@ -218,7 +225,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Actions -->
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <Button
             v-if="recorder.supported.value"
             variant="outline"
@@ -229,8 +236,17 @@ onBeforeUnmount(() => {
             <component :is="recorder.recording.value ? Square : Mic" class="size-4" />
             {{ recorder.recording.value ? 'Stop' : 'Record' }}
           </Button>
+          <Button
+            variant="outline"
+            class="gap-2"
+            data-testid="open-audio-picker"
+            @click="pickerOpen = true"
+          >
+            <Library class="size-4" /> Generated clips
+          </Button>
           <ElapsedTimer :running="running" class="text-xs text-muted-foreground" />
           <div class="ml-auto flex items-center gap-2">
+            <GenerationSharingPicker />
             <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
               <Square class="size-4" /> Stop
             </Button>
@@ -275,5 +291,7 @@ onBeforeUnmount(() => {
         </div>
       </Card>
     </div>
+
+    <AudioSourcePicker v-model:open="pickerOpen" @select="onPickClip" />
   </div>
 </template>

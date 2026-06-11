@@ -49,6 +49,20 @@ class CustomUser(AbstractUser):
         help_text="Visibility applied to new inference requests unless overridden.",
     )
 
+    # Collection (by name, the API's unique per-user handle) that new inference
+    # requests are filed into unless the request names one itself. Empty means
+    # "no collection". A name (not an FK) both to avoid an accounts→inference
+    # import and so the preference survives the collection being deleted — the
+    # next generation simply recreates it.
+    default_collection_name = models.CharField(
+        _("default collection name"),
+        max_length=120,
+        blank=True,
+        default="",
+        help_text="New inference requests are added to this collection "
+        "(created on first use) unless the request specifies another.",
+    )
+
     # Master switch for the user's public profile at /<github_login>. When off,
     # the public profile and its request listings are hidden from everyone.
     public_profile_enabled = models.BooleanField(

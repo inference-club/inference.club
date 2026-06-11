@@ -12,7 +12,6 @@ from django.db.models.functions import TruncDate
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.text import slugify
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -22,6 +21,7 @@ from rest_framework.views import APIView
 
 from .manifest_validator import SERVICE_TYPES
 from .manifest_validator import validate as validate_manifest
+from .sharing import unique_collection_slug
 from .models import (
     Bookmark,
     CatalogModel,
@@ -1685,18 +1685,13 @@ class PublicUserRequestsView(generics.ListAPIView):
 # --- Collections ---------------------------------------------------------
 
 
-def _unique_collection_slug(user, name, instance=None) -> str:
-    """A slug unique within ``user``'s collections, derived from ``name``."""
-    base = slugify(name) or "collection"
-    slug = base
-    n = 2
-    qs = Collection.objects.filter(user=user)
-    if instance is not None:
-        qs = qs.exclude(pk=instance.pk)
-    while qs.filter(slug=slug).exists():
-        slug = f"{base}-{n}"
-        n += 1
-    return slug
+def _existing_collection_by_name(user, name, exclude=None):
+    """The user's collection with this name, case-insensitively (names are the
+    API's unique per-user handle). Oldest wins under legacy duplicates."""
+    qs = Collection.objects.filter(user=user, name__iexact=name)
+    if exclude is not None:
+        qs = qs.exclude(pk=exclude.pk)
+    return qs.order_by("created_on").first()
 
 
 def _collections_annotated(qs):
@@ -1791,8 +1786,9 @@ class RequestCoverView(APIView):
 
 
 class CollectionListCreateView(generics.ListCreateAPIView):
-    """GET lists the caller's collections; POST creates one (slug derived from
-    the name)."""
+    """GET lists the caller's collections; POST get-or-creates one by name
+    (names are unique per user, case-insensitive; slug derived from the name).
+    An existing name returns that collection with 200 instead of a duplicate."""
 
     permission_classes = [IsAuthenticated]
     serializer_class = CollectionSerializer
@@ -1805,7 +1801,13 @@ class CollectionListCreateView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         ser = CollectionWriteSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        slug = _unique_collection_slug(request.user, ser.validated_data["name"])
+        existing = _existing_collection_by_name(request.user, ser.validated_data["name"])
+        if existing is not None:
+            return Response(
+                CollectionSerializer(existing, context={"request": request}).data,
+                status=status.HTTP_200_OK,
+            )
+        slug = unique_collection_slug(request.user, ser.validated_data["name"])
         col = Collection.objects.create(user=request.user, slug=slug, **ser.validated_data)
         return Response(
             CollectionSerializer(col, context={"request": request}).data,
@@ -1830,6 +1832,12 @@ class CollectionDetailView(APIView):
         col = self._get(request, slug)
         ser = CollectionWriteSerializer(col, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
+        new_name = ser.validated_data.get("name")
+        if new_name and _existing_collection_by_name(request.user, new_name, exclude=col):
+            return Response(
+                {"detail": "You already have a collection with this name."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if "cover_request_id" in request.data:
             cover, error = _resolve_cover_request(
                 request, request.data["cover_request_id"]

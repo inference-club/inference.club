@@ -19,6 +19,16 @@ info:
     matching service — a transcription never lands on a chat model, an image
     request never on a text model.
 
+    Every generation endpoint also accepts two optional inference.club
+    extensions on top of the OpenAI request shape (stripped before the request
+    reaches a provider):
+
+    - `visibility` — `PUBLIC` | `UNLISTED` | `PRIVATE` | `SECRET`; who can see
+      the stored request. Defaults to your account's default visibility.
+    - `collection` — a collection *name* (unique per account,
+      case-insensitive); files the request into that collection, creating it
+      on first use. Defaults to your account's default collection, if set.
+
     > **Try it out** makes real calls against a live provider's GPU using your
     > API key (click **Authorize**). They count against your rate limit.
   contact:

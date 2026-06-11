@@ -358,12 +358,15 @@ class TestCollections:
         r = api_client.get(reverse("inference:collection-list"))
         assert len(r.data) == 1
 
-    def test_unique_slug_per_user(self, api_client, alice):
+    def test_same_name_get_or_creates(self, api_client, alice):
+        # Names are unique per user: POSTing an existing name returns that
+        # collection (200) instead of minting a slug-suffixed duplicate.
         api_client.force_authenticate(alice)
         url = reverse("inference:collection-list")
-        a = api_client.post(url, {"name": "Dup"}, format="json").data
-        b = api_client.post(url, {"name": "Dup"}, format="json").data
-        assert a["slug"] != b["slug"]
+        a = api_client.post(url, {"name": "Dup"}, format="json")
+        b = api_client.post(url, {"name": "Dup"}, format="json")
+        assert a.status_code == 201 and b.status_code == 200
+        assert a.data["id"] == b.data["id"]
 
     def test_add_and_remove_item(self, api_client, alice):
         col = Collection.objects.create(user=alice, name="C", slug="c")

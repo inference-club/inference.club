@@ -42,7 +42,6 @@
     "runAnAgent": "エージェントを動かす",
     "getApiKey": "API keyを取得",
     "needsNode": "まだネットワークにノードを登録していません — セットアップを完了してください",
-    "betaNote": "GitHubサインイン · ベータ期間中は無料 · クレジットカード不要",
     "topologyEyebrow": "全体の仕組み",
     "topologyTitleLead": "家庭のGPUを、1つの",
     "topologyTitleHighlight": "プライベートネットワークに",
@@ -204,5 +203,16 @@
     "generationDetails": "生成の詳細",
     "upNext": "次の動画",
     "autoplayNext": "次を自動再生"
+  },
+  "sharing": {
+    "triggerLabel": "新しい生成の公開範囲とコレクション",
+    "visibilityHeading": "新しい生成の公開範囲",
+    "collectionHeading": "コレクションに保存",
+    "noCollection": "コレクションなし",
+    "newCollectionPlaceholder": "新しいコレクション名",
+    "use": "使用",
+    "appliesEverywhere": "変更するまで、すべてのプレイグラウンドと API リクエストに適用されます。",
+    "updateFailed": "共有設定を保存できませんでした",
+    "loadCollectionsFailed": "コレクションを読み込めませんでした"
   }
 }

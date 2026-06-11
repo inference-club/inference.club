@@ -218,9 +218,6 @@ const features = [
           <ArrowRight class="h-3.5 w-3.5" />
         </NuxtLink>
 
-        <p class="mt-6 text-xs text-muted-foreground font-mono">
-          {{ t('home.betaNote') }}
-        </p>
       </div>
     </section>
 
@@ -233,6 +230,9 @@ const features = [
             {{ t('home.topologyTitleLead') }}
             <span class="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-transparent">{{ t('home.topologyTitleHighlight') }}</span>.
           </h2>
+          <p class="mt-5 text-muted-foreground max-w-3xl mx-auto leading-relaxed">
+            {{ t('home.topologySubtitle') }}
+          </p>
         </div>
       </div>
       <div class="w-full h-[520px] sm:h-[620px] md:h-[720px] relative bg-[#f5f3ec] dark:bg-[#0a0d18] overflow-hidden border-y border-slate-200/50 dark:border-slate-800/50">

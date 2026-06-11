@@ -10,6 +10,7 @@ interface User {
   api_token: string
   routing_preference: 'ANY' | 'PREFER_OWN' | 'ONLY_OWN'
   default_request_visibility: 'PUBLIC' | 'UNLISTED' | 'PRIVATE' | 'SECRET'
+  default_collection_name: string
   public_profile_enabled: boolean
 }
 
@@ -213,7 +214,10 @@ export const useAuth = () => {
     payload: Partial<
       Pick<
         User,
-        'routing_preference' | 'default_request_visibility' | 'public_profile_enabled'
+        | 'routing_preference'
+        | 'default_request_visibility'
+        | 'default_collection_name'
+        | 'public_profile_enabled'
       >
     >,
   ) => {
