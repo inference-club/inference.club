@@ -81,8 +81,8 @@ services:
       DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference
       # The compose frontend is published on :3100 — these must reference it,
       # or the browser's cross-origin API calls (and the OAuth return) break.
-      DJANGO_CORS_ALLOWED_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100"
-      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100"
+      DJANGO_CORS_ALLOWED_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100,http://${DEV_HOST:-localhost}:3100"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100,http://${DEV_HOST:-localhost}:3100"
       # GITHUB_OAUTH_CLIENT_ID / _SECRET are supplied via env_file (backend/.env).
       # Send the browser back to the compose frontend (:3100) after the handshake.
       SOCIAL_AUTH_LOGIN_REDIRECT_URL: http://localhost:3100/
@@ -150,9 +150,10 @@ services:
       # CI ships to prod.
       target: dev
     environment:
-      # Browser hits backend on the host's compose port 8101 (same-origin from
-      # the browser's perspective, since the browser runs on the host).
-      NUXT_PUBLIC_API_BASE: http://localhost:8101
+      # Browser hits backend on the host's compose port 8101. DEV_HOST (root
+      # .env, written by scripts/dev-mobile.sh) swaps in the Mac's LAN IP so
+      # phones on the same WiFi can reach the API too; unset = localhost.
+      NUXT_PUBLIC_API_BASE: http://${DEV_HOST:-localhost}:8101
       # SSR (inside this container) can't reach localhost:8101 — that's the
       # frontend itself. Reach the backend by its compose service name instead.
       NUXT_API_BASE_INTERNAL: http://backend:8001

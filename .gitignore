@@ -3,3 +3,5 @@
 
 # Local sqlite test DB (CI/test runs use sqlite:///test.db)
 backend/test.db
+# compose-only interpolation values (see scripts/dev-mobile.sh)
+.env
