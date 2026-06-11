@@ -1780,25 +1780,31 @@ class OpenAPISchemaView(APIView):
 
 
 class MediaAssetView(APIView):
-    """``GET /api/inference/assets/<id>/`` — stream a stored media asset
-    (STT input audio, generated/edited images) from MinIO/disk.
+    """``GET /api/inference/assets/<id>/`` — serve a stored media asset.
 
-    Streaming through the app keeps one path that works whether the asset
-    lives on local disk (dev) or S3/MinIO (prod), without exposing a public
-    bucket. Image kinds are served publicly by URL (so generated images embed
-    in <img> tags and can show on profiles); private kinds (uploaded audio)
-    stay owner-gated.
+    Public kinds on GCS 302 to the public bucket; everything else (private
+    input audio, or any kind on MinIO/local disk) streams through the app so
+    one URL shape works across storage backends and the owner gate applies.
     """
 
     permission_classes = [AllowAny]
 
     def get(self, request, id):
-        from django.http import FileResponse
+        from django.conf import settings
+        from django.http import FileResponse, HttpResponseRedirect
 
         asset = get_object_or_404(MediaAsset, id=id)
         if asset.kind not in MediaAsset.PUBLIC_KINDS:
             if not request.user.is_authenticated or asset.user_id != request.user.id:
                 raise PermissionDenied("Not your asset.")
+        # Public assets on GCS: send the browser to the bucket instead of
+        # streaming the bytes ourselves. Kept (rather than changing every
+        # caller) so pre-GCS URLs in shared links keep working. The asset's
+        # key never changes, so the redirect itself is immutable-cacheable.
+        if asset.kind in MediaAsset.PUBLIC_KINDS and settings.MEDIA_DIRECT_PUBLIC_URLS:
+            resp = HttpResponseRedirect(asset.file.url)
+            resp["Cache-Control"] = "public, max-age=31536000, immutable"
+            return resp
         try:
             fh = asset.file.open("rb")
         except (FileNotFoundError, ValueError):

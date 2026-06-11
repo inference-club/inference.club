@@ -271,20 +271,36 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-# ---- object storage (media: STT audio, future TTS/image output) ----------
+# ---- object storage (media: generated images/audio/video/3D, STT input) --
 #
-# When OBJECT_STORAGE_* env vars are present we route Django's *default*
-# (media) storage to an S3-compatible backend — MinIO in our self-hosted
-# stack (set OBJECT_STORAGE_ENDPOINT to the MinIO URL), or any S3 service.
-# Absent that config we fall back to the local filesystem so a contributor
-# without MinIO still runs. Static files always stay on WhiteNoise.
+# Media backend precedence:
+#   1. GCS_* env vars        -> Google Cloud Storage, split across a public
+#      bucket (generated output, served to browsers straight from
+#      storage.googleapis.com) and a private bucket (owner-gated STT input
+#      audio). See backend/storage.py. Production.
+#   2. OBJECT_STORAGE_* vars -> S3-compatible backend (MinIO in the local
+#      compose stack); everything streams through the app's asset route.
+#   3. neither               -> local filesystem, so a contributor without
+#      MinIO still runs.
+# Static files always stay on WhiteNoise.
+GCS_PUBLIC_BUCKET = os.environ.get("GCS_PUBLIC_BUCKET", "")
+GCS_PRIVATE_BUCKET = os.environ.get("GCS_PRIVATE_BUCKET", "")
+GCS_CREDENTIALS_B64 = os.environ.get("GCS_CREDENTIALS_B64", "")
+
 OBJECT_STORAGE_BUCKET = os.environ.get("OBJECT_STORAGE_BUCKET", "")
 OBJECT_STORAGE_ENDPOINT = os.environ.get("OBJECT_STORAGE_ENDPOINT", "")
 OBJECT_STORAGE_ACCESS_KEY = os.environ.get("OBJECT_STORAGE_ACCESS_KEY", "")
 OBJECT_STORAGE_SECRET_KEY = os.environ.get("OBJECT_STORAGE_SECRET_KEY", "")
 OBJECT_STORAGE_REGION = os.environ.get("OBJECT_STORAGE_REGION", "us-east-1")
 
-if OBJECT_STORAGE_BUCKET:
+# When media lives on GCS, public asset kinds get direct public-bucket URLs
+# in API responses and the asset route 302s to them; otherwise (MinIO/FS,
+# neither browser-reachable) the app streams the bytes itself.
+MEDIA_DIRECT_PUBLIC_URLS = bool(GCS_PUBLIC_BUCKET and GCS_PRIVATE_BUCKET)
+
+if MEDIA_DIRECT_PUBLIC_URLS:
+    _default_storage = {"BACKEND": "backend.storage.KindRoutedGCSStorage"}
+elif OBJECT_STORAGE_BUCKET:
     _default_storage = {
         "BACKEND": "storages.backends.s3.S3Storage",
         "OPTIONS": {

@@ -28,7 +28,7 @@ gunicorn = "^23.0.0"
 psycopg2-binary = "^2.9.10"
 Pillow = "^11.1.0"
 
-django-storages = {extras = ["boto3"], version = "^1.14.4"}
+django-storages = {extras = ["boto3", "google"], version = "^1.14.4"}
 whitenoise = "^6.8.2"
 boto3 = "^1.35.54" # https://github.com/jschneier/django-storages/issues/1482
 botocore = "^1.35.54"

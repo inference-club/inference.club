@@ -913,7 +913,9 @@ def _store_output_image(user, ir, b64_str, index):
 
 
 def _asset_url(request, asset) -> str:
-    return request.build_absolute_uri(f"/api/inference/assets/{asset.id}/")
+    from .serializers import asset_url
+
+    return asset_url(asset, request)
 
 
 class _ImageProxyBase(_RateLimitHeadersMixin, APIView):

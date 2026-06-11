@@ -1,11 +1,13 @@
 import re
 
+from django.conf import settings
 from rest_framework import serializers
 
 from .models import (
     Collection,
     ContentReport,
     InferenceRequest,
+    MediaAsset,
     Provider,
     ProviderModel,
     ProviderService,
@@ -294,15 +296,27 @@ def _input_audio_url(obj, request) -> str | None:
     return request.build_absolute_uri(path)
 
 
-def _asset_urls(obj, request, kind: str) -> list[str]:
-    """Absolute URLs for this request's assets of ``kind`` (e.g. OUTPUT_IMAGE).
-    Image assets are public, so no owner gate."""
+def asset_url(asset, request) -> str | None:
+    """Browser-facing URL for one asset. Public kinds stored on GCS get the
+    direct public-bucket URL — browsers fetch from storage.googleapis.com
+    with immutable caching instead of streaming through the app. Otherwise
+    (MinIO/FS, or private kinds) fall back to the backend's asset route."""
+    if settings.MEDIA_DIRECT_PUBLIC_URLS and asset.kind in MediaAsset.PUBLIC_KINDS:
+        return asset.file.url
     if request is None:
-        return []
+        return None
+    return request.build_absolute_uri(f"/api/inference/assets/{asset.id}/")
+
+
+def _asset_urls(obj, request, kind: str) -> list[str]:
+    """Browser-facing URLs for this request's assets of ``kind`` (e.g.
+    OUTPUT_IMAGE). Output kinds are public, so no owner gate."""
     out = []
     for a in obj.assets.all():
         if a.kind == kind:
-            out.append(request.build_absolute_uri(f"/api/inference/assets/{a.id}/"))
+            url = asset_url(a, request)
+            if url:
+                out.append(url)
     return out
 
 
