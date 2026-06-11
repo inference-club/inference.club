@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { SidebarProps } from '@/components/ui/sidebar'
-import { computed } from 'vue'
+import { useSidebar, type SidebarProps } from '@/components/ui/sidebar'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { dashboardNav } from '@/composables/useDashboardNav'
@@ -16,6 +16,12 @@ const props = withDefaults(defineProps<SidebarProps>(), {
 // nav urls are locale-free (/dashboard/x); compare against the localized form so
 // the active item resolves under a locale prefix (/fr/dashboard/x).
 const isRouteActive = (url: string) => route.path.startsWith(localePath(url))
+
+// On phones the sidebar is an overlay sheet that covers the page, so any
+// navigation should dismiss it — otherwise the new page renders behind the
+// menu. One watcher covers every link in the sidebar, present and future.
+const { setOpenMobile } = useSidebar()
+watch(() => route.fullPath, () => setOpenMobile(false))
 
 // Staff-only groups (e.g. Admin) are hidden from non-staff. The backend still
 // enforces access; this only removes the affordance.

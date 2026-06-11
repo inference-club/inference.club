@@ -95,7 +95,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
+  <div class="mx-auto w-full max-w-4xl px-3 sm:px-6 py-6">
     <!-- Top bar -->
     <div class="flex flex-wrap items-center justify-between gap-y-2 mb-6">
       <NuxtLink

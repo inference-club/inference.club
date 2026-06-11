@@ -53,7 +53,7 @@ const shuffleAll = () => player.playQueue(tracks.value, -1, { shuffle: true })
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6">
+  <div class="mx-auto w-full max-w-6xl px-3 sm:px-6 py-6">
     <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-bold">{{ t('media.musicTitle') }}</h1>

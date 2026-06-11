@@ -15,7 +15,7 @@ const trackFixtures = tracksFromRequests([
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-3xl px-4 sm:px-6 py-6">
+  <div class="mx-auto w-full max-w-3xl px-3 sm:px-6 py-6">
     <h1 class="text-2xl font-semibold tracking-tight">Inference request cards</h1>
     <p class="mt-1 text-sm text-muted-foreground">
       Fixture-driven — no API calls. Cards are display-only (<code class="text-xs">linkable=false</code>).

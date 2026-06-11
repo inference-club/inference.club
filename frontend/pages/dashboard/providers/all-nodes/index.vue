@@ -49,7 +49,7 @@ const formatRelative = (iso: string | null) => {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 space-y-6">
+  <div class="mx-auto w-full max-w-6xl px-3 sm:px-6 py-6 space-y-6">
     <div ref="resultsTopRef" />
     <div class="flex items-end justify-between">
       <div>

@@ -185,7 +185,7 @@ const onDrop = async (i: number) => {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-5xl px-4 sm:px-6 py-6">
+  <div class="mx-auto w-full max-w-5xl px-3 sm:px-6 py-6">
     <NuxtLink
       to="/dashboard/inference/collections"
       class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-6"

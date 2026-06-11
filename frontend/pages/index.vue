@@ -250,6 +250,10 @@ const features = [
       </div>
     </section>
 
+    <!-- Featured generations — staff-curated, one per modality. Renders
+         nothing when nothing is featured. -->
+    <FeaturedShowcase />
+
     <!-- Code samples - the proof -->
     <section class="relative px-4 sm:px-6 lg:px-8 pb-24">
       <div class="max-w-6xl mx-auto">

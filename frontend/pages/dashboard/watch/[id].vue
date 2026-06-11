@@ -112,7 +112,7 @@ useHead(() => ({
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6">
+  <div class="mx-auto w-full max-w-7xl px-3 sm:px-6 py-6">
     <NuxtLink
       :to="listSlug ? `/dashboard/inference/collections/${listSlug}` : '/dashboard/inference/requests'"
       class="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

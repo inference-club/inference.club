@@ -16,11 +16,16 @@ const sections = [
     title: 'Primitives',
     desc: 'Buttons, badges, inputs, alerts — the shadcn building blocks in both themes.',
   },
+  {
+    to: '/design/logo',
+    title: 'Logo exploration: the jack',
+    desc: 'Toy-jack logo candidates — four static marks plus the animated 3D jack for the top bar.',
+  },
 ]
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-3xl px-4 sm:px-6 py-6">
+  <div class="mx-auto w-full max-w-3xl px-3 sm:px-6 py-6">
     <h1 class="text-2xl font-semibold tracking-tight">Design gallery</h1>
     <p class="mt-1 text-sm text-muted-foreground">
       Components in every state, rendered by the real app. The Playwright design suite
