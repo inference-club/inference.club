@@ -31,6 +31,11 @@ export const stackConfig = {
     hcloudLocation: cfg.get("hcloudLocation") ?? "nbg1",
     serverType: cfg.get("serverType") ?? "cx23",
 
+    // GCS media buckets live next to the Hetzner box (nbg1 = Nuremberg, so
+    // europe-west3 = Frankfurt) to keep backend<->bucket latency low. The GCP
+    // project itself comes from the `gcp:project` provider config.
+    gcsLocation: cfg.get("gcsLocation") ?? "EUROPE-WEST3",
+
     backendImage:
         cfg.get("backendImage") ??
         "ghcr.io/inference-club/inference-club-backend:latest",

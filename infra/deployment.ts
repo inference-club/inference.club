@@ -5,6 +5,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { stackConfig } from "./config";
 import type { Server } from "./server";
+import type { MediaStorage } from "./gcs";
 
 const REMOTE_DIR = "/srv/inference-club";
 
@@ -30,7 +31,10 @@ function render(
     });
 }
 
-export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
+export function deploy(
+    server: Server,
+    media: MediaStorage,
+): { siteUrl: pulumi.Output<string> } {
     // Auto-generated app secrets. Pulumi state persists these across runs so
     // a re-deploy doesn't regenerate them (which would invalidate sessions
     // and break the existing Postgres data dir).
@@ -95,6 +99,9 @@ export function deploy(server: Server): { siteUrl: pulumi.Output<string> } {
         TAILSCALE_STATIC_AUTHKEY: stackConfig.tailscaleStaticAuthkey,
         MINIO_ROOT_PASSWORD: minioPassword.result,
         DOMAIN: stackConfig.domain,
+        GCS_PUBLIC_BUCKET: media.publicBucket,
+        GCS_PRIVATE_BUCKET: media.privateBucket,
+        GCS_CREDENTIALS_B64: media.credentialsB64,
     });
 
     // ---- ship files via SSH heredocs --------------------------------------

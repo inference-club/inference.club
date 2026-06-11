@@ -97,3 +97,6 @@ jobs:
           # config-map -> YAML -> Pulumi pipeline, so env is the right
           # transport here.
           DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          # The GCP Pulumi provider (media buckets) reads the service-account
+          # key JSON straight from this env var.
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
