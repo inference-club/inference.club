@@ -6,6 +6,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Design tokens beyond the shadcn set (docs/prd/05). text-2xs is the
+   "eyebrow" size for section labels and stat chips — one named step below
+   text-xs so components stop hand-rolling text-[11px]. */
+@theme {
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

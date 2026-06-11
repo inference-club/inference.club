@@ -69,6 +69,8 @@ export const fixtureRequests: Record<string, InferenceRequest> = {
     streamed: true,
     has_reasoning: true,
     message_count: 4,
+    ttft_ms: 412,
+    tokens_per_second: 38.4,
     usage: { prompt_tokens: 412, completion_tokens: 1289, total_tokens: 1701 },
     prompt_preview:
       'Explain the tradeoffs between serving media through an application server versus a public object-storage bucket with a CDN in front.',
@@ -147,6 +149,13 @@ export const fixtureRequests: Record<string, InferenceRequest> = {
 const LONG_TOKEN = 'Z'.repeat(120)
 const LONG_URL =
   'https://example.com/extremely/long/path/that/never/breaks/' + 'segment/'.repeat(18) + 'end'
+
+// Abnormal states the happy-path fixtures never show.
+export const stateRequests: InferenceRequest[] = [
+  { ...fixtureRequests.LLM, id: 'fx-failed', status: 'REQUESTED', usage: null,
+    tokens_per_second: null, ttft_ms: null, response_preview: '' },
+  { ...fixtureRequests.IMAGE, id: 'fx-running', status: 'PROCESSING', image_urls: [], image_count: 0 },
+]
 
 export const worstCaseRequests: InferenceRequest[] = [
   {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, computed } from 'vue'
-import { RefreshCw, Cpu, Server, Sparkles, Wrench } from 'lucide-vue-next'
+import { RefreshCw, Cpu, Server, Sparkles, Wrench, Activity, Layers } from 'lucide-vue-next'
 import { useProviders, type Provider } from '@/composables/useProviders'
 import {
   ENGINE_LABELS,
@@ -116,12 +116,10 @@ const STATUS_DOT: Record<SvcState, string> = {
 
 <template>
   <div class="container mx-auto p-6 space-y-8">
-    <div>
-      <h1 class="text-3xl font-bold tracking-tight">Dashboard</h1>
-      <p class="text-muted-foreground mt-1">
-        Overview of your compute and inference activity.
-      </p>
-    </div>
+    <DashboardPageHeader
+      title="Dashboard"
+      description="Overview of your compute and inference activity."
+    />
 
     <OnboardingChecklist />
 
@@ -148,25 +146,41 @@ const STATUS_DOT: Record<SvcState, string> = {
 
       <div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Card class="p-4">
-          <p class="text-xs uppercase text-muted-foreground tracking-wide">Nodes</p>
-          <p class="text-2xl font-semibold mt-1">{{ providers.length }}</p>
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-2xs uppercase tracking-wider text-muted-foreground">Nodes</p>
+            <Server class="size-4 text-muted-foreground/50" />
+          </div>
+          <p class="text-2xl font-semibold mt-1 tabular-nums">
+            {{ providers.length }}
+          </p>
         </Card>
         <Card class="p-4">
-          <p class="text-xs uppercase text-muted-foreground tracking-wide">Online</p>
-          <p
-            class="text-2xl font-semibold mt-1"
-            :class="onlineCount > 0 ? 'text-green-600 dark:text-green-400' : ''"
-          >
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-2xs uppercase tracking-wider text-muted-foreground">Online</p>
+            <Activity class="size-4 text-muted-foreground/50" />
+          </div>
+          <p class="text-2xl font-semibold mt-1 tabular-nums"
+            :class="onlineCount > 0 ? 'text-green-600 dark:text-green-400' : ''">
             {{ onlineCount }}
           </p>
         </Card>
         <Card class="p-4">
-          <p class="text-xs uppercase text-muted-foreground tracking-wide">Services</p>
-          <p class="text-2xl font-semibold mt-1">{{ totalServices }}</p>
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-2xs uppercase tracking-wider text-muted-foreground">Services</p>
+            <Layers class="size-4 text-muted-foreground/50" />
+          </div>
+          <p class="text-2xl font-semibold mt-1 tabular-nums">
+            {{ totalServices }}
+          </p>
         </Card>
         <Card class="p-4">
-          <p class="text-xs uppercase text-muted-foreground tracking-wide">Models served</p>
-          <p class="text-2xl font-semibold mt-1">{{ totalModels }}</p>
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-2xs uppercase tracking-wider text-muted-foreground">Models served</p>
+            <Cpu class="size-4 text-muted-foreground/50" />
+          </div>
+          <p class="text-2xl font-semibold mt-1 tabular-nums">
+            {{ totalModels }}
+          </p>
         </Card>
       </div>
 

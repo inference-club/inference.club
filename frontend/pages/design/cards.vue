@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { fixtureRequests, worstCaseRequests } from '@/utils/designFixtures'
+import { fixtureRequests, stateRequests, worstCaseRequests } from '@/utils/designFixtures'
 
 definePageMeta({ layout: 'app', middleware: 'staff' })
 
@@ -23,6 +23,21 @@ const types = Object.keys(fixtureRequests)
         With owner action bar
       </h2>
       <InferenceRequestCard :request="fixtureRequests.IMAGE" :linkable="false" :actions="true" />
+    </section>
+
+    <section class="mt-8">
+      <h2 class="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+        Abnormal states
+      </h2>
+      <div class="grid gap-4">
+        <InferenceRequestCard
+          v-for="r in stateRequests"
+          :key="r.id"
+          :request="r"
+          :linkable="false"
+          :actions="false"
+        />
+      </div>
     </section>
 
     <section class="mt-8">

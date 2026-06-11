@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box, Clapperboard,
+  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box, Clapperboard, Star, Gauge, Timer,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
-import { statusVariant, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
+import { statusVariant, statusLabel, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
 
 const props = withDefaults(
   defineProps<{
@@ -41,6 +41,11 @@ const isVideo = computed(() => props.request.inference_type === 'VIDEO')
 const fmtSeconds = (s?: number | null) =>
   s == null ? null : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`
 
+// Success is the quiet default — only abnormal states earn a badge.
+const showStatus = computed(
+  () => props.request.status !== 'PROCESSED' && props.request.status !== 'SAVED',
+)
+
 const onClick = () => {
   if (props.linkable) navigateTo(`/dashboard/inference/requests/${props.request.id}`)
 }
@@ -60,8 +65,10 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <!-- Header: badges + delete -->
     <div class="flex items-start justify-between gap-3">
       <div class="flex min-w-0 items-center gap-2 flex-wrap">
-        <Badge variant="outline">{{ props.request.inference_type }}</Badge>
-        <Badge :variant="statusVariant(props.request.status)">{{ props.request.status }}</Badge>
+        <ModalityBadge :type="props.request.inference_type" />
+        <Badge v-if="showStatus" :variant="statusVariant(props.request.status)">
+          {{ statusLabel(props.request.status) }}
+        </Badge>
         <Badge
           v-if="props.request.model_name"
           variant="secondary"
@@ -135,7 +142,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <!-- STT: input audio → transcript -->
     <div v-if="isStt" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Audio</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Audio</p>
         <audio
           v-if="props.request.audio_url"
           :src="whenInView(props.request.audio_url)"
@@ -147,7 +154,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
         <p v-else class="text-sm text-muted-foreground">—</p>
       </div>
       <div class="min-w-0">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Transcript</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Transcript</p>
         <p class="text-sm break-words line-clamp-3">{{ props.request.response_preview || '—' }}</p>
       </div>
     </div>
@@ -155,11 +162,11 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <!-- TTS: input text → audio output -->
     <div v-else-if="isTts" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Text</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Text</p>
         <p class="text-sm break-words line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <div class="min-w-0">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Speech</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Speech</p>
         <audio
           v-if="props.request.output_audio_url"
           :src="whenInView(props.request.output_audio_url)"
@@ -175,11 +182,11 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <!-- MUSIC: prompt → generated song -->
     <div v-else-if="isMusic" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Prompt</p>
         <p class="text-sm break-words line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <div class="min-w-0">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Song</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Song</p>
         <audio
           v-if="props.request.output_audio_url"
           :src="whenInView(props.request.output_audio_url)"
@@ -195,7 +202,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <!-- IMAGE: prompt → generated images (images feature large on the right) -->
     <div v-else-if="isImage" class="mt-3 grid gap-4 sm:grid-cols-2 sm:items-stretch">
       <div class="min-w-0 flex flex-col">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Prompt</p>
         <p class="text-sm break-words line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <div
@@ -218,7 +225,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <!-- VIDEO: prompt (+ optional first frame) → generated video -->
     <div v-else-if="isVideo" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2 sm:items-stretch">
       <div class="min-w-0 flex flex-col">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Prompt</p>
         <p class="text-sm break-words line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <video
@@ -252,11 +259,11 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <!-- LLM: prompt → response -->
     <div v-else class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Prompt</p>
         <p class="text-sm break-words line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <div class="min-w-0">
-        <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Response</p>
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Response</p>
         <p class="text-sm text-muted-foreground break-words line-clamp-3">{{ props.request.response_preview || '—' }}</p>
       </div>
     </div>
@@ -307,9 +314,30 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
             ({{ props.request.usage.prompt_tokens ?? '?' }} in / {{ props.request.usage.completion_tokens ?? '?' }} out)
           </template>
         </span>
+        <span
+          v-if="props.request.tokens_per_second"
+          class="inline-flex items-center gap-1"
+          title="Decode speed"
+        >
+          <Gauge class="size-3.5" /> {{ Math.round(props.request.tokens_per_second) }} tok/s
+        </span>
+        <span
+          v-if="props.request.ttft_ms"
+          class="inline-flex items-center gap-1"
+          title="Time to first token"
+        >
+          <Timer class="size-3.5" /> {{ formatLatency(props.request.ttft_ms) }} TTFT
+        </span>
       </template>
       <span class="inline-flex items-center gap-1" title="Latency">
         <Clock class="size-3.5" /> {{ formatLatency(props.request.latency_ms) }}
+      </span>
+      <span
+        v-if="props.request.star_count"
+        class="inline-flex items-center gap-1"
+        title="Stars"
+      >
+        <Star class="size-3.5" /> {{ props.request.star_count }}
       </span>
       <span class="ml-auto inline-flex items-center gap-1" :class="linkable ? 'group-hover:text-foreground' : ''">
         {{ formatRelative(props.request.created_on) }}

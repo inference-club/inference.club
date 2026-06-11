@@ -68,9 +68,9 @@ onMounted(async () => {
 <template>
   <div class="container mx-auto py-6">
     <div ref="resultsTopRef" />
-    <div class="flex justify-between items-center mb-6">
+    <div class="flex flex-wrap items-end justify-between gap-y-2 mb-6">
       <div>
-        <h1 class="text-2xl font-bold">Your Inference Requests</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">Your Inference Requests</h1>
         <p class="text-sm text-muted-foreground mt-1">
           {{ store.pagination.count }} request{{ store.pagination.count === 1 ? '' : 's' }}
         </p>

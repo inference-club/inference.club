@@ -17,6 +17,21 @@ export function statusVariant(
   }
 }
 
+// Human label for the abnormal states. PROCESSED/SAVED are the quiet default
+// (cards don't badge success); the proxy leaves failed runs in REQUESTED.
+export function statusLabel(status: InferenceStatus): string {
+  switch (status) {
+    case 'REQUESTED':
+      return 'failed'
+    case 'PROCESSING':
+      return 'running'
+    case 'QUEUED':
+      return 'queued'
+    default:
+      return status.toLowerCase()
+  }
+}
+
 // A request is retryable when the viewer owns it and it failed — i.e. it's not
 // a success (PROCESSED) and isn't currently running (PROCESSING). The proxy
 // leaves failed runs in REQUESTED.

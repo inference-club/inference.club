@@ -31,6 +31,9 @@ COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile
 
 COPY . .
+# Nuxt's production build peaks past Node's ~2GB default heap (OOM'd CI at
+# 1.9GB); the runner has plenty of RAM, so raise the ceiling.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN yarn build
 
 

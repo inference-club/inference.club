@@ -11,7 +11,8 @@
     "i18n:check": "node scripts/check-i18n-keys.mjs",
     "test:design": "playwright test overflow baselines",
     "test:overflow": "playwright test overflow",
-    "shots": "playwright test screenshots"
+    "shots": "playwright test screenshots",
+    "review": "node e2e/make-review.mjs"
   },
   "dependencies": {
     "@nuxt/content": "3.5.1",

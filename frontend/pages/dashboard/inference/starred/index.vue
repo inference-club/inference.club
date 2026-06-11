@@ -36,7 +36,7 @@ onMounted(() => load(true))
 <template>
   <div class="container mx-auto py-6">
     <div class="mb-6">
-      <h1 class="text-2xl font-bold flex items-center gap-2">
+      <h1 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
         <Star class="size-6 text-amber-500" /> Starred
       </h1>
       <p class="text-sm text-muted-foreground mt-1">
