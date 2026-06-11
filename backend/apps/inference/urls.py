@@ -9,6 +9,8 @@ from .views import (
     CollectionDetailView,
     CollectionItemView,
     CollectionListCreateView,
+    CollectionOrderView,
+    RequestCoverView,
     InferenceRequestView,
     LeaderboardView,
     MediaAssetView,
@@ -65,6 +67,11 @@ urlpatterns = [
         name="inference-request-bookmark",
     ),
     path(
+        "requests/<int:id>/cover/",
+        RequestCoverView.as_view(),
+        name="inference-request-cover",
+    ),
+    path(
         "requests/<int:id>/report/",
         RequestReportView.as_view(),
         name="inference-request-report",
@@ -88,6 +95,11 @@ urlpatterns = [
         "collections/<slug:slug>/",
         CollectionDetailView.as_view(),
         name="collection-detail",
+    ),
+    path(
+        "collections/<slug:slug>/items/order/",
+        CollectionOrderView.as_view(),
+        name="collection-order",
     ),
     path(
         "collections/<slug:slug>/items/<int:request_id>/",

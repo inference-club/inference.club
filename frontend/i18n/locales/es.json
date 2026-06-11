@@ -116,7 +116,8 @@
       "compute": "Cómputo",
       "documentation": "Documentación",
       "settings": "Ajustes",
-      "admin": "Administración"
+      "admin": "Administración",
+      "media": "Multimedia"
     },
     "items": {
       "chat": "Chat",
@@ -146,7 +147,51 @@
       "access": "Acceso",
       "token": "Token",
       "activity": "Actividad",
-      "moderation": "Moderación"
+      "moderation": "Moderación",
+      "music": "Música"
     }
+  },
+  "player": {
+    "shuffle": "Aleatorio",
+    "previous": "Anterior",
+    "play": "Reproducir",
+    "pause": "Pausar",
+    "next": "Siguiente",
+    "repeat": "Repetir",
+    "queue": "Cola",
+    "removeFromQueue": "Quitar de la cola",
+    "mute": "Silenciar",
+    "unmute": "Activar sonido",
+    "close": "Cerrar reproductor"
+  },
+  "media": {
+    "play": "Reproducir",
+    "shuffle": "Aleatorio",
+    "next": "Siguiente",
+    "songs": "canción | canciones",
+    "videos": "vídeo | vídeos",
+    "playVideos": "Reproducir vídeos",
+    "playlistView": "Lista de reproducción",
+    "manageView": "Gestionar",
+    "dragToReorder": "Arrastra para reordenar",
+    "moveUp": "Subir",
+    "moveDown": "Bajar",
+    "generateCover": "Generar portada",
+    "collectionNotFound": "Colección no encontrada",
+    "musicTitle": "Música",
+    "musicSubtitle": "Tus canciones y listas, generadas en la red.",
+    "createSong": "Crear una canción",
+    "yourPlaylists": "Tus listas",
+    "recentlyPlayed": "Escuchado recientemente",
+    "yourSongs": "Tus canciones",
+    "noSongsYet": "Aún no has generado ninguna canción.",
+    "createFirstSong": "Crea tu primera canción",
+    "notAVideo": "Esta solicitud no tiene vídeo para reproducir.",
+    "videoNotFound": "Vídeo no encontrado",
+    "backToRequests": "Todas las solicitudes",
+    "untitledVideo": "Vídeo sin título",
+    "generationDetails": "Detalles de generación",
+    "upNext": "A continuación",
+    "autoplayNext": "Reproducir siguiente automáticamente"
   }
 }

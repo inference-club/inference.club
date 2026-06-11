@@ -115,6 +115,10 @@ export interface InferenceRequest {
   is_starred?: boolean
   is_bookmarked?: boolean
 
+  // Cover art (docs/prd/06-media-playback-experience.md): square artwork from
+  // a linked IMAGE request, shown for MUSIC tracks in the player/playlists.
+  cover_image_url?: string | null
+
   // List (slim) serializer only
   prompt_preview?: string
   response_preview?: string
@@ -137,6 +141,11 @@ export interface Collection {
   description: string
   visibility: Visibility
   item_count: number
+  // Per-modality counts + total music runtime, so list views can decide which
+  // playback affordances (music playlist / video playlist) to offer.
+  audio_count?: number
+  video_count?: number
+  total_audio_seconds?: number | null
   cover_image_url?: string | null
   owner?: string
   github_login?: string | null

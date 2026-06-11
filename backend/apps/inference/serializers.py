@@ -1,6 +1,7 @@
 import re
 
 from django.conf import settings
+from django.db.models import Sum
 from rest_framework import serializers
 
 from .models import (
@@ -320,6 +321,15 @@ def _asset_urls(obj, request, kind: str) -> list[str]:
     return out
 
 
+def _cover_image_url(obj, request) -> str | None:
+    """Absolute URL to the square cover art linked via ``cover_request``
+    (a request's track art or a collection's playlist art), or None."""
+    if obj.cover_request_id is None:
+        return None
+    urls = _asset_urls(obj.cover_request, request, "OUTPUT_IMAGE")
+    return urls[0] if urls else None
+
+
 def _model_url(obj, request) -> str | None:
     """Absolute URL to this request's generated 3D model (the GLB), or None.
     OUTPUT_MODEL assets are public, like generated images."""
@@ -533,6 +543,7 @@ class InferenceRequestListSerializer(
     mesh = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
     video = serializers.SerializerMethodField()
+    cover_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -558,6 +569,7 @@ class InferenceRequestListSerializer(
             "mesh",
             "video_url",
             "video",
+            "cover_image_url",
             "prompt_preview",
             "response_preview",
             "message_count",
@@ -594,6 +606,9 @@ class InferenceRequestListSerializer(
 
     def get_video(self, obj):
         return _video_meta(obj)
+
+    def get_cover_image_url(self, obj):
+        return _cover_image_url(obj, self.context.get("request"))
 
     def get_usage(self, obj):
         return _extract_usage(obj.results)
@@ -646,6 +661,7 @@ class InferenceRequestDetailSerializer(
     mesh = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
     video = serializers.SerializerMethodField()
+    cover_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -675,6 +691,7 @@ class InferenceRequestDetailSerializer(
             "mesh",
             "video_url",
             "video",
+            "cover_image_url",
             "messages",
             "response_text",
             "reasoning",
@@ -716,6 +733,9 @@ class InferenceRequestDetailSerializer(
 
     def get_video(self, obj):
         return _video_meta(obj)
+
+    def get_cover_image_url(self, obj):
+        return _cover_image_url(obj, self.context.get("request"))
 
     def get_usage(self, obj):
         return _extract_usage(obj.results)
@@ -819,6 +839,9 @@ class CollectionSerializer(serializers.ModelSerializer):
     items themselves are returned by the collection-detail endpoint."""
 
     item_count = serializers.SerializerMethodField()
+    audio_count = serializers.SerializerMethodField()
+    video_count = serializers.SerializerMethodField()
+    total_audio_seconds = serializers.SerializerMethodField()
     cover_image_url = serializers.SerializerMethodField()
     owner = serializers.SerializerMethodField()
     github_login = serializers.SerializerMethodField()
@@ -833,6 +856,9 @@ class CollectionSerializer(serializers.ModelSerializer):
             "description",
             "visibility",
             "item_count",
+            "audio_count",
+            "video_count",
+            "total_audio_seconds",
             "cover_image_url",
             "owner",
             "github_login",
@@ -844,6 +870,9 @@ class CollectionSerializer(serializers.ModelSerializer):
             "id",
             "slug",
             "item_count",
+            "audio_count",
+            "video_count",
+            "total_audio_seconds",
             "cover_image_url",
             "owner",
             "github_login",
@@ -857,12 +886,25 @@ class CollectionSerializer(serializers.ModelSerializer):
             return obj.item_count
         return obj.items.count()
 
+    def get_audio_count(self, obj) -> int:
+        if hasattr(obj, "audio_count"):
+            return obj.audio_count
+        return obj.items.filter(request__inference_type="MUSIC").count()
+
+    def get_video_count(self, obj) -> int:
+        if hasattr(obj, "video_count"):
+            return obj.video_count
+        return obj.items.filter(request__inference_type="VIDEO").count()
+
+    def get_total_audio_seconds(self, obj):
+        if hasattr(obj, "total_audio_seconds"):
+            return obj.total_audio_seconds
+        return obj.items.filter(request__inference_type="MUSIC").aggregate(
+            s=Sum("request__audio_seconds")
+        )["s"]
+
     def get_cover_image_url(self, obj):
-        request = self.context.get("request")
-        if obj.cover_request_id is None or request is None:
-            return None
-        urls = _asset_urls(obj.cover_request, request, "OUTPUT_IMAGE")
-        return urls[0] if urls else None
+        return _cover_image_url(obj, self.context.get("request"))
 
     def get_owner(self, obj) -> str:
         return _user_owner(obj.user)

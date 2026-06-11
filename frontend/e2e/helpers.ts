@@ -25,6 +25,7 @@ export async function resolveRoutes(
   api: APIRequestContext,
 ): Promise<Array<RouteSpec & { resolved: string | null }>> {
   let requestId: string | null = null
+  let videoRequestId: string | null = null
   let collectionSlug: string | null = null
 
   try {
@@ -32,6 +33,16 @@ export async function resolveRoutes(
     if (res.ok()) {
       const body = await res.json()
       requestId = body?.results?.[0]?.id != null ? String(body.results[0].id) : null
+    }
+  } catch {
+    /* leave null */
+  }
+  try {
+    const res = await api.get(`${API}/api/inference/requests/?page=1&type=VIDEO`)
+    if (res.ok()) {
+      const body = await res.json()
+      videoRequestId =
+        body?.results?.[0]?.id != null ? String(body.results[0].id) : null
     }
   } catch {
     /* leave null */
@@ -50,7 +61,8 @@ export async function resolveRoutes(
   return ROUTES.map((r) => {
     if (!r.dynamic) return { ...r, resolved: r.path }
     let p: string | null = r.path
-    p = p.includes(':id') ? (requestId ? p.replace(':id', requestId) : null) : p
+    p = p.includes(':videoId') ? (videoRequestId ? p.replace(':videoId', videoRequestId) : null) : p
+    p = p && p.includes(':id') ? (requestId ? p.replace(':id', requestId) : null) : p
     p = p && p.includes(':slug') ? (collectionSlug ? p.replace(':slug', collectionSlug) : null) : p
     return { ...r, resolved: p }
   })

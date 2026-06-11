@@ -116,7 +116,8 @@
       "compute": "Compute",
       "documentation": "Documentation",
       "settings": "Settings",
-      "admin": "Admin"
+      "admin": "Admin",
+      "media": "Media"
     },
     "items": {
       "chat": "Chat",
@@ -146,7 +147,8 @@
       "access": "Access",
       "token": "Token",
       "activity": "Activity",
-      "moderation": "Moderation"
+      "moderation": "Moderation",
+      "music": "Music"
     }
   },
   "model3d": {
@@ -197,5 +199,48 @@
       "emptyCollectionImages": "This collection has no images.",
       "emptySearch": "No images found."
     }
+  },
+  "player": {
+    "shuffle": "Shuffle",
+    "previous": "Previous",
+    "play": "Play",
+    "pause": "Pause",
+    "next": "Next",
+    "repeat": "Repeat",
+    "queue": "Queue",
+    "removeFromQueue": "Remove from queue",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "close": "Close player"
+  },
+  "media": {
+    "play": "Play",
+    "shuffle": "Shuffle",
+    "next": "Next",
+    "songs": "song | songs",
+    "videos": "video | videos",
+    "playVideos": "Play videos",
+    "playlistView": "Playlist",
+    "manageView": "Manage",
+    "dragToReorder": "Drag to reorder",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "generateCover": "Generate cover art",
+    "collectionNotFound": "Collection not found",
+    "musicTitle": "Music",
+    "musicSubtitle": "Your songs and playlists, generated on the network.",
+    "createSong": "Create a song",
+    "yourPlaylists": "Your playlists",
+    "recentlyPlayed": "Recently played",
+    "yourSongs": "Your songs",
+    "noSongsYet": "You haven't generated any songs yet.",
+    "createFirstSong": "Create your first song",
+    "notAVideo": "This request has no video to play.",
+    "videoNotFound": "Video not found",
+    "backToRequests": "All requests",
+    "untitledVideo": "Untitled video",
+    "generationDetails": "Generation details",
+    "upNext": "Up next",
+    "autoplayNext": "Autoplay next"
   }
 }

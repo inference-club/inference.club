@@ -504,6 +504,16 @@ class InferenceRequest(BaseModel):
     share_token = models.CharField(max_length=32, unique=True, editable=False)
     # Denormalized star total, for cheap "most popular" sorting.
     star_count = models.PositiveIntegerField(default=0, db_index=True)
+    # Optional cover art — a linked IMAGE request whose output renders as this
+    # request's square artwork (MUSIC tracks, Spotify-style). SET_NULL so
+    # deleting the art request only clears the cover, never the track.
+    cover_request = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
 
     class Meta:
         ordering = ["-created_on"]

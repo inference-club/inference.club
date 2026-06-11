@@ -1,9 +1,17 @@
 <script setup lang="ts">
 import { fixtureRequests, stateRequests, worstCaseRequests } from '@/utils/designFixtures'
+import { tracksFromRequests } from '@/utils/player'
 
 definePageMeta({ layout: 'app', middleware: 'staff' })
 
 const types = Object.keys(fixtureRequests)
+
+// Track rows (PRD 06): the playlist row component with a normal title, a
+// cover, and a worst-case unbroken-token title.
+const trackFixtures = tracksFromRequests([
+  fixtureRequests.MUSIC,
+  ...worstCaseRequests.filter((r) => r.inference_type === 'MUSIC'),
+])
 </script>
 
 <template>
@@ -23,6 +31,17 @@ const types = Object.keys(fixtureRequests)
         With owner action bar
       </h2>
       <InferenceRequestCard :request="fixtureRequests.IMAGE" :linkable="false" :actions="true" />
+    </section>
+
+    <section v-if="trackFixtures.length" class="mt-8">
+      <h2 class="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+        Playlist track rows
+      </h2>
+      <p class="mb-2 text-xs text-muted-foreground">
+        The Spotify-style row used on playlists and the music home, including a
+        worst-case unbroken title. Clicking plays through the global player bar.
+      </p>
+      <TrackList :tracks="trackFixtures" />
     </section>
 
     <section class="mt-8">

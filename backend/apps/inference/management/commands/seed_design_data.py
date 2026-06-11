@@ -582,6 +582,41 @@ class Command(BaseCommand):
         music.save(update_fields=["results", "modified_on"])
         requests["music"] = music
 
+        # --- MUSIC #2 (second playlist track; gets cover art below) ------------
+        music2_prompt = "uptempo synthwave with arpeggiated bass, neon pads, driving four-on-the-floor drums"
+        music2 = self._upsert_request(
+            user, provider, "design-music-2",
+            inference_type="MUSIC",
+            model_name=models["music"].name,
+            payload={
+                "model": models["music"].name,
+                "prompt": music2_prompt,
+                "lyrics": "",
+                "audio_duration": 2.0,
+                "inference_steps": 27,
+                "guidance_scale": 15,
+                "seed": 9001,
+                "use_random_seed": False,
+                "audio_format": "wav",
+                "bpm": 118,
+                "key_scale": "A minor",
+            },
+            results={},
+            latency_ms=5980,
+            audio_seconds=2.0,
+        )
+        (music2_asset,) = self._ensure_assets(
+            music2, MediaAsset.OUTPUT_AUDIO,
+            [("song.wav", make_wav(freq=440.0), "audio/wav", 2.0, None)],
+        )
+        music2.results = {
+            "audio_asset_id": music2_asset.id,
+            "content_type": "audio/wav",
+            "characters": len(music2_prompt),
+        }
+        music2.save(update_fields=["results", "modified_on"])
+        requests["music_2"] = music2
+
         # --- MUSIC overflow (unbroken prompt + max-length model name) -----------
         music_of = self._upsert_request(
             user, provider, "design-music-overflow",
@@ -735,6 +770,53 @@ class Command(BaseCommand):
         video.save(update_fields=["results", "modified_on"])
         requests["video"] = video
 
+        # --- VIDEO #2 (second item for the video-playlist watch flow) -----------
+        video2 = self._upsert_request(
+            user, provider, "design-video-2",
+            inference_type="VIDEO",
+            model_name=models["video"].name,
+            payload={
+                "model": models["video"].name,
+                "prompt": "macro shot of GPU fans spinning up, shallow depth of field, warm light",
+                "negative_prompt": "",
+                "has_image": False,
+                "image_strength": None,
+                "duration": 2.0,
+                "num_frames": 48,
+                "fps": 24,
+                "width": 640,
+                "height": 360,
+                "num_inference_steps": 24,
+                "guidance_scale": 4.0,
+                "enhance_prompt": False,
+                "seed": 11,
+            },
+            results={},
+            latency_ms=61400,
+            audio_seconds=video_seconds,
+        )
+        (video2_asset,) = self._ensure_assets(
+            video2, MediaAsset.OUTPUT_VIDEO,
+            [(
+                "video.mp4", mp4, "video/mp4", video_seconds,
+                {k: video_params[k] for k in ("width", "height", "fps", "num_frames")},
+            )],
+        )
+        video2.results = {
+            "video_asset_id": video2_asset.id,
+            "content_type": "video/mp4",
+            "duration": video_seconds,
+            "params": {**video_params, "seed": 11},
+        }
+        video2.save(update_fields=["results", "modified_on"])
+        requests["video_2"] = video2
+
+        # Track cover art (PRD 06): the music track links the IMAGE request as
+        # its square cover, exercising cover rendering in the player/playlists.
+        if requests["music"].cover_request_id != requests["image"].id:
+            requests["music"].cover_request = requests["image"]
+            requests["music"].save(update_fields=["cover_request", "modified_on"])
+
         self.stdout.write(f"Seeded {len(requests)} inference requests")
         return requests
 
@@ -760,6 +842,45 @@ class Command(BaseCommand):
                 item.position = position
                 item.save(update_fields=["position", "modified_on"])
 
+        # Ordered playlists (PRD 06): a music mixtape with cover art and a
+        # video playlist, exercising the playlist view + watch up-next panel.
+        mixtape, _ = Collection.objects.update_or_create(
+            user=user,
+            slug="design-mixtape",
+            defaults={
+                "name": "Design mixtape",
+                "description": "Seeded music playlist for the player/playlist design tests.",
+                "visibility": "PUBLIC",
+                "cover_request": requests["image"],
+            },
+        )
+        for position, key in enumerate(("music", "music_2", "music_overflow")):
+            item, _ = CollectionItem.objects.get_or_create(
+                collection=mixtape, request=requests[key],
+                defaults={"position": position},
+            )
+            if item.position != position:
+                item.position = position
+                item.save(update_fields=["position", "modified_on"])
+
+        video_list, _ = Collection.objects.update_or_create(
+            user=user,
+            slug="design-video-playlist",
+            defaults={
+                "name": "Design video playlist",
+                "description": "Seeded video playlist for the watch-page design tests.",
+                "visibility": "PUBLIC",
+            },
+        )
+        for position, key in enumerate(("video", "video_2")):
+            item, _ = CollectionItem.objects.get_or_create(
+                collection=video_list, request=requests[key],
+                defaults={"position": position},
+            )
+            if item.position != position:
+                item.position = position
+                item.save(update_fields=["position", "modified_on"])
+
         for key in ("llm", "image", "video"):
             Star.objects.get_or_create(user=user, request=requests[key])
             requests[key].recount_stars()
@@ -767,7 +888,8 @@ class Command(BaseCommand):
             Bookmark.objects.get_or_create(user=user, request=requests[key])
 
         self.stdout.write(
-            "Collection 'design-fixtures' + stars/bookmarks ready"
+            "Collections 'design-fixtures' / 'design-mixtape' / "
+            "'design-video-playlist' + stars/bookmarks ready"
         )
 
     # --- verification --------------------------------------------------------------

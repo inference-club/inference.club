@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box, Clapperboard, Star, Gauge, Timer,
+  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box, Clapperboard, Star, Gauge, Timer, Play, Pause, ListPlus, Music,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { statusVariant, statusLabel, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
+import { usePlayerStore } from '@/stores/player'
+import { trackFromRequest, formatTrackTime } from '@/utils/player'
 
 const props = withDefaults(
   defineProps<{
@@ -54,6 +56,23 @@ const onClick = () => {
 // edits it via the action bar (without mutating the request prop).
 const displayVisibility = ref<Visibility | undefined>(props.request.visibility)
 watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
+
+// MUSIC plays through the global player (Spotify-style bottom bar) instead of
+// a per-card <audio>; STT/TTS keep native players — they're utterances, not
+// tracks.
+const player = usePlayerStore()
+const track = computed(() => trackFromRequest(props.request))
+const isCurrentTrack = computed(
+  () => !!track.value && player.current?.id === track.value.id,
+)
+const playPauseTrack = () => {
+  if (!track.value) return
+  if (isCurrentTrack.value) player.toggle()
+  else player.playTrack(track.value)
+}
+const queueTrack = () => {
+  if (track.value) player.addToQueue([track.value])
+}
 </script>
 
 <template>
@@ -179,7 +198,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
       </div>
     </div>
 
-    <!-- MUSIC: prompt → generated song -->
+    <!-- MUSIC: prompt → generated song (plays via the global player bar) -->
     <div v-else-if="isMusic" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
         <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Prompt</p>
@@ -187,14 +206,42 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
       </div>
       <div class="min-w-0">
         <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Song</p>
-        <audio
-          v-if="props.request.output_audio_url"
-          :src="whenInView(props.request.output_audio_url)"
-          preload="metadata"
-          controls
-          class="w-full h-9"
-          @click.stop
-        />
+        <div v-if="track" class="flex items-center gap-3" @click.stop>
+          <div class="relative size-12 shrink-0">
+            <img
+              v-if="track.coverUrl"
+              :src="track.coverUrl"
+              class="size-12 rounded-md border object-cover"
+              :alt="track.title"
+              loading="lazy"
+            />
+            <div v-else class="flex size-12 items-center justify-center rounded-md border bg-muted">
+              <Music class="size-5 text-muted-foreground" />
+            </div>
+          </div>
+          <Button
+            size="icon"
+            class="size-9 shrink-0 rounded-full"
+            :title="isCurrentTrack && player.playing ? 'Pause' : 'Play'"
+            data-testid="card-play-track"
+            @click="playPauseTrack"
+          >
+            <Pause v-if="isCurrentTrack && player.playing" class="size-4" />
+            <Play v-else class="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-8 shrink-0 text-muted-foreground"
+            title="Add to queue"
+            @click="queueTrack"
+          >
+            <ListPlus class="size-4" />
+          </Button>
+          <span class="text-xs tabular-nums text-muted-foreground">
+            {{ formatTrackTime(track.duration) }}
+          </span>
+        </div>
         <p v-else class="text-sm text-muted-foreground">—</p>
       </div>
     </div>
@@ -228,17 +275,25 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
         <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Prompt</p>
         <p class="text-sm break-words line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
       </div>
-      <video
-        v-if="props.request.video_url"
-        :src="whenInView(props.request.video_url)"
-        :poster="whenInView(props.request.input_image_url)"
-        controls
-        loop
-        playsinline
-        preload="metadata"
-        class="max-h-80 w-full rounded-lg border bg-black object-contain"
-        @click.stop
-      />
+      <div v-if="props.request.video_url" class="relative" @click.stop>
+        <video
+          :src="whenInView(props.request.video_url)"
+          :poster="whenInView(props.request.input_image_url)"
+          controls
+          loop
+          playsinline
+          preload="metadata"
+          class="max-h-80 w-full rounded-lg border bg-black object-contain"
+        />
+        <NuxtLink
+          v-if="linkable"
+          :to="`/dashboard/watch/${props.request.id}`"
+          class="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs text-white backdrop-blur hover:bg-black/80"
+          title="Open in the watch page"
+        >
+          <Clapperboard class="size-3.5" /> Watch
+        </NuxtLink>
+      </div>
       <p v-else class="text-sm text-muted-foreground">—</p>
     </div>
 

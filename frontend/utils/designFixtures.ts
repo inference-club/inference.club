@@ -106,6 +106,7 @@ export const fixtureRequests: Record<string, InferenceRequest> = {
     created_on: ago(12),
     audio_seconds: 92.0,
     output_audio_url: silentWav,
+    cover_image_url: svg(290, 'art'),
     prompt_preview: 'Dreamy synthwave with a steady kick, warm pads, and a hopeful arpeggio that builds.',
   },
   IMAGE: {

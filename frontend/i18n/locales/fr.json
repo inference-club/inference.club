@@ -116,7 +116,8 @@
       "compute": "Calcul",
       "documentation": "Documentation",
       "settings": "Paramètres",
-      "admin": "Admin"
+      "admin": "Admin",
+      "media": "Médias"
     },
     "items": {
       "chat": "Chat",
@@ -146,7 +147,51 @@
       "access": "Accès",
       "token": "Jeton",
       "activity": "Activité",
-      "moderation": "Modération"
+      "moderation": "Modération",
+      "music": "Musique"
     }
+  },
+  "player": {
+    "shuffle": "Aléatoire",
+    "previous": "Précédent",
+    "play": "Lecture",
+    "pause": "Pause",
+    "next": "Suivant",
+    "repeat": "Répéter",
+    "queue": "File d'attente",
+    "removeFromQueue": "Retirer de la file",
+    "mute": "Couper le son",
+    "unmute": "Activer le son",
+    "close": "Fermer le lecteur"
+  },
+  "media": {
+    "play": "Lecture",
+    "shuffle": "Aléatoire",
+    "next": "Suivant",
+    "songs": "titre | titres",
+    "videos": "vidéo | vidéos",
+    "playVideos": "Lire les vidéos",
+    "playlistView": "Playlist",
+    "manageView": "Gérer",
+    "dragToReorder": "Glisser pour réordonner",
+    "moveUp": "Monter",
+    "moveDown": "Descendre",
+    "generateCover": "Générer une pochette",
+    "collectionNotFound": "Collection introuvable",
+    "musicTitle": "Musique",
+    "musicSubtitle": "Vos titres et playlists, générés sur le réseau.",
+    "createSong": "Créer un titre",
+    "yourPlaylists": "Vos playlists",
+    "recentlyPlayed": "Écoutés récemment",
+    "yourSongs": "Vos titres",
+    "noSongsYet": "Vous n'avez pas encore généré de titre.",
+    "createFirstSong": "Créez votre premier titre",
+    "notAVideo": "Cette requête n'a pas de vidéo à lire.",
+    "videoNotFound": "Vidéo introuvable",
+    "backToRequests": "Toutes les requêtes",
+    "untitledVideo": "Vidéo sans titre",
+    "generationDetails": "Détails de génération",
+    "upNext": "À suivre",
+    "autoplayNext": "Lecture automatique du suivant"
   }
 }

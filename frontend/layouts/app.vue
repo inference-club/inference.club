@@ -2,9 +2,11 @@
 import { Button } from '@/components/ui/button'
 import { Sun, Moon } from 'lucide-vue-next'
 import { useTheme } from '@/composables/useTheme'
+import { usePlayerStore } from '@/stores/player'
 
 const { t } = useI18n()
 const { isDark, toggleTheme } = useTheme()
+const player = usePlayerStore()
 </script>
 
 <template>
@@ -41,6 +43,9 @@ const { isDark, toggleTheme } = useTheme()
         <slot />
       </div>
       <DashboardFooter />
+      <!-- Spacer so the fixed player bar never covers page content. -->
+      <div v-if="player.hasQueue" class="h-20 shrink-0" />
     </SidebarInset>
+    <GlobalPlayerBar />
   </SidebarProvider>
 </template>

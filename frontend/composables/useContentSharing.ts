@@ -214,6 +214,44 @@ export function useContentSharing() {
       }),
     )
 
+  // Replace the playlist order with the given request ids (full list; ids
+  // omitted keep their relative order after the listed ones).
+  const reorderCollection = (slug: string, requestIds: Array<string | number>) =>
+    withState(() =>
+      api<Collection>(`/collections/${slug}/items/order/`, {
+        method: 'PUT',
+        body: JSON.stringify({ request_ids: requestIds.map(Number) }),
+      }),
+    )
+
+  // Set or clear a request's cover art (a linked IMAGE request of the owner's).
+  const setRequestCover = (
+    id: string | number,
+    coverRequestId: string | number | null,
+  ) =>
+    withState(() =>
+      api<{ cover_image_url: string | null }>(`/requests/${id}/cover/`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          cover_request_id: coverRequestId === null ? null : Number(coverRequestId),
+        }),
+      }),
+    )
+
+  // Set or clear a collection's cover art.
+  const setCollectionCover = (
+    slug: string,
+    coverRequestId: string | number | null,
+  ) =>
+    withState(() =>
+      api<Collection>(`/collections/${slug}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          cover_request_id: coverRequestId === null ? null : Number(coverRequestId),
+        }),
+      }),
+    )
+
   // --- public collections (unauthenticated) ---------------------------------
   // These live under /api/users/<login>/, not /api/inference, so hit them with
   // an absolute URL rather than the `base` prefix.
@@ -257,6 +295,9 @@ export function useContentSharing() {
     deleteCollection,
     addToCollection,
     removeFromCollection,
+    reorderCollection,
+    setRequestCover,
+    setCollectionCover,
     listPublicCollections,
     getPublicCollection,
   }

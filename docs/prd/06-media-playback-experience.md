@@ -1,6 +1,9 @@
 # PRD 06 — Media Playback Experience (Music & Video)
 
-**Status:** draft (2026-06-11)
+**Status:** implemented (2026-06-11) — all five phases. Notable deltas from the
+draft: the image-generations endpoint now returns `request_id` (mirroring
+mesh/video) so the cover dialog can link covers without a follow-up query;
+reorder is move-up/down buttons + native HTML drag (no DnD dependency).
 **Guideline:** Spotify-style for music, YouTube-style for video — used as a north star, kept
 simple. Collections remain the single, flexible abstraction for organizing content; playlists
 are just a playback view over an **ordered** collection.

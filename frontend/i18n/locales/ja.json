@@ -116,7 +116,8 @@
       "compute": "コンピュート",
       "documentation": "ドキュメント",
       "settings": "設定",
-      "admin": "管理"
+      "admin": "管理",
+      "media": "メディア"
     },
     "items": {
       "chat": "チャット",
@@ -146,7 +147,51 @@
       "access": "アクセス",
       "token": "トークン",
       "activity": "アクティビティ",
-      "moderation": "モデレーション"
+      "moderation": "モデレーション",
+      "music": "ミュージック"
     }
+  },
+  "player": {
+    "shuffle": "シャッフル",
+    "previous": "前へ",
+    "play": "再生",
+    "pause": "一時停止",
+    "next": "次へ",
+    "repeat": "リピート",
+    "queue": "キュー",
+    "removeFromQueue": "キューから削除",
+    "mute": "ミュート",
+    "unmute": "ミュート解除",
+    "close": "プレーヤーを閉じる"
+  },
+  "media": {
+    "play": "再生",
+    "shuffle": "シャッフル",
+    "next": "次へ",
+    "songs": "曲",
+    "videos": "本の動画",
+    "playVideos": "動画を再生",
+    "playlistView": "プレイリスト",
+    "manageView": "管理",
+    "dragToReorder": "ドラッグで並べ替え",
+    "moveUp": "上へ移動",
+    "moveDown": "下へ移動",
+    "generateCover": "カバーアートを生成",
+    "collectionNotFound": "コレクションが見つかりません",
+    "musicTitle": "ミュージック",
+    "musicSubtitle": "ネットワークで生成したあなたの曲とプレイリスト。",
+    "createSong": "曲を作る",
+    "yourPlaylists": "プレイリスト",
+    "recentlyPlayed": "最近再生した曲",
+    "yourSongs": "あなたの曲",
+    "noSongsYet": "まだ曲を生成していません。",
+    "createFirstSong": "最初の曲を作りましょう",
+    "notAVideo": "このリクエストには再生できる動画がありません。",
+    "videoNotFound": "動画が見つかりません",
+    "backToRequests": "すべてのリクエスト",
+    "untitledVideo": "無題の動画",
+    "generationDetails": "生成の詳細",
+    "upNext": "次の動画",
+    "autoplayNext": "次を自動再生"
   }
 }

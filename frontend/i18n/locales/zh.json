@@ -116,7 +116,8 @@
       "compute": "算力",
       "documentation": "文档",
       "settings": "设置",
-      "admin": "管理"
+      "admin": "管理",
+      "media": "媒体"
     },
     "items": {
       "chat": "聊天",
@@ -146,7 +147,51 @@
       "access": "访问",
       "token": "Token",
       "activity": "活动",
-      "moderation": "内容审核"
+      "moderation": "内容审核",
+      "music": "音乐"
     }
+  },
+  "player": {
+    "shuffle": "随机播放",
+    "previous": "上一首",
+    "play": "播放",
+    "pause": "暂停",
+    "next": "下一首",
+    "repeat": "循环",
+    "queue": "播放队列",
+    "removeFromQueue": "从队列中移除",
+    "mute": "静音",
+    "unmute": "取消静音",
+    "close": "关闭播放器"
+  },
+  "media": {
+    "play": "播放",
+    "shuffle": "随机播放",
+    "next": "下一个",
+    "songs": "首歌曲",
+    "videos": "个视频",
+    "playVideos": "播放视频",
+    "playlistView": "播放列表",
+    "manageView": "管理",
+    "dragToReorder": "拖动以重新排序",
+    "moveUp": "上移",
+    "moveDown": "下移",
+    "generateCover": "生成封面",
+    "collectionNotFound": "未找到收藏集",
+    "musicTitle": "音乐",
+    "musicSubtitle": "你在网络上生成的歌曲和播放列表。",
+    "createSong": "创作歌曲",
+    "yourPlaylists": "你的播放列表",
+    "recentlyPlayed": "最近播放",
+    "yourSongs": "你的歌曲",
+    "noSongsYet": "你还没有生成任何歌曲。",
+    "createFirstSong": "创作你的第一首歌",
+    "notAVideo": "此请求没有可播放的视频。",
+    "videoNotFound": "未找到视频",
+    "backToRequests": "所有请求",
+    "untitledVideo": "无标题视频",
+    "generationDetails": "生成详情",
+    "upNext": "即将播放",
+    "autoplayNext": "自动播放下一个"
   }
 }

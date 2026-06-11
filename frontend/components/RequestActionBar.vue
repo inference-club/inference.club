@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  Star, Bookmark, MoreHorizontal, Eye, FolderPlus, Flag, RotateCcw, Loader2,
+  Star, Bookmark, MoreHorizontal, Eye, FolderPlus, Flag, RotateCcw, Loader2, Palette,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { useContentSharing } from '@/composables/useContentSharing'
@@ -47,7 +47,18 @@ const bookmarked = ref(!!props.request.is_bookmarked)
 const visEditOpen = ref(false)
 const collectOpen = ref(false)
 const reportOpen = ref(false)
+const coverOpen = ref(false)
 const busy = ref(false)
+
+// Cover art applies to tracks (MUSIC) — seeded from the song's prompt.
+const isTrack = computed(() => props.request.inference_type === 'MUSIC')
+const coverSeed = computed(() => {
+  const payloadPrompt =
+    typeof props.request.payload?.prompt === 'string'
+      ? (props.request.payload.prompt as string)
+      : ''
+  return props.request.prompt_preview || payloadPrompt || ''
+})
 
 watch(
   () => props.request.id,
@@ -165,6 +176,9 @@ const onVisibilityUpdated = (v: Visibility) => {
         <DropdownMenuItem @select="collectOpen = true">
           <FolderPlus class="size-4" /> Add to collection
         </DropdownMenuItem>
+        <DropdownMenuItem v-if="isTrack" @select="coverOpen = true">
+          <Palette class="size-4" /> Generate cover art
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
 
@@ -190,6 +204,12 @@ const onVisibilityUpdated = (v: Visibility) => {
       v-if="request.is_owner"
       v-model:open="collectOpen"
       :request="request"
+    />
+    <GenerateCoverDialog
+      v-if="request.is_owner && isTrack"
+      v-model:open="coverOpen"
+      :target="{ kind: 'request', id: request.id }"
+      :seed-prompt="coverSeed"
     />
     <ReportDialog
       v-if="!request.is_owner && isAuthenticated"

@@ -1,4 +1,4 @@
-import { BookOpen, Boxes, Cpu, Send, Settings2, ShieldCheck, Sparkles, Trophy } from 'lucide-vue-next'
+import { BookOpen, Boxes, Cpu, Play, Send, Settings2, ShieldCheck, Sparkles, Trophy } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
 export interface DashboardNavItem {
@@ -32,6 +32,13 @@ export const dashboardNav: DashboardNavGroup[] = [
       { titleKey: 'dashboard.items.videoGeneration', url: '/dashboard/playground/videos' },
       { titleKey: 'dashboard.items.textToSpeech', url: '/dashboard/playground/speech' },
       { titleKey: 'dashboard.items.musicGeneration', url: '/dashboard/playground/music' },
+    ],
+  },
+  {
+    titleKey: 'dashboard.groups.media',
+    icon: Play,
+    items: [
+      { titleKey: 'dashboard.items.music', url: '/dashboard/music' },
     ],
   },
   {

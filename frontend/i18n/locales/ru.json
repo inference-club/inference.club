@@ -116,7 +116,8 @@
       "compute": "Вычисления",
       "documentation": "Документация",
       "settings": "Настройки",
-      "admin": "Администрирование"
+      "admin": "Администрирование",
+      "media": "Медиа"
     },
     "items": {
       "chat": "Чат",
@@ -146,7 +147,51 @@
       "access": "Доступ",
       "token": "Токен",
       "activity": "Активность",
-      "moderation": "Модерация"
+      "moderation": "Модерация",
+      "music": "Музыка"
     }
+  },
+  "player": {
+    "shuffle": "Перемешать",
+    "previous": "Назад",
+    "play": "Играть",
+    "pause": "Пауза",
+    "next": "Далее",
+    "repeat": "Повтор",
+    "queue": "Очередь",
+    "removeFromQueue": "Убрать из очереди",
+    "mute": "Без звука",
+    "unmute": "Включить звук",
+    "close": "Закрыть плеер"
+  },
+  "media": {
+    "play": "Играть",
+    "shuffle": "Перемешать",
+    "next": "Далее",
+    "songs": "трек | трека | треков",
+    "videos": "видео | видео | видео",
+    "playVideos": "Смотреть видео",
+    "playlistView": "Плейлист",
+    "manageView": "Управление",
+    "dragToReorder": "Перетащите, чтобы изменить порядок",
+    "moveUp": "Вверх",
+    "moveDown": "Вниз",
+    "generateCover": "Создать обложку",
+    "collectionNotFound": "Коллекция не найдена",
+    "musicTitle": "Музыка",
+    "musicSubtitle": "Ваши треки и плейлисты, созданные в сети.",
+    "createSong": "Создать трек",
+    "yourPlaylists": "Ваши плейлисты",
+    "recentlyPlayed": "Недавно прослушанные",
+    "yourSongs": "Ваши треки",
+    "noSongsYet": "Вы ещё не создали ни одного трека.",
+    "createFirstSong": "Создайте свой первый трек",
+    "notAVideo": "В этом запросе нет видео для воспроизведения.",
+    "videoNotFound": "Видео не найдено",
+    "backToRequests": "Все запросы",
+    "untitledVideo": "Видео без названия",
+    "generationDetails": "Параметры генерации",
+    "upNext": "Далее",
+    "autoplayNext": "Автовоспроизведение следующего"
   }
 }

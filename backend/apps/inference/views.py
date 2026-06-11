@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Sum
+from django.db.models import Count, Exists, Max, OuterRef, Prefetch, Q, Sum
 from django.db.models.functions import TruncDate
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -55,6 +55,7 @@ from .serializers import (
     ProviderUpdateSerializer,
     PublicProviderSerializer,
     ServiceManifestSerializer,
+    _cover_image_url,
     _user_github_login,
     _user_owner,
 )
@@ -66,8 +67,8 @@ logger = logging.getLogger("django")
 # Owner-attribution querysets need the user + their GitHub social_auth row.
 def _requests_with_owner():
     return InferenceRequest.objects.select_related(
-        "provider", "user"
-    ).prefetch_related("user__social_auth", "assets")
+        "provider", "user", "cover_request"
+    ).prefetch_related("user__social_auth", "assets", "cover_request__assets")
 
 
 def _annotate_viewer_flags(qs, user):
@@ -1615,6 +1616,29 @@ def _unique_collection_slug(user, name, instance=None) -> str:
     return slug
 
 
+def _collections_annotated(qs):
+    """Collection list queryset with the counts the UI needs to pick playback
+    affordances (Play as music playlist / video playlist) without fetching
+    items: total items, per-modality counts, and total music runtime."""
+    return (
+        qs.annotate(
+            item_count=Count("items"),
+            audio_count=Count(
+                "items", filter=Q(items__request__inference_type="MUSIC")
+            ),
+            video_count=Count(
+                "items", filter=Q(items__request__inference_type="VIDEO")
+            ),
+            total_audio_seconds=Sum(
+                "items__request__audio_seconds",
+                filter=Q(items__request__inference_type="MUSIC"),
+            ),
+        )
+        .select_related("cover_request")
+        .prefetch_related("cover_request__assets")
+    )
+
+
 def _collection_with_items(col, request) -> dict:
     """Serialize a collection plus the items the caller may see (each item still
     enforces its own visibility)."""
@@ -1633,6 +1657,56 @@ def _collection_with_items(col, request) -> dict:
     return data
 
 
+def _resolve_cover_request(request, raw_id):
+    """Validate a ``cover_request_id`` value: ``None`` clears the cover;
+    otherwise it must be the caller's own IMAGE request with a generated
+    OUTPUT_IMAGE. Returns ``(cover_or_None, error_response_or_None)``."""
+    if raw_id is None:
+        return None, None
+    if not isinstance(raw_id, int):
+        return None, Response(
+            {"detail": "cover_request_id must be an integer or null."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    cover = InferenceRequest.objects.filter(id=raw_id, user=request.user).first()
+    if cover is None:
+        raise Http404("no such inference request")
+    if cover.inference_type != "IMAGE" or not any(
+        a.kind == MediaAsset.OUTPUT_IMAGE for a in cover.assets.all()
+    ):
+        return None, Response(
+            {"detail": "Cover must be an IMAGE request with a generated image."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return cover, None
+
+
+class RequestCoverView(APIView):
+    """PATCH /api/inference/requests/<id>/cover/ — set or clear a request's
+    cover art (owner only). Body: ``{"cover_request_id": <id> | null}``."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, id):
+        obj = get_object_or_404(InferenceRequest, id=id, user=request.user)
+        if "cover_request_id" not in request.data:
+            return Response(
+                {"detail": "cover_request_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cover, error = _resolve_cover_request(request, request.data["cover_request_id"])
+        if error is not None:
+            return error
+        if cover is not None and cover.id == obj.id:
+            return Response(
+                {"detail": "A request cannot be its own cover."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        obj.cover_request = cover
+        obj.save(update_fields=["cover_request"])
+        return Response({"cover_image_url": _cover_image_url(obj, request)})
+
+
 class CollectionListCreateView(generics.ListCreateAPIView):
     """GET lists the caller's collections; POST creates one (slug derived from
     the name)."""
@@ -1641,10 +1715,8 @@ class CollectionListCreateView(generics.ListCreateAPIView):
     serializer_class = CollectionSerializer
 
     def get_queryset(self):
-        return (
+        return _collections_annotated(
             Collection.objects.filter(user=self.request.user)
-            .annotate(item_count=Count("items"))
-            .select_related("cover_request")
         )
 
     def create(self, request, *args, **kwargs):
@@ -1675,6 +1747,13 @@ class CollectionDetailView(APIView):
         col = self._get(request, slug)
         ser = CollectionWriteSerializer(col, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
+        if "cover_request_id" in request.data:
+            cover, error = _resolve_cover_request(
+                request, request.data["cover_request_id"]
+            )
+            if error is not None:
+                return error
+            col.cover_request = cover
         ser.save()
         return Response(CollectionSerializer(col, context={"request": request}).data)
 
@@ -1685,20 +1764,64 @@ class CollectionDetailView(APIView):
 
 class CollectionItemView(APIView):
     """POST/DELETE /api/inference/collections/<slug>/items/<request_id>/ — add
-    or remove a request from one of the caller's collections."""
+    or remove a request from one of the caller's collections. Adds append at
+    the end of the playlist order."""
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request, slug, request_id):
         col = get_object_or_404(Collection, user=request.user, slug=slug)
         ir = _get_owned_or_visible_request(request, request_id)
-        CollectionItem.objects.get_or_create(collection=col, request=ir)
+        with transaction.atomic():
+            next_pos = (
+                col.items.aggregate(max_pos=Max("position"))["max_pos"] or 0
+            ) + 1
+            CollectionItem.objects.get_or_create(
+                collection=col, request=ir, defaults={"position": next_pos}
+            )
         return Response({"in_collection": True})
 
     def delete(self, request, slug, request_id):
         col = get_object_or_404(Collection, user=request.user, slug=slug)
         CollectionItem.objects.filter(collection=col, request_id=request_id).delete()
         return Response({"in_collection": False})
+
+
+class CollectionOrderView(APIView):
+    """PUT /api/inference/collections/<slug>/items/order/ — replace the
+    playlist order with ``{"request_ids": [...]}``. Ids omitted from the body
+    keep their relative order after the listed ones, so a partial list never
+    loses items."""
+
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, slug):
+        col = get_object_or_404(Collection, user=request.user, slug=slug)
+        ids = request.data.get("request_ids")
+        if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+            return Response(
+                {"detail": "request_ids must be a list of integers."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        with transaction.atomic():
+            items = list(col.items.select_for_update())
+            by_request_id = {it.request_id: it for it in items}
+            seen: set[int] = set()
+            ordered = []
+            for rid in ids:
+                it = by_request_id.get(rid)
+                if it is not None and rid not in seen:
+                    seen.add(rid)
+                    ordered.append(it)
+            ordered += [it for it in items if it.request_id not in seen]
+            changed = []
+            for pos, it in enumerate(ordered):
+                if it.position != pos:
+                    it.position = pos
+                    changed.append(it)
+            if changed:
+                CollectionItem.objects.bulk_update(changed, ["position"])
+        return Response(_collection_with_items(col, request))
 
 
 class PublicUserCollectionsView(APIView):
@@ -1712,10 +1835,8 @@ class PublicUserCollectionsView(APIView):
         user, _ = _user_by_github_login(github_login)
         if user is None or not user.public_profile_enabled:
             raise Http404("no such profile")
-        cols = (
+        cols = _collections_annotated(
             Collection.objects.filter(user=user, visibility=VISIBILITY_PUBLIC)
-            .annotate(item_count=Count("items"))
-            .select_related("cover_request")
         )
         return Response(
             CollectionSerializer(cols, many=True, context={"request": request}).data

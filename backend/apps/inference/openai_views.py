@@ -995,6 +995,10 @@ class _ImageProxyBase(_RateLimitHeadersMixin, APIView):
         Provider.objects.filter(id=ir.provider_id).update(last_seen_at=timezone.now())
         return Response(
             {"created": payload.get("created") if isinstance(payload, dict) else None,
+             # Mirrors the mesh/video endpoints — lets the UI link the stored
+             # request (e.g. set a generated image as cover art) without a
+             # follow-up list query.
+             "request_id": str(ir.id),
              "data": out_data},
             status=upstream.status_code,
         )
