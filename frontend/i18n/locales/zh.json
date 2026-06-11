@@ -77,7 +77,11 @@
     "blogEyebrow": "来自博客",
     "featured": "精选",
     "ctaTitle": "准备好接入了吗？",
-    "ctaBody": "用 GitHub 登录，生成密钥，一分钟内即可上线。有空闲算力时随时接入节点。"
+    "ctaBody": "用 GitHub 登录，生成密钥，一分钟内即可上线。有空闲算力时随时接入节点。",
+    "featuredEyebrow": "精选生成内容",
+    "featuredTitleLead": "诞生于",
+    "featuredTitleHighlight": "网络之上",
+    "featuredSubtitle": "来自成员的真实请求，由社区贡献的硬件生成。点击任意卡片查看完整请求。"
   },
   "auth": {
     "login": "登录",
@@ -148,7 +152,8 @@
       "token": "Token",
       "activity": "活动",
       "moderation": "内容审核",
-      "music": "音乐"
+      "music": "音乐",
+      "videos": "视频"
     }
   },
   "player": {
@@ -186,6 +191,12 @@
     "yourSongs": "你的歌曲",
     "noSongsYet": "你还没有生成任何歌曲。",
     "createFirstSong": "创作你的第一首歌",
+    "videosTitle": "视频",
+    "videosSubtitle": "你在网络上生成的视频和播放列表。",
+    "createVideo": "生成视频",
+    "yourVideos": "你的视频",
+    "noVideosYet": "你还没有生成任何视频。",
+    "createFirstVideo": "生成你的第一个视频",
     "notAVideo": "此请求没有可播放的视频。",
     "videoNotFound": "未找到视频",
     "backToRequests": "所有请求",

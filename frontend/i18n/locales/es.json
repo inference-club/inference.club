@@ -77,7 +77,11 @@
     "blogEyebrow": "Del blog",
     "featured": "Destacado",
     "ctaTitle": "¿Listo para conectarte?",
-    "ctaBody": "Inicia sesión con GitHub, genera una clave y estarás en línea en menos de un minuto. Aporta un nodo siempre que tengas ciclos libres."
+    "ctaBody": "Inicia sesión con GitHub, genera una clave y estarás en línea en menos de un minuto. Aporta un nodo siempre que tengas ciclos libres.",
+    "featuredEyebrow": "Generaciones destacadas",
+    "featuredTitleLead": "Hecho en la",
+    "featuredTitleHighlight": "red",
+    "featuredSubtitle": "Solicitudes reales de miembros, generadas en hardware que la comunidad aporta a la red. Haz clic en cualquier tarjeta para ver la solicitud completa."
   },
   "auth": {
     "login": "Iniciar sesión",
@@ -148,7 +152,8 @@
       "token": "Token",
       "activity": "Actividad",
       "moderation": "Moderación",
-      "music": "Música"
+      "music": "Música",
+      "videos": "Vídeos"
     }
   },
   "player": {
@@ -186,6 +191,12 @@
     "yourSongs": "Tus canciones",
     "noSongsYet": "Aún no has generado ninguna canción.",
     "createFirstSong": "Crea tu primera canción",
+    "videosTitle": "Vídeos",
+    "videosSubtitle": "Tus vídeos y listas, generados en la red.",
+    "createVideo": "Crear un vídeo",
+    "yourVideos": "Tus vídeos",
+    "noVideosYet": "Aún no has generado ningún vídeo.",
+    "createFirstVideo": "Crea tu primer vídeo",
     "notAVideo": "Esta solicitud no tiene vídeo para reproducir.",
     "videoNotFound": "Vídeo no encontrado",
     "backToRequests": "Todas las solicitudes",

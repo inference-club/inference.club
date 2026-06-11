@@ -114,6 +114,8 @@ export interface InferenceRequest {
   star_count?: number
   is_starred?: boolean
   is_bookmarked?: boolean
+  // Staff curation for the home-page showcase (world-readable flag).
+  is_featured?: boolean
 
   // Cover art (docs/prd/06-media-playback-experience.md): square artwork from
   // a linked IMAGE request, shown for MUSIC tracks in the player/playlists.
@@ -131,6 +133,14 @@ export interface InferenceRequest {
   reasoning?: string
   payload?: Record<string, unknown>
   results?: Record<string, unknown>
+}
+
+// One entry in the home-page featured showcase: a PUBLIC request (list-card
+// shape) plus the provider's GPU models and a guaranteed share token.
+export interface FeaturedItem extends InferenceRequest {
+  share_token: string
+  gpus: string[]
+  featured_at: string
 }
 
 // A user-named group of inference requests.

@@ -114,7 +114,7 @@ const shuffleAll = () => player.playQueue(tracks.value, -1, { shuffle: true })
         <h2 class="mb-3 flex items-center gap-2 text-lg font-semibold">
           <History class="size-5" /> {{ t('media.recentlyPlayed') }}
         </h2>
-        <TrackList :tracks="recents.slice(0, 8)" />
+        <TrackList :tracks="recents.slice(0, 8)" :requests="songs" />
       </section>
 
       <!-- All your songs -->
@@ -142,7 +142,7 @@ const shuffleAll = () => player.playQueue(tracks.value, -1, { shuffle: true })
           </div>
         </div>
 
-        <TrackList v-if="tracks.length" :tracks="tracks" />
+        <TrackList v-if="tracks.length" :tracks="tracks" :requests="songs" />
         <div v-else class="rounded-xl border py-12 text-center text-muted-foreground">
           {{ t('media.noSongsYet') }}
           <NuxtLink to="/dashboard/playground/music" class="underline">

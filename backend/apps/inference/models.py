@@ -514,6 +514,10 @@ class InferenceRequest(BaseModel):
         on_delete=models.SET_NULL,
         related_name="+",
     )
+    # Staff curation for the public home page: set = featured (when it was
+    # featured), null = not. The showcase pulls the most recently featured
+    # PUBLIC request per inference_type; only staff may toggle it.
+    featured_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
         ordering = ["-created_on"]

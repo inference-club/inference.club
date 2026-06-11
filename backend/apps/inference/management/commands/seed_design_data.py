@@ -887,6 +887,16 @@ class Command(BaseCommand):
         for key in ("image", "mesh"):
             Bookmark.objects.get_or_create(user=user, request=requests[key])
 
+        # Home-page featured showcase: one per modality, deterministic order
+        # (newest featured first on the page).
+        base_ts = timezone.now()
+        for offset, key in enumerate(
+            ("image", "video", "music", "mesh", "llm", "tts", "stt")
+        ):
+            ir = requests[key]
+            ir.featured_at = base_ts - timezone.timedelta(minutes=offset)
+            ir.save(update_fields=["featured_at", "modified_on"])
+
         self.stdout.write(
             "Collections 'design-fixtures' / 'design-mixtape' / "
             "'design-video-playlist' + stars/bookmarks ready"

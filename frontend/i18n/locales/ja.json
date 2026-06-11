@@ -77,7 +77,11 @@
     "blogEyebrow": "ブログから",
     "featured": "注目記事",
     "ctaTitle": "つなぐ準備はできましたか?",
-    "ctaBody": "GitHubでサインインしてキーを発行すれば、1分もかからず稼働開始。余力があるときはいつでもノードを持ち寄ってください。"
+    "ctaBody": "GitHubでサインインしてキーを発行すれば、1分もかからず稼働開始。余力があるときはいつでもノードを持ち寄ってください。",
+    "featuredEyebrow": "注目の生成例",
+    "featuredTitleLead": "このネットワークで",
+    "featuredTitleHighlight": "生まれた作品",
+    "featuredSubtitle": "メンバーが持ち寄ったハードウェアで生成された、実際のリクエストです。カードをクリックすると詳細が見られます。"
   },
   "auth": {
     "login": "ログイン",
@@ -148,7 +152,8 @@
       "token": "トークン",
       "activity": "アクティビティ",
       "moderation": "モデレーション",
-      "music": "ミュージック"
+      "music": "ミュージック",
+      "videos": "動画"
     }
   },
   "player": {
@@ -186,6 +191,12 @@
     "yourSongs": "あなたの曲",
     "noSongsYet": "まだ曲を生成していません。",
     "createFirstSong": "最初の曲を作りましょう",
+    "videosTitle": "動画",
+    "videosSubtitle": "ネットワークで生成したあなたの動画とプレイリスト。",
+    "createVideo": "動画を作る",
+    "yourVideos": "あなたの動画",
+    "noVideosYet": "まだ動画を生成していません。",
+    "createFirstVideo": "最初の動画を作りましょう",
     "notAVideo": "このリクエストには再生できる動画がありません。",
     "videoNotFound": "動画が見つかりません",
     "backToRequests": "すべてのリクエスト",

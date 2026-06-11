@@ -221,6 +221,89 @@ def _get_owned_or_visible_request(request, request_id):
     return obj
 
 
+class RequestFeatureView(APIView):
+    """POST/DELETE /api/inference/requests/<id>/feature/ — staff-only toggle
+    marking a request as featured on the public home page. Only PUBLIC
+    requests qualify (the showcase is world-readable, so nothing
+    unlisted/private may be pinned to it)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _check(self, request, id):
+        if not request.user.is_staff:
+            raise PermissionDenied("Only staff can feature requests.")
+        return get_object_or_404(InferenceRequest, id=id)
+
+    def post(self, request, id):
+        obj = self._check(request, id)
+        if obj.visibility != VISIBILITY_PUBLIC:
+            return Response(
+                {"detail": "Only PUBLIC requests can be featured."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        obj.featured_at = timezone.now()
+        obj.save(update_fields=["featured_at", "modified_on"])
+        return Response({"is_featured": True})
+
+    def delete(self, request, id):
+        obj = self._check(request, id)
+        obj.featured_at = None
+        obj.save(update_fields=["featured_at", "modified_on"])
+        return Response({"is_featured": False})
+
+
+def _provider_gpus(provider) -> list[str]:
+    """GPU model names from the provider's manifest (all hosts, deduped,
+    order preserved), e.g. ["RTX 4090"]. Empty when no valid manifest."""
+    if provider is None:
+        return []
+    manifest = getattr(provider, "manifest", None)
+    if manifest is None or not isinstance(manifest.parsed, dict):
+        return []
+    out: list[str] = []
+    for host in manifest.parsed.get("hosts") or []:
+        if not isinstance(host, dict):
+            continue
+        for gpu in host.get("gpus") or []:
+            if isinstance(gpu, dict) and gpu.get("model") and gpu["model"] not in out:
+                out.append(str(gpu["model"]))
+    return out
+
+
+class FeaturedContentView(APIView):
+    """GET /api/inference/featured/ — the most recently featured PUBLIC
+    request per inference_type, for the home-page showcase. World-readable.
+    Types with nothing featured are simply absent."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def get(self, request):
+        qs = (
+            _requests_with_owner()
+            .select_related("provider__manifest")
+            .filter(featured_at__isnull=False, visibility=VISIBILITY_PUBLIC)
+            .order_by("-featured_at")
+        )
+        picks: dict[str, InferenceRequest] = {}
+        for ir in qs:
+            if ir.inference_type not in picks:
+                picks[ir.inference_type] = ir
+        items = []
+        for ir in picks.values():
+            data = InferenceRequestListSerializer(
+                ir, context={"request": request}
+            ).data
+            # The card links to /s/<token>; the serializer hides the token
+            # from non-owners, but PUBLIC content is already open to anyone.
+            data["share_token"] = ir.share_token
+            data["gpus"] = _provider_gpus(ir.provider)
+            data["featured_at"] = ir.featured_at
+            items.append(data)
+        items.sort(key=lambda d: d["featured_at"], reverse=True)
+        return Response(items)
+
+
 class RequestStarView(APIView):
     """POST/DELETE /api/inference/requests/<id>/star/ — toggle the caller's star
     on a request. Returns the fresh star_count + is_starred."""

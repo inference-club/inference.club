@@ -2,7 +2,9 @@
 // Spotify-style compact track rows. Clicking a row plays the whole list as the
 // queue starting from that row (pass `single` to play rows individually).
 
+import { computed } from 'vue'
 import { Music, Play, Pause } from 'lucide-vue-next'
+import type { InferenceRequest } from '@/types'
 import type { PlayerTrack } from '@/utils/player'
 import { formatTrackTime } from '@/utils/player'
 import { usePlayerStore } from '@/stores/player'
@@ -12,12 +14,22 @@ const props = withDefaults(
     tracks: PlayerTrack[]
     /** Play only the clicked track instead of queueing the whole list. */
     single?: boolean
+    /** Source requests backing the tracks — rows whose request is found here
+     * get star/bookmark quick actions (rows without one, e.g. the client-side
+     * recently-played strip, just omit them). */
+    requests?: InferenceRequest[]
   }>(),
-  { single: false },
+  { single: false, requests: undefined },
 )
 
 const player = usePlayerStore()
 const isCurrent = (id: string) => player.current?.id === id
+
+const requestsById = computed(() => {
+  const m = new Map<string, InferenceRequest>()
+  for (const r of props.requests ?? []) m.set(String(r.id), r)
+  return m
+})
 
 const playRow = (i: number) => {
   if (props.single) player.playTrack(props.tracks[i])
@@ -67,6 +79,10 @@ const playRow = (i: number) => {
         </NuxtLink>
         <p v-if="tr.owner" class="truncate text-xs text-muted-foreground">{{ tr.owner }}</p>
       </div>
+      <RequestQuickActions
+        v-if="requestsById.get(tr.requestId)"
+        :request="requestsById.get(tr.requestId)!"
+      />
       <span class="shrink-0 text-xs tabular-nums text-muted-foreground">
         {{ formatTrackTime(tr.duration) }}
       </span>

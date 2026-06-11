@@ -447,6 +447,9 @@ class SharingFieldsMixin(serializers.Serializer):
     star_count = serializers.IntegerField(read_only=True)
     is_starred = serializers.SerializerMethodField()
     is_bookmarked = serializers.SerializerMethodField()
+    # Staff home-page curation flag; world-readable (featured content is
+    # PUBLIC by construction), writable only via the staff feature endpoint.
+    is_featured = serializers.SerializerMethodField()
 
     def _is_owner(self, obj) -> bool:
         request = self.context.get("request")
@@ -477,6 +480,9 @@ class SharingFieldsMixin(serializers.Serializer):
             return False
         return obj.bookmarks.filter(user=request.user).exists()
 
+    def get_is_featured(self, obj) -> bool:
+        return obj.featured_at is not None
+
 
 SHARING_FIELDS = [
     "visibility",
@@ -484,6 +490,7 @@ SHARING_FIELDS = [
     "star_count",
     "is_starred",
     "is_bookmarked",
+    "is_featured",
 ]
 
 

@@ -77,7 +77,11 @@
     "blogEyebrow": "From the blog",
     "featured": "Featured",
     "ctaTitle": "Ready to plug in?",
-    "ctaBody": "Sign in with GitHub, mint a key, and you're live in under a minute. Bring a node whenever you have spare cycles."
+    "ctaBody": "Sign in with GitHub, mint a key, and you're live in under a minute. Bring a node whenever you have spare cycles.",
+    "featuredEyebrow": "Featured generations",
+    "featuredTitleLead": "Made on the",
+    "featuredTitleHighlight": "network",
+    "featuredSubtitle": "Real requests from members — generated on hardware the community brought to the pool. Click any card to see the full request."
   },
   "auth": {
     "login": "Login",
@@ -148,7 +152,8 @@
       "token": "Token",
       "activity": "Activity",
       "moderation": "Moderation",
-      "music": "Music"
+      "music": "Music",
+      "videos": "Videos"
     }
   },
   "model3d": {
@@ -235,6 +240,12 @@
     "yourSongs": "Your songs",
     "noSongsYet": "You haven't generated any songs yet.",
     "createFirstSong": "Create your first song",
+    "videosTitle": "Videos",
+    "videosSubtitle": "Your videos and playlists, generated on the network.",
+    "createVideo": "Create a video",
+    "yourVideos": "Your videos",
+    "noVideosYet": "You haven't generated any videos yet.",
+    "createFirstVideo": "Create your first video",
     "notAVideo": "This request has no video to play.",
     "videoNotFound": "Video not found",
     "backToRequests": "All requests",

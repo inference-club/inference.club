@@ -41,6 +41,7 @@ export const ROUTES: RouteSpec[] = [
   { name: 'collections', path: '/dashboard/inference/collections', auth: true },
   { name: 'collection-detail', path: '/dashboard/inference/collections/:slug', auth: true, dynamic: true },
   { name: 'music', path: '/dashboard/music', auth: true },
+  { name: 'videos', path: '/dashboard/watch', auth: true },
   { name: 'watch', path: '/dashboard/watch/:videoId', auth: true, dynamic: true },
   { name: 'watch-playlist', path: '/dashboard/watch/:videoId?list=:slug', auth: true, dynamic: true },
   { name: 'leaderboard', path: '/dashboard/leaderboard', auth: true },
@@ -67,4 +68,5 @@ export const ROUTES: RouteSpec[] = [
   { name: 'design', path: '/design', auth: true },
   { name: 'design-cards', path: '/design/cards', auth: true },
   { name: 'design-primitives', path: '/design/primitives', auth: true },
+  { name: 'design-logo', path: '/design/logo', auth: true },
 ]

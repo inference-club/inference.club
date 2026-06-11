@@ -77,7 +77,11 @@
     "blogEyebrow": "Du blog",
     "featured": "À la une",
     "ctaTitle": "Prêt à vous connecter ?",
-    "ctaBody": "Connectez-vous avec GitHub, générez une clé, et vous êtes opérationnel en moins d'une minute. Apportez un nœud dès que vous avez des cycles disponibles."
+    "ctaBody": "Connectez-vous avec GitHub, générez une clé, et vous êtes opérationnel en moins d'une minute. Apportez un nœud dès que vous avez des cycles disponibles.",
+    "featuredEyebrow": "Générations à la une",
+    "featuredTitleLead": "Créé sur le",
+    "featuredTitleHighlight": "réseau",
+    "featuredSubtitle": "De vraies requêtes de membres, générées sur du matériel apporté par la communauté. Cliquez sur une carte pour voir la requête complète."
   },
   "auth": {
     "login": "Connexion",
@@ -148,7 +152,8 @@
       "token": "Jeton",
       "activity": "Activité",
       "moderation": "Modération",
-      "music": "Musique"
+      "music": "Musique",
+      "videos": "Vidéos"
     }
   },
   "player": {
@@ -186,6 +191,12 @@
     "yourSongs": "Vos titres",
     "noSongsYet": "Vous n'avez pas encore généré de titre.",
     "createFirstSong": "Créez votre premier titre",
+    "videosTitle": "Vidéos",
+    "videosSubtitle": "Vos vidéos et playlists, générées sur le réseau.",
+    "createVideo": "Créer une vidéo",
+    "yourVideos": "Vos vidéos",
+    "noVideosYet": "Vous n'avez pas encore généré de vidéo.",
+    "createFirstVideo": "Créez votre première vidéo",
     "notAVideo": "Cette requête n'a pas de vidéo à lire.",
     "videoNotFound": "Vidéo introuvable",
     "backToRequests": "Toutes les requêtes",

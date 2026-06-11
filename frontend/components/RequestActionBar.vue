@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  Star, Bookmark, MoreHorizontal, Eye, FolderPlus, Flag, RotateCcw, Loader2, Palette,
+  Star, Bookmark, MoreHorizontal, Eye, FolderPlus, Flag, RotateCcw, Loader2, Palette, Megaphone,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { useContentSharing } from '@/composables/useContentSharing'
@@ -19,9 +19,9 @@ const emit = defineEmits<{
   (e: 'retried'): void
 }>()
 
-const { toggleStar, toggleBookmark } = useContentSharing()
+const { toggleStar, toggleBookmark, toggleFeatured } = useContentSharing()
 const { retryInferenceRequest } = useInferenceRequest()
-const { isAuthenticated } = useAuth()
+const { isAuthenticated, user } = useAuth()
 
 const retryable = computed(() => isRetryable(props.request))
 const retrying = ref(false)
@@ -44,6 +44,13 @@ const onRetry = async () => {
 const starred = ref(!!props.request.is_starred)
 const starCount = ref(props.request.star_count ?? 0)
 const bookmarked = ref(!!props.request.is_bookmarked)
+const featured = ref(!!props.request.is_featured)
+
+// Staff-only home-page curation: only PUBLIC requests qualify (the backend
+// rejects everything else, so hide the affordance rather than offer a 400).
+const canFeature = computed(
+  () => !!user.value?.is_staff && props.request.visibility === 'PUBLIC',
+)
 const visEditOpen = ref(false)
 const collectOpen = ref(false)
 const reportOpen = ref(false)
@@ -66,8 +73,26 @@ watch(
     starred.value = !!props.request.is_starred
     starCount.value = props.request.star_count ?? 0
     bookmarked.value = !!props.request.is_bookmarked
+    featured.value = !!props.request.is_featured
   },
 )
+
+const onFeature = async () => {
+  if (busy.value) return
+  busy.value = true
+  const next = !featured.value
+  featured.value = next
+  try {
+    const res = await toggleFeatured(props.request.id, next)
+    featured.value = res.is_featured
+    toast.success(next ? 'Featured on the home page' : 'Removed from featured')
+  } catch {
+    featured.value = !next
+    toast.error('Failed to update featured state')
+  } finally {
+    busy.value = false
+  }
+}
 
 const onStar = async () => {
   if (busy.value) return
@@ -152,6 +177,20 @@ const onVisibilityUpdated = (v: Visibility) => {
       @click="onBookmark"
     >
       <Bookmark class="size-4" :class="bookmarked ? 'fill-current' : ''" />
+    </Button>
+
+    <!-- Feature on the home page (staff only, PUBLIC requests only) -->
+    <Button
+      v-if="canFeature"
+      variant="ghost"
+      size="icon"
+      class="size-8"
+      :class="featured ? 'text-emerald-500' : 'text-muted-foreground'"
+      :title="featured ? 'Remove from home-page featured' : 'Feature on the home page'"
+      data-testid="feature-toggle"
+      @click="onFeature"
+    >
+      <Megaphone class="size-4" :class="featured ? 'fill-current' : ''" />
     </Button>
 
     <!-- Share (owner only — only the owner is given the share_token). Hidden

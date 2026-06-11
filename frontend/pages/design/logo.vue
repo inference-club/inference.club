@@ -71,24 +71,30 @@ const groups = [
 
 const sizes = [16, 20, 24, 32, 48]
 
-const jack3dVariants = [
+const jack3dPoses = [
   {
-    id: 'jack-3d-cast',
-    name: 'Cast',
-    variant: 'cast' as const,
-    desc: 'Slender die-cast proportions. Each arm is one continuous lathed surface — flared base, thin rod, smooth swell into the ball — so joints are fillets, and the spikes taper to a soft rounded tip.',
+    id: 'jax-upright',
+    name: 'Upright',
+    pose: 'upright' as const,
+    desc: 'Spike axis vertical, spinning in place like a top. The most iconic silhouette — you always see the full star shape.',
   },
   {
-    id: 'jack-3d-chunky',
-    name: 'Chunky',
-    variant: 'chunky' as const,
-    desc: 'Same smooth construction with fat toy proportions: thicker rods, bigger balls, shorter blunter spikes. The most readable at top-bar size.',
+    id: 'jax-kickstand',
+    name: 'Kickstand',
+    pose: 'kickstand' as const,
+    desc: 'Leaning ~25° like a jack resting on two balls and a spike. Relaxed and a bit casual; the lean stays fixed while it spins.',
   },
   {
-    id: 'jack-3d-molten',
-    name: 'Molten',
-    variant: 'molten' as const,
-    desc: 'One metaball isosurface — hub, rods, balls, and spikes all melt into each other with no seams at all, like the jack was poured from liquid metal.',
+    id: 'jax-tossed',
+    name: 'Tossed',
+    pose: 'tossed' as const,
+    desc: 'A compound diagonal tilt, like the jack frozen mid-throw. The most dynamic option — the silhouette keeps changing as it turns.',
+  },
+  {
+    id: 'jax-compass',
+    name: 'Compass',
+    pose: 'compass' as const,
+    desc: 'Spike axis horizontal, rotating like a compass needle. Unusual, calm, and shows off the ball arms.',
   },
 ]
 </script>
@@ -164,16 +170,17 @@ const jack3dVariants = [
       </section>
     </template>
 
-    <!-- animated 3D jacks -->
+    <!-- animated 3D jack: one model, four poses -->
     <div class="mt-12 border-b pb-2">
-      <h2 class="text-base font-semibold uppercase tracking-wide">Jack 3D — three builds</h2>
+      <h2 class="text-base font-semibold uppercase tracking-wide">Jack 3D — jax.obj, four poses</h2>
       <p class="mt-0.5 text-sm text-muted-foreground">
-        Animated chrome jacks (full metalness + studio reflections), all with filleted
-        ball-to-rod joints and dull rounded points. Any build can pair with any static mark.
+        The real jack model in polished chrome (full metalness + studio reflections) with a
+        slow spin. Same model in every pose — only the resting angle changes. Any pose can
+        pair with any static mark.
       </p>
     </div>
 
-    <section v-for="v in jack3dVariants" :key="v.id" class="mt-8">
+    <section v-for="v in jack3dPoses" :key="v.id" class="mt-8">
       <div class="flex items-baseline gap-2">
         <h3 class="text-lg font-semibold">{{ v.name }}</h3>
         <code class="text-xs text-muted-foreground">{{ v.id }}</code>
@@ -181,12 +188,12 @@ const jack3dVariants = [
       <p class="mt-1 text-sm text-muted-foreground">{{ v.desc }}</p>
 
       <div class="mt-4 flex h-12 items-center gap-2 rounded-lg border px-4">
-        <LogoJack3D :size="26" :variant="v.variant" />
+        <LogoJack3D :size="26" :pose="v.pose" />
         <span class="whitespace-nowrap font-bold text-xl">inference.club</span>
       </div>
 
       <div class="mt-3 flex items-center justify-center rounded-lg border p-6">
-        <LogoJack3D :size="150" :speed="0.8" :variant="v.variant" />
+        <LogoJack3D :size="150" :speed="0.8" :pose="v.pose" />
       </div>
     </section>
   </div>

@@ -10,7 +10,9 @@ from .views import (
     CollectionItemView,
     CollectionListCreateView,
     CollectionOrderView,
+    FeaturedContentView,
     RequestCoverView,
+    RequestFeatureView,
     InferenceRequestView,
     LeaderboardView,
     MediaAssetView,
@@ -70,6 +72,16 @@ urlpatterns = [
         "requests/<int:id>/cover/",
         RequestCoverView.as_view(),
         name="inference-request-cover",
+    ),
+    path(
+        "requests/<int:id>/feature/",
+        RequestFeatureView.as_view(),
+        name="inference-request-feature",
+    ),
+    path(
+        "featured/",
+        FeaturedContentView.as_view(),
+        name="featured-content",
     ),
     path(
         "requests/<int:id>/report/",

@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { Collection, InferenceRequest, Visibility } from '@/types'
+import type { Collection, FeaturedItem, InferenceRequest, Visibility } from '@/types'
 
 interface PaginatedResponse<T> {
   count: number
@@ -141,6 +141,19 @@ export function useContentSharing() {
         `/requests/bookmarked/?${buildQuery(limit, offset, filters)}`,
       ),
     )
+
+  // --- featured (staff curation for the home-page showcase) ------------------
+
+  const toggleFeatured = (id: string | number, on: boolean) =>
+    withState(() =>
+      api<{ is_featured: boolean }>(`/requests/${id}/feature/`, {
+        method: on ? 'POST' : 'DELETE',
+      }),
+    )
+
+  // Public: most recently featured PUBLIC request per modality.
+  const listFeatured = () =>
+    withState(() => publicGet<FeaturedItem[]>(`/inference/featured/`))
 
   // --- moderation -----------------------------------------------------------
 
@@ -285,6 +298,8 @@ export function useContentSharing() {
     listStarred,
     toggleBookmark,
     listBookmarked,
+    toggleFeatured,
+    listFeatured,
     reportRequest,
     getSharedRequest,
     shareUrl,
