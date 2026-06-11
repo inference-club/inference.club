@@ -2,9 +2,9 @@
   <header class="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
     <div class="flex h-14 items-center px-4 sm:px-6 lg:px-8">
       <div class="mr-2 sm:mr-4 flex min-w-0">
-        <NuxtLink :to="localePath('/')" class="mr-0 sm:mr-6 flex shrink-0 items-center gap-2">
-          <AppLogo class="size-6 text-primary" />
-          <span class="font-bold text-base sm:text-xl whitespace-nowrap">inference.club</span>
+        <NuxtLink :to="localePath('/')" class="mr-0 sm:mr-6 flex min-w-0 items-center gap-1.5 sm:gap-2">
+          <AppLogo class="size-5 sm:size-6 shrink-0 text-primary" />
+          <span class="min-w-0 truncate font-bold text-base sm:text-xl">inference.club</span>
         </NuxtLink>
         <nav class="hidden md:flex items-center space-x-4 text-sm">
           <NuxtLink
@@ -34,17 +34,17 @@
           </NuxtLink>
         </nav>
       </div>
-      <div class="flex flex-1 shrink-0 items-center justify-end gap-1 sm:gap-2">
+      <div class="flex flex-1 shrink-0 items-center justify-end gap-0.5 sm:gap-2">
         <LanguagePicker />
 
-        <Button variant="ghost" size="sm" @click="toggleTheme">
+        <Button variant="ghost" size="sm" class="px-1.5 sm:px-2" @click="toggleTheme">
           <Sun v-if="isDark" class="h-5 w-5" />
           <Moon v-else class="h-5 w-5" />
           <span class="sr-only">{{ t('nav.toggleTheme') }}</span>
         </Button>
 
         <!-- Show login button if not authenticated -->
-        <Button v-if="!isAuthenticated" variant="ghost" size="sm">
+        <Button v-if="!isAuthenticated" variant="ghost" size="sm" class="px-1.5 sm:px-2">
           <NuxtLink :to="localePath('/login')">{{ t('nav.login') }}</NuxtLink>
         </Button>
 

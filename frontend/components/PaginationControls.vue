@@ -20,17 +20,18 @@ const _props = defineProps({
     <PaginationContent>
       <PaginationFirst class="hidden sm:inline-flex" :disabled="isFirstPage" @click="onPageChange(1)" />
       <PaginationPrevious :disabled="isFirstPage" @click="prev()" />
-      <PaginationEllipsis v-if="visiblePages[0] > 2" />
+      <PaginationEllipsis v-if="visiblePages[0] > 2" class="hidden sm:flex" />
       <PaginationItem
         v-for="page in visiblePages"
         :key="page"
         :value="page"
         :is-active="currentPage === page"
+        :class="currentPage === page ? '' : 'hidden sm:inline-flex'"
         @click="onPageChange(page)"
       >
         {{ page }}
       </PaginationItem>
-      <PaginationEllipsis v-if="visiblePages[visiblePages.length - 1] < pageCount - 1" />
+      <PaginationEllipsis v-if="visiblePages[visiblePages.length - 1] < pageCount - 1" class="hidden sm:flex" />
       <PaginationNext :disabled="isLastPage" @click="next()" />
       <PaginationLast class="hidden sm:inline-flex" :disabled="isLastPage" @click="onPageChange(pageCount)" />
     </PaginationContent>

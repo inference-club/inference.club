@@ -1,10 +1,10 @@
 <template>
   <Popover>
     <PopoverTrigger as-child>
-      <Button variant="ghost" size="sm" class="gap-1.5" :aria-label="t('nav.selectLanguage')">
-        <Languages class="h-5 w-5" />
+      <Button variant="ghost" size="sm" class="gap-1 px-1.5 sm:px-2" :aria-label="t('nav.selectLanguage')">
+        <Languages class="hidden sm:block h-5 w-5" />
         <span class="text-xs font-medium uppercase tracking-wide">{{ currentShort }}</span>
-        <ChevronDown class="h-3.5 w-3.5 opacity-60" />
+        <ChevronDown class="h-3 w-3 opacity-60" />
         <span class="sr-only">{{ t('nav.selectLanguage') }}</span>
       </Button>
     </PopoverTrigger>
