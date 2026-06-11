@@ -45,6 +45,10 @@ export default defineConfig({
       name: 'mobile',
       use: {
         ...devices['Pixel 7'],
+        // Narrower than the Pixel 7 default (412): iPhones are 375-390pt and
+        // 412 let real-device overflow through. 375 = the strictest common
+        // width (iPhone SE/mini); pass here and every phone passes.
+        viewport: { width: 375, height: 812 },
         storageState: 'e2e/.auth/designbot.json',
       },
       dependencies: ['setup'],

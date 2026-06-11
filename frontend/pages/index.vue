@@ -253,7 +253,7 @@ const features = [
     <!-- Code samples - the proof -->
     <section class="relative px-4 sm:px-6 lg:px-8 pb-24">
       <div class="max-w-6xl mx-auto">
-        <div class="grid lg:grid-cols-2 gap-8 lg:gap-10">
+        <div class="grid lg:grid-cols-2 gap-8 lg:gap-10 *:min-w-0">
           <!-- Consumer -->
           <div class="space-y-4">
             <div class="flex items-center gap-2">

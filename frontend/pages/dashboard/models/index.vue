@@ -79,7 +79,7 @@ onMounted(fetchModels)
     </Card>
 
     <div v-else class="grid gap-3 sm:grid-cols-2">
-      <Card v-for="m in filtered" :key="m.slug" class="p-4 flex flex-col gap-3">
+      <Card v-for="m in filtered" :key="m.slug" class="p-4 flex flex-col gap-3 min-w-0">
         <!-- Header -->
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">

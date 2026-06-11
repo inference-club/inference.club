@@ -1,10 +1,10 @@
 <template>
   <header class="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
     <div class="flex h-14 items-center px-4 sm:px-6 lg:px-8">
-      <div class="mr-4 flex">
-        <NuxtLink :to="localePath('/')" class="mr-6 flex items-center gap-2">
+      <div class="mr-2 sm:mr-4 flex min-w-0">
+        <NuxtLink :to="localePath('/')" class="mr-0 sm:mr-6 flex shrink-0 items-center gap-2">
           <AppLogo class="size-6 text-primary" />
-          <span class="font-bold text-xl">inference.club</span>
+          <span class="font-bold text-base sm:text-xl whitespace-nowrap">inference.club</span>
         </NuxtLink>
         <nav class="hidden md:flex items-center space-x-4 text-sm">
           <NuxtLink
@@ -34,7 +34,7 @@
           </NuxtLink>
         </nav>
       </div>
-      <div class="flex flex-1 items-center justify-end space-x-2">
+      <div class="flex flex-1 shrink-0 items-center justify-end gap-1 sm:gap-2">
         <LanguagePicker />
 
         <Button variant="ghost" size="sm" @click="toggleTheme">
