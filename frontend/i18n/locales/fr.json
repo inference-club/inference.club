@@ -103,7 +103,9 @@
   "docs": {
     "title": "Docs",
     "onThisPage": "Sur cette page",
-    "search": "Rechercher"
+    "search": "Rechercher",
+    "previous": "Précédent",
+    "next": "Suivant"
   },
   "dashboard": {
     "switchToLight": "Passer en mode clair",

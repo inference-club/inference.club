@@ -103,7 +103,9 @@
   "docs": {
     "title": "文档",
     "onThisPage": "本页内容",
-    "search": "搜索"
+    "search": "搜索",
+    "previous": "上一页",
+    "next": "下一页"
   },
   "dashboard": {
     "switchToLight": "切换到浅色模式",

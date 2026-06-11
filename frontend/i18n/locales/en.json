@@ -104,7 +104,9 @@
   "docs": {
     "title": "Docs",
     "onThisPage": "On this page",
-    "search": "Search"
+    "search": "Search",
+    "previous": "Previous",
+    "next": "Next"
   },
   "dashboard": {
     "switchToLight": "Switch to light mode",

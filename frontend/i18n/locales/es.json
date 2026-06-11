@@ -103,7 +103,9 @@
   "docs": {
     "title": "Documentación",
     "onThisPage": "En esta página",
-    "search": "Buscar"
+    "search": "Buscar",
+    "previous": "Anterior",
+    "next": "Siguiente"
   },
   "dashboard": {
     "switchToLight": "Cambiar a modo claro",

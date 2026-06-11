@@ -103,7 +103,9 @@
   "docs": {
     "title": "Документация",
     "onThisPage": "На этой странице",
-    "search": "Поиск"
+    "search": "Поиск",
+    "previous": "Назад",
+    "next": "Далее"
   },
   "dashboard": {
     "switchToLight": "Переключить на светлую тему",

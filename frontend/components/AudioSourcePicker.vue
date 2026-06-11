@@ -205,9 +205,15 @@ const emptyMessage = computed(
         </DialogDescription>
       </DialogHeader>
 
-      <Tabs v-model="tab">
-        <TabsList class="w-full justify-start overflow-x-auto">
-          <TabsTrigger v-for="t_ in TABS" :key="t_.key" :value="t_.key">
+      <!-- min-w-0: DialogContent is a grid, and without it this row's
+           non-wrapping tabs would widen the implicit column past the dialog
+           on phones (every sibling then overflows with it). -->
+      <Tabs v-model="tab" class="min-w-0">
+        <!-- h-auto + wrap: on phones the pills flow onto a second row instead
+             of scrolling out of sight (triggers need an explicit height —
+             their default is 100% of the fixed-height list). -->
+        <TabsList class="h-auto w-full flex-wrap justify-start gap-0.5">
+          <TabsTrigger v-for="t_ in TABS" :key="t_.key" :value="t_.key" class="h-7 flex-none">
             {{ t_.label }}
           </TabsTrigger>
         </TabsList>
@@ -230,7 +236,7 @@ const emptyMessage = computed(
         <Button type="submit" size="sm">Search</Button>
       </form>
 
-      <div class="max-h-[60vh] min-h-[14rem] overflow-y-auto">
+      <div class="max-h-[60vh] min-h-[14rem] min-w-0 overflow-y-auto">
         <p v-if="error" class="py-12 text-center text-sm text-destructive">{{ error }}</p>
 
         <!-- Loading skeleton -->

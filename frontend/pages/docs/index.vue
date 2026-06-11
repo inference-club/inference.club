@@ -14,7 +14,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <article>
+  <article class="prose prose-neutral dark:prose-invert mx-auto min-w-0 max-w-3xl break-words">
     <ContentRenderer v-if="page" :value="page" />
     <p v-else>Docs landing page is missing — check that <code>content/docs/index.md</code> exists.</p>
   </article>

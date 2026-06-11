@@ -205,9 +205,15 @@ const showingCollectionList = computed(
         <DialogDescription>{{ t('model3d.picker.description') }}</DialogDescription>
       </DialogHeader>
 
-      <Tabs v-model="tab">
-        <TabsList class="w-full justify-start overflow-x-auto">
-          <TabsTrigger v-for="k in TABS" :key="k" :value="k">
+      <!-- min-w-0: DialogContent is a grid, and without it this row's
+           non-wrapping tabs would widen the implicit column past the dialog
+           on phones (every sibling then overflows with it). -->
+      <Tabs v-model="tab" class="min-w-0">
+        <!-- h-auto + wrap: on phones the five pills flow onto a second row
+             instead of scrolling out of sight (triggers need an explicit
+             height — their default is 100% of the fixed-height list). -->
+        <TabsList class="h-auto w-full flex-wrap justify-start gap-0.5">
+          <TabsTrigger v-for="k in TABS" :key="k" :value="k" class="h-7 flex-none">
             {{ t(`model3d.picker.${k}`) }}
           </TabsTrigger>
         </TabsList>
@@ -250,7 +256,7 @@ const showingCollectionList = computed(
         <span class="font-medium text-foreground">· {{ activeCollection.name }}</span>
       </button>
 
-      <div class="min-h-[18rem] max-h-[60vh] overflow-y-auto">
+      <div class="min-h-[18rem] max-h-[60vh] min-w-0 overflow-y-auto">
         <!-- Error -->
         <p v-if="error" class="py-12 text-center text-sm text-destructive">{{ error }}</p>
 

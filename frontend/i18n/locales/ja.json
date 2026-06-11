@@ -103,7 +103,9 @@
   "docs": {
     "title": "ドキュメント",
     "onThisPage": "このページの目次",
-    "search": "検索"
+    "search": "検索",
+    "previous": "前へ",
+    "next": "次へ"
   },
   "dashboard": {
     "switchToLight": "ライトモードに切り替え",
