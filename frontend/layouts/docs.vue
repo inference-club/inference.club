@@ -81,7 +81,7 @@ const isActive = (path: string) => route.path === localePath(path)
           </ul>
         </nav>
       </aside>
-      <main class="flex-1 px-6 py-8 max-w-3xl mx-auto prose prose-neutral dark:prose-invert">
+      <main class="flex-1 min-w-0 break-words px-6 py-8 max-w-3xl mx-auto prose prose-neutral dark:prose-invert">
         <slot />
       </main>
     </div>

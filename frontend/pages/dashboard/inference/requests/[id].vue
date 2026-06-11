@@ -97,7 +97,7 @@ onMounted(() => {
 <template>
   <div class="container mx-auto py-6 max-w-4xl">
     <!-- Top bar -->
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-y-2 mb-6">
       <NuxtLink
         to="/dashboard/inference/requests"
         class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -105,7 +105,7 @@ onMounted(() => {
         <ArrowLeft class="size-4" /> Back to requests
       </NuxtLink>
 
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center justify-end gap-2">
         <RequestActionBar
           v-if="req"
           :request="req"

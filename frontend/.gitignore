@@ -22,3 +22,9 @@ logs
 .env
 .env.*
 !.env.example
+
+# playwright design suite (e2e/__screenshots__ baselines ARE committed)
+e2e/.auth/
+e2e/screenshots/
+e2e/test-results/
+e2e/report/

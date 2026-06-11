@@ -207,13 +207,13 @@ const STATUS_DOT: Record<SvcState, string> = {
         <Card
           v-for="provider in providers"
           :key="provider.id"
-          class="p-5 space-y-4"
+          class="p-5 space-y-4 min-w-0"
         >
           <!-- node header -->
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <h3 class="font-semibold truncate">{{ provider.name }}</h3>
+              <div class="flex min-w-0 items-center gap-2">
+                <h3 class="min-w-0 font-semibold truncate">{{ provider.name }}</h3>
                 <Badge :variant="provider.is_online ? 'default' : 'secondary'">
                   <span
                     class="inline-block h-1.5 w-1.5 rounded-full mr-1.5"
@@ -257,7 +257,7 @@ const STATUS_DOT: Record<SvcState, string> = {
                 <span class="font-medium text-sm">{{ host.id }}</span>
                 <span
                   v-if="host.hostname || host.address"
-                  class="text-xs text-muted-foreground font-mono"
+                  class="min-w-0 break-all text-xs text-muted-foreground font-mono"
                 >
                   <template v-if="host.hostname">{{ host.hostname }}</template><template
                     v-if="host.hostname && host.address"
@@ -294,7 +294,7 @@ const STATUS_DOT: Record<SvcState, string> = {
                       <span
                         class="rounded bg-primary/10 text-primary px-1.5 py-0.5 text-xs font-medium"
                       >{{ engineLabel(svc.engine) }}</span>
-                      <span class="text-sm font-medium truncate">{{ svc.name }}</span>
+                      <span class="min-w-0 text-sm font-medium truncate">{{ svc.name }}</span>
                     </div>
                     <span
                       class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
@@ -323,7 +323,7 @@ const STATUS_DOT: Record<SvcState, string> = {
                           :class="isModelActive(provider, m) ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
                           :title="isModelActive(provider, m) ? 'active' : 'inactive'"
                         />
-                        <span class="font-mono text-xs truncate">{{ modelLabel(m) }}</span>
+                        <span class="min-w-0 font-mono text-xs truncate">{{ modelLabel(m) }}</span>
                         <span
                           v-if="ctxFor(provider, m)"
                           class="shrink-0 rounded bg-muted px-1 py-0.5 text-[11px] font-mono text-muted-foreground"

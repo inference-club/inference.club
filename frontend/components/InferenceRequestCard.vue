@@ -53,17 +53,23 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
 
 <template>
   <Card
-    class="p-4 transition-colors group"
+    class="p-4 transition-colors group min-w-0"
     :class="linkable ? 'hover:border-primary/50 hover:bg-accent/30 cursor-pointer' : ''"
     @click="onClick"
   >
     <!-- Header: badges + delete -->
     <div class="flex items-start justify-between gap-3">
-      <div class="flex items-center gap-2 flex-wrap">
+      <div class="flex min-w-0 items-center gap-2 flex-wrap">
         <Badge variant="outline">{{ props.request.inference_type }}</Badge>
         <Badge :variant="statusVariant(props.request.status)">{{ props.request.status }}</Badge>
-        <Badge v-if="props.request.model_name" variant="secondary" class="font-mono">
-          <Cpu class="size-3" /> {{ props.request.model_name }}
+        <Badge
+          v-if="props.request.model_name"
+          variant="secondary"
+          class="max-w-full font-mono"
+          :title="props.request.model_name"
+        >
+          <Cpu class="size-3 shrink-0" />
+          <span class="min-w-0 truncate">{{ props.request.model_name }}</span>
         </Badge>
         <Badge v-if="props.request.provider" variant="outline">
           <Server class="size-3" /> {{ props.request.provider.name }}
@@ -142,7 +148,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
       </div>
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Transcript</p>
-        <p class="text-sm line-clamp-3">{{ props.request.response_preview || '—' }}</p>
+        <p class="text-sm break-words line-clamp-3">{{ props.request.response_preview || '—' }}</p>
       </div>
     </div>
 
@@ -150,7 +156,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <div v-else-if="isTts" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Text</p>
-        <p class="text-sm line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
+        <p class="text-sm break-words line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Speech</p>
@@ -170,7 +176,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <div v-else-if="isMusic" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
-        <p class="text-sm line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
+        <p class="text-sm break-words line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Song</p>
@@ -190,7 +196,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <div v-else-if="isImage" class="mt-3 grid gap-4 sm:grid-cols-2 sm:items-stretch">
       <div class="min-w-0 flex flex-col">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
-        <p class="text-sm line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
+        <p class="text-sm break-words line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <div
         v-if="props.request.image_urls?.length"
@@ -213,7 +219,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <div v-else-if="isVideo" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2 sm:items-stretch">
       <div class="min-w-0 flex flex-col">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
-        <p class="text-sm line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
+        <p class="text-sm break-words line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <video
         v-if="props.request.video_url"
@@ -247,11 +253,11 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     <div v-else class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
-        <p class="text-sm line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
+        <p class="text-sm break-words line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Response</p>
-        <p class="text-sm text-muted-foreground line-clamp-3">{{ props.request.response_preview || '—' }}</p>
+        <p class="text-sm text-muted-foreground break-words line-clamp-3">{{ props.request.response_preview || '—' }}</p>
       </div>
     </div>
 
