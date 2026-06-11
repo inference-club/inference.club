@@ -23,6 +23,15 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'delete' | 'retried', id: string): void }>()
 
 const lightbox = useImageLightbox()
+
+// Defer audio/video network activity (metadata range requests, poster
+// fetches) until the card is near the viewport. <img> gets this natively
+// via loading="lazy"; media elements don't, and a list of music/video cards
+// would otherwise hit storage for every mounted card on page load.
+const mediaEl = ref<HTMLElement | null>(null)
+const mediaInView = useInView(mediaEl)
+const whenInView = (url?: string | null) => (mediaInView.value && url) || undefined
+
 const isStt = computed(() => props.request.inference_type === 'STT')
 const isImage = computed(() => props.request.inference_type === 'IMAGE')
 const isTts = computed(() => props.request.inference_type === 'TTS')
@@ -118,10 +127,17 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
 
     <!-- Body: input on the left, output on the right -->
     <!-- STT: input audio → transcript -->
-    <div v-if="isStt" class="mt-3 grid gap-4 sm:grid-cols-2">
+    <div v-if="isStt" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Audio</p>
-        <audio v-if="props.request.audio_url" :src="props.request.audio_url" controls class="w-full h-9" @click.stop />
+        <audio
+          v-if="props.request.audio_url"
+          :src="whenInView(props.request.audio_url)"
+          preload="metadata"
+          controls
+          class="w-full h-9"
+          @click.stop
+        />
         <p v-else class="text-sm text-muted-foreground">—</p>
       </div>
       <div class="min-w-0">
@@ -131,7 +147,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     </div>
 
     <!-- TTS: input text → audio output -->
-    <div v-else-if="isTts" class="mt-3 grid gap-4 sm:grid-cols-2">
+    <div v-else-if="isTts" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Text</p>
         <p class="text-sm line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
@@ -140,7 +156,8 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Speech</p>
         <audio
           v-if="props.request.output_audio_url"
-          :src="props.request.output_audio_url"
+          :src="whenInView(props.request.output_audio_url)"
+          preload="metadata"
           controls
           class="w-full h-9"
           @click.stop
@@ -150,7 +167,7 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     </div>
 
     <!-- MUSIC: prompt → generated song -->
-    <div v-else-if="isMusic" class="mt-3 grid gap-4 sm:grid-cols-2">
+    <div v-else-if="isMusic" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
         <p class="text-sm line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
@@ -159,7 +176,8 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Song</p>
         <audio
           v-if="props.request.output_audio_url"
-          :src="props.request.output_audio_url"
+          :src="whenInView(props.request.output_audio_url)"
+          preload="metadata"
           controls
           class="w-full h-9"
           @click.stop
@@ -192,15 +210,15 @@ watch(() => props.request.visibility, (v) => { displayVisibility.value = v })
     </div>
 
     <!-- VIDEO: prompt (+ optional first frame) → generated video -->
-    <div v-else-if="isVideo" class="mt-3 grid gap-4 sm:grid-cols-2 sm:items-stretch">
+    <div v-else-if="isVideo" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2 sm:items-stretch">
       <div class="min-w-0 flex flex-col">
         <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">Prompt</p>
         <p class="text-sm line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
       </div>
       <video
         v-if="props.request.video_url"
-        :src="props.request.video_url"
-        :poster="props.request.input_image_url || undefined"
+        :src="whenInView(props.request.video_url)"
+        :poster="whenInView(props.request.input_image_url)"
         controls
         loop
         playsinline
