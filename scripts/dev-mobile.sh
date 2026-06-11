@@ -34,3 +34,9 @@ docker compose up -d backend frontend prober
 
 echo
 echo "==> open on this Mac and on your phone (same WiFi): $URL"
+if [ "${1:-}" != "off" ]; then
+  echo "==> NOTE: GitHub OAuth login will NOT work while mobile mode is on"
+  echo "    (the OAuth app's only callback is localhost). Use password login"
+  echo "    (designbot@inference.club / designbot-pass-1), or run:"
+  echo "      ./scripts/dev-mobile.sh off"
+fi
