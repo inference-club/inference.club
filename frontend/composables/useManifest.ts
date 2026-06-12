@@ -113,10 +113,17 @@ export interface CatalogModelInfo {
 }
 
 export interface PublicProfile {
+  // The canonical public handle (PRD 08); `github_login` mirrors it for
+  // legacy callers and never carries a real GitHub login for aliased users.
+  handle: string
   github_login: string
   name: string
   avatar_url: string
   github_url: string
+  // Provenance: 'github' = GitHub-verified account (icon, link only when
+  // github_url is set), 'anonymous' = guest/passcode account.
+  account_badge: 'github' | 'anonymous'
+  is_anonymous_account: boolean
   joined: string
   models: CatalogModelInfo[]
   providers: ProfileProvider[]

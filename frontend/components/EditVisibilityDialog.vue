@@ -5,8 +5,14 @@ import { Globe, Link2, Users, Lock, Check, Copy } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { VISIBILITY_META, VISIBILITY_ORDER } from '@/utils/visibility'
 import { useContentSharing } from '@/composables/useContentSharing'
+import { useAuth } from '@/composables/useAuth'
 
 const props = defineProps<{ open: boolean; request: InferenceRequest }>()
+
+// Anonymous (guest/passcode) accounts can never publish publicly; the API
+// rejects it too — this just explains instead of erroring.
+const { isAnonymous } = useAuth()
+const isDisabled = (v: Visibility) => v === 'PUBLIC' && isAnonymous.value
 const emit = defineEmits<{
   (e: 'update:open', v: boolean): void
   (e: 'updated', v: Visibility): void
@@ -79,15 +85,19 @@ const save = async () => {
           :key="v"
           type="button"
           class="w-full text-left rounded-lg border p-3 transition-colors"
-          :class="selected === v ? 'border-primary bg-primary/[0.04] ring-1 ring-primary/30' : 'hover:bg-muted/50'"
-          @click="selected = v"
+          :class="[
+            selected === v ? 'border-primary bg-primary/[0.04] ring-1 ring-primary/30' : 'hover:bg-muted/50',
+            isDisabled(v) ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : '',
+          ]"
+          :disabled="isDisabled(v)"
+          @click="!isDisabled(v) && (selected = v)"
         >
           <div class="flex items-start gap-3">
             <component :is="ICONS[v]" class="size-4 mt-0.5 shrink-0 text-muted-foreground" />
             <div class="min-w-0 flex-1">
               <div class="font-medium text-sm">{{ VISIBILITY_META[v].label }}</div>
               <p class="text-xs text-muted-foreground mt-0.5">
-                {{ VISIBILITY_META[v].description }}
+                {{ isDisabled(v) ? 'Anonymous accounts can\'t publish publicly.' : VISIBILITY_META[v].description }}
               </p>
             </div>
             <span

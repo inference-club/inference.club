@@ -7,11 +7,24 @@ interface User {
   is_superuser: boolean
   profile_setup_complete: boolean
   github_login: string | null
-  api_token: string
+  api_token: string | null
+  handle: string | null
+  account_type: 'GITHUB' | 'GUEST' | 'PASSCODE'
+  is_anonymous_account: boolean
+  anon_alias: string | null
+  use_anon_alias: boolean
+  alias_regenerated_at: string | null
   routing_preference: 'ANY' | 'PREFER_OWN' | 'ONLY_OWN'
   default_request_visibility: 'PUBLIC' | 'UNLISTED' | 'PRIVATE' | 'SECRET'
   default_collection_name: string
   public_profile_enabled: boolean
+}
+
+export interface AuthOptions {
+  github: boolean
+  guest: boolean
+  passcode: boolean
+  guest_message: string
 }
 
 interface LoginCredentials {
@@ -210,6 +223,69 @@ export const useAuth = () => {
     }
   }
 
+  // Which sign-in pathways are live right now (admin-configurable; drives
+  // the login page so enabling guests/passcodes needs no deploy).
+  const fetchAuthOptions = async (): Promise<AuthOptions> => {
+    try {
+      return await $fetch<AuthOptions>(`${config.public.apiBase}/api/auth/options/`)
+    } catch {
+      return { github: true, guest: false, passcode: false, guest_message: '' }
+    }
+  }
+
+  // One-click anonymous account. On success the session cookie is set and the
+  // store holds the new guest user.
+  const guestLogin = async () => {
+    try {
+      await setupCsrf()
+      const csrfToken = getCsrfToken()
+      const data = await $fetch<User>(`${config.public.apiBase}/api/auth/guest/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
+      })
+      authStore.setUser(data)
+      return { success: true as const }
+    } catch (error: any) {
+      const detail = error?.data?.detail || 'Guest sign-in failed'
+      return { success: false as const, error: detail }
+    }
+  }
+
+  // Passcode login: the code is the credential for one persistent account.
+  const passcodeLogin = async (code: string) => {
+    try {
+      await setupCsrf()
+      const csrfToken = getCsrfToken()
+      const data = await $fetch<User>(`${config.public.apiBase}/api/auth/passcode/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
+        body: { code },
+      })
+      authStore.setUser(data)
+      return { success: true as const }
+    } catch (error: any) {
+      const detail = error?.data?.detail || 'Invalid or revoked passcode.'
+      return { success: false as const, error: detail }
+    }
+  }
+
+  // Fresh anonymous alias (rate-limited server-side to once / 30 days).
+  const regenerateAlias = async () => {
+    const csrfToken = getCsrfToken()
+    const data = await $fetch<User>(
+      `${config.public.apiBase}/api/account/alias/regenerate/`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
+      },
+    )
+    authStore.setUser(data)
+    return data
+  }
+
   const updateAccount = async (
     payload: Partial<
       Pick<
@@ -218,6 +294,7 @@ export const useAuth = () => {
         | 'default_request_visibility'
         | 'default_collection_name'
         | 'public_profile_enabled'
+        | 'use_anon_alias'
       >
     >,
   ) => {
@@ -239,7 +316,12 @@ export const useAuth = () => {
     checkAuth,
     setupCsrf,
     updateAccount,
+    fetchAuthOptions,
+    guestLogin,
+    passcodeLogin,
+    regenerateAlias,
     user: computed(() => authStore.user),
-    isAuthenticated: computed(() => authStore.isAuthenticated)
+    isAuthenticated: computed(() => authStore.isAuthenticated),
+    isAnonymous: computed(() => !!authStore.user?.is_anonymous_account)
   }
 }

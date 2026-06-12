@@ -89,7 +89,12 @@
     "continueWithGithub": "Continuar con GitHub",
     "termsAgreement": "Al continuar, aceptas nuestros {terms} y nuestra {privacy}.",
     "termsLink": "Términos del servicio",
-    "privacyLink": "Política de privacidad"
+    "privacyLink": "Política de privacidad",
+    "or": "o",
+    "tryAnonymously": "Probar de forma anónima",
+    "passcodePlaceholder": "¿Tienes un código?",
+    "passcodeSubmit": "Entrar con código",
+    "anonymousHint": "Las sesiones anónimas reciben un nombre aleatorio como mighty-hill-hero. Sin correo, nada que te identifique."
   },
   "blog": {
     "title": "Blog",
@@ -155,7 +160,8 @@
       "activity": "Actividad",
       "moderation": "Moderación",
       "music": "Música",
-      "videos": "Vídeos"
+      "videos": "Vídeos",
+      "anonAccess": "Acceso anónimo"
     }
   },
   "player": {
@@ -216,6 +222,7 @@
     "use": "Usar",
     "appliesEverywhere": "Se aplica a todos los playgrounds y solicitudes de API hasta que lo cambies.",
     "updateFailed": "No se pudo guardar tu preferencia de compartición",
-    "loadCollectionsFailed": "No se pudieron cargar las colecciones"
+    "loadCollectionsFailed": "No se pudieron cargar las colecciones",
+    "anonymousNoPublic": "Las cuentas anónimas no pueden publicar de forma pública."
   }
 }

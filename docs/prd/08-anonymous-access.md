@@ -1,6 +1,13 @@
 # PRD 08 — Anonymous access: guest accounts, passcodes & alias mode
 
-> **Status:** Draft (2026-06-12) — not yet implemented.
+> **Status:** Implemented (2026-06-12) — backend + frontend, all four
+> milestones (A foundation, B passcodes, C guests + policy, D alias +
+> upgrade). Backend covered by
+> `apps/accounts/tests/test_anonymous_access.py` (36 tests; suite total
+> 331). Handle generation uses the `coolname` library (3-word slugs +
+> small blocklist) instead of a hand-rolled wordlist. Ships with
+> `guest_signin_enabled=False` / `passcode_signin_enabled=True` —
+> flip at /dashboard/admin/access.
 >
 > **Author:** Brian (spec) · drafted with Claude Code.
 >

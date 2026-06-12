@@ -6,7 +6,7 @@ import { useToken } from '@/composables/useToken'
 import { useAuth } from '@/composables/useAuth'
 
 const { token, isLoading, error, createToken } = useToken()
-const { user, checkAuth } = useAuth()
+const { user, checkAuth, isAnonymous } = useAuth()
 const config = useRuntimeConfig()
 const showCopied = ref(false)
 
@@ -44,7 +44,13 @@ definePageMeta({
         </p>
       </div>
 
-      <Card class="p-6">
+      <MemberOnlyGate
+        v-if="isAnonymous"
+        title="Available with a GitHub account"
+        description="Guest and passcode accounts can use the playground, but API keys (for SDKs, CLIs, and other clients) are reserved for full members."
+      />
+
+      <Card v-else class="p-6">
         <CardHeader>
           <CardTitle>Your API Token</CardTitle>
           <CardDescription>

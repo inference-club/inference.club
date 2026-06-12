@@ -59,6 +59,7 @@ class AdminActivityView(APIView):
         active_24h = (
             ir.filter(created_on__gte=day).values("user").distinct().count()
         )
+        guests_qs = users_qs.filter(account_type=User.AccountType.GUEST)
         users = {
             "total": users_qs.count(),
             "new_24h": users_qs.filter(date_joined__gte=day).count(),
@@ -66,6 +67,14 @@ class AdminActivityView(APIView):
             "new_30d": users_qs.filter(date_joined__gte=month).count(),
             "active_24h": active_24h,
             "staff": users_qs.filter(is_staff=True).count(),
+            # Anonymous access (PRD 08): rollout visibility for the dial.
+            "guests_total": guests_qs.count(),
+            "guests_active": guests_qs.filter(is_active=True).count(),
+            "guests_new_24h": guests_qs.filter(date_joined__gte=day).count(),
+            "guests_new_7d": guests_qs.filter(date_joined__gte=week).count(),
+            "passcode_accounts": users_qs.filter(
+                account_type=User.AccountType.PASSCODE
+            ).count(),
         }
 
         # --- requests --------------------------------------------------------
@@ -155,6 +164,7 @@ class AdminActivityView(APIView):
                 "github_login": _user_github_login(u),
                 "joined": u.date_joined.isoformat(),
                 "is_staff": u.is_staff,
+                "account_type": u.account_type,
             }
             for u in recent_users
         ]

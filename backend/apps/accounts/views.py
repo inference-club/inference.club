@@ -23,7 +23,10 @@ from rest_framework.views import APIView
 
 from social_django.utils import psa
 
+from apps.core.permissions import IsFullMember
+
 from .serializers import AccountUpdateSerializer, UserSerializer
+from .services import regenerate_alias
 
 # from .utils.social.oauth import get_access_token_from_code
 
@@ -87,8 +90,26 @@ def login_view(request):
     return JsonResponse({"detail": "Invalid credentials"}, status=400)
 
 
+class AliasRegenerateView(APIView):
+    """POST /api/account/alias/regenerate/ — mint a fresh anonymous alias
+    (rate-limited to once per 30 days; see services.regenerate_alias).
+
+    Full members only: anonymous accounts keep a stable handle since their
+    profile URL doubles as their share link."""
+
+    permission_classes = (IsFullMember,)
+
+    def post(self, request):
+        try:
+            regenerate_alias(request.user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response(UserSerializer(request.user).data)
+
+
 # class SocialSerializer(serializers.Serializer):
 @api_view(["POST", "DELETE"])
+@permission_classes([IsFullMember])
 def request_api_token(request):
     logger.info("Requesting API Token")
     user = request.user
@@ -103,6 +124,7 @@ def request_api_token(request):
 
 
 @api_view(["GET"])
+@permission_classes([IsFullMember])
 def list_api_tokens(request):
     user = request.user
     tokens = Token.objects.filter(user=user)

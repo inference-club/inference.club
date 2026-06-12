@@ -1,3 +1,5 @@
+import re
+
 from django.contrib.auth.base_user import BaseUserManager
 from django.utils.translation import gettext_lazy as _
 
@@ -12,10 +14,22 @@ class CustomUserManager(BaseUserManager):
         """
         Create and save a User with the given email and password.
         Password is optional so social-auth can create users without one.
+
+        Every user gets a ``handle`` (the canonical public identity, PRD 08).
+        When the caller doesn't supply one, it's derived from the email
+        local-part; GitHub sign-ins then overwrite it with the GitHub login
+        in the social-auth pipeline.
         """
         if not email:
             raise ValueError(_("The Email must be set"))
         email = self.normalize_email(email)
+        if not extra_fields.get("handle"):
+            from .handles import dedupe_handle
+
+            local = re.sub(r"[^a-zA-Z0-9_-]+", "-", email.split("@", 1)[0])
+            extra_fields["handle"] = dedupe_handle(
+                local.strip("-").lower() or "member"
+            )
         user = self.model(email=email, **extra_fields)
         if password:
             user.set_password(password)

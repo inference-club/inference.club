@@ -729,6 +729,18 @@ traitlets = ">=4"
 test = ["pytest"]
 
 [[package]]
+name = "coolname"
+version = "5.0.0"
+description = "Random name and slug generator"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "coolname-5.0.0-py3-none-any.whl", hash = "sha256:b86eea9670aa0620965167d1bfadfe654fabec839a5b51e8da611c4a64f86192"},
+    {file = "coolname-5.0.0.tar.gz", hash = "sha256:594bc6c98ebc75ddd51c0ce10efbb5d2556c14eac60b5b36900dfdd5db20eecf"},
+]
+
+[[package]]
 name = "coreapi"
 version = "2.3.3"
 description = "Python client library for Core API."
@@ -4037,4 +4049,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "~3.13"
-content-hash = "5e95a85d682a5f79a745a79f8673b89792e4ae82544dd1042628ddd7996a814d"
+content-hash = "08734bbc7231f2e2d6f3c47678e2700889f9f66067a15a350e2b020a3e6c6219"

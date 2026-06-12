@@ -391,9 +391,26 @@ def _transcription(results) -> dict | None:
     return out or None
 
 
+def _user_real_github_login(user):
+    """The user's actual GitHub login (None for guest/passcode accounts).
+    Internal-only: used to match node-access allowlists, which name real
+    GitHub identities. Never expose this for aliased users."""
+    for sa in user.social_auth.all():
+        if sa.provider == "github":
+            return (sa.extra_data or {}).get("login") or None
+    return None
+
+
 def _user_github_login(user):
-    # social_django exposes a `social_auth` reverse manager; iterate so
-    # prefetch_related kicks in rather than issuing a query per row.
+    # The owner's *public* handle (PRD 08): the canonical CustomUser.handle,
+    # which is the GitHub login for non-aliased GitHub users and a generated
+    # slug for aliased/anonymous accounts. The key keeps its historical name
+    # because the frontend uses it as the profile URL slug everywhere; the
+    # real GitHub login is never emitted for aliased users.
+    handle = getattr(user, "handle", None)
+    if handle:
+        return handle
+    # Defensive fallback for rows created before the backfill migration ran.
     for sa in user.social_auth.all():
         if sa.provider == "github":
             return (sa.extra_data or {}).get("login") or None
@@ -401,8 +418,8 @@ def _user_github_login(user):
 
 
 def _user_owner(user) -> str:
-    """Preferred display handle for a request's owner: GitHub login if we
-    have it, else the email local-part."""
+    """Preferred display handle for a request's owner: the public handle if
+    set, else the email local-part."""
     login = _user_github_login(user)
     if login:
         return login
@@ -838,6 +855,11 @@ class InferenceRequestVisibilitySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f"Must be one of {sorted(VISIBILITY_VALUES)}."
             )
+        owner = getattr(self.instance, "user", None)
+        if value == "PUBLIC" and getattr(owner, "is_anonymous_account", False):
+            raise serializers.ValidationError(
+                "Guest and passcode accounts cannot publish publicly."
+            )
         return value
 
 
@@ -940,6 +962,15 @@ class CollectionWriteSerializer(serializers.ModelSerializer):
         if value not in VISIBILITY_VALUES:
             raise serializers.ValidationError(
                 f"Must be one of {sorted(VISIBILITY_VALUES)}."
+            )
+        request = self.context.get("request")
+        if (
+            value == "PUBLIC"
+            and request is not None
+            and getattr(request.user, "is_anonymous_account", False)
+        ):
+            raise serializers.ValidationError(
+                "Guest and passcode accounts cannot publish publicly."
             )
         return value
 

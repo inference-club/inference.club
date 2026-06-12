@@ -90,7 +90,12 @@
     "continueWithGithub": "Continue with GitHub",
     "termsAgreement": "By continuing, you agree to our {terms} and {privacy}.",
     "termsLink": "Terms of Service",
-    "privacyLink": "Privacy Policy"
+    "privacyLink": "Privacy Policy",
+    "or": "or",
+    "tryAnonymously": "Try anonymously",
+    "passcodePlaceholder": "Have a passcode?",
+    "passcodeSubmit": "Sign in with passcode",
+    "anonymousHint": "Anonymous sessions get a random name like mighty-hill-hero. No email, nothing that identifies you."
   },
   "blog": {
     "title": "Blog",
@@ -156,7 +161,8 @@
       "activity": "Activity",
       "moderation": "Moderation",
       "music": "Music",
-      "videos": "Videos"
+      "videos": "Videos",
+      "anonAccess": "Anonymous access"
     }
   },
   "model3d": {
@@ -266,6 +272,7 @@
     "use": "Use",
     "appliesEverywhere": "Applies to every playground and API request until you change it.",
     "updateFailed": "Failed to save your sharing preference",
-    "loadCollectionsFailed": "Failed to load collections"
+    "loadCollectionsFailed": "Failed to load collections",
+    "anonymousNoPublic": "Anonymous accounts can't publish publicly."
   }
 }

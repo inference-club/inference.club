@@ -23,7 +23,11 @@ def api_client():
 
 @pytest.fixture
 def staff(db):
-    u = User.objects.create_user(email="staff@example.com", password="pw", is_staff=True)
+    # handle mirrors the GitHub login, as the social-auth pipeline guarantees
+    # in production (attribution now reads the handle, PRD 08).
+    u = User.objects.create_user(
+        email="staff@example.com", password="pw", is_staff=True, handle="staffer"
+    )
     UserSocialAuth.objects.create(
         user=u, provider="github", uid="10", extra_data={"login": "staffer"}
     )

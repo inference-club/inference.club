@@ -7,8 +7,11 @@ definePageMeta({
 })
 
 const { providers, isLoading, error, fetchProviders, refreshModels, setAcceptingRequests } = useProviders()
+const { isAnonymous } = useAuth()
 
-onMounted(fetchProviders)
+onMounted(() => {
+  if (!isAnonymous.value) fetchProviders()
+})
 
 const togglePause = async (p: Provider) => {
   const next = !p.accepting_requests
@@ -42,6 +45,13 @@ const formatRelative = (iso: string | null) => {
       </button>
     </div>
 
+    <MemberOnlyGate
+      v-if="isAnonymous"
+      title="Available with a GitHub account"
+      description="Guest and passcode accounts can use the playground, but registering compute (running an agent on your own hardware) is reserved for full members."
+    />
+
+    <template v-else>
     <div v-if="error" class="p-4 mb-4 bg-destructive/10 text-destructive rounded">
       {{ error }}
     </div>
@@ -134,5 +144,6 @@ const formatRelative = (iso: string | null) => {
         </p>
       </div>
     </div>
+    </template>
   </div>
 </template>

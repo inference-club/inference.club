@@ -23,8 +23,12 @@ import { useContentSharing } from '@/composables/useContentSharing'
 const props = defineProps<{ compact?: boolean }>()
 
 const { t } = useI18n()
-const { user, updateAccount } = useAuth()
+const { user, updateAccount, isAnonymous } = useAuth()
 const { listCollections } = useContentSharing()
+
+// Anonymous (guest/passcode) accounts can never publish publicly; the API
+// rejects it too — this just explains instead of erroring.
+const isVisDisabled = (v: Visibility) => v === 'PUBLIC' && isAnonymous.value
 
 const ICONS: Record<Visibility, typeof Globe> = {
   PUBLIC: Globe,
@@ -144,15 +148,18 @@ const isSelectedCollection = (name: string) =>
               :key="v"
               type="button"
               class="w-full flex items-start gap-2.5 rounded-md p-2 text-left transition-colors hover:bg-muted/50"
-              :class="visibility === v ? 'bg-primary/[0.06] ring-1 ring-primary/30' : ''"
-              :disabled="saving"
+              :class="[
+                visibility === v ? 'bg-primary/[0.06] ring-1 ring-primary/30' : '',
+                isVisDisabled(v) ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : '',
+              ]"
+              :disabled="saving || isVisDisabled(v)"
               @click="setVisibility(v)"
             >
               <component :is="ICONS[v]" class="size-4 mt-0.5 shrink-0 text-muted-foreground" />
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-medium">{{ VISIBILITY_META[v].label }}</span>
                 <span class="block text-xs text-muted-foreground">
-                  {{ VISIBILITY_META[v].description }}
+                  {{ isVisDisabled(v) ? t('sharing.anonymousNoPublic') : VISIBILITY_META[v].description }}
                 </span>
               </span>
               <Check v-if="visibility === v" class="size-4 mt-0.5 shrink-0 text-primary" />

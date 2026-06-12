@@ -89,7 +89,12 @@
     "continueWithGithub": "GitHub로 계속하기",
     "termsAgreement": "계속하면 당사의 {terms} 및 {privacy}에 동의하는 것입니다.",
     "termsLink": "이용약관",
-    "privacyLink": "개인정보 처리방침"
+    "privacyLink": "개인정보 처리방침",
+    "or": "또는",
+    "tryAnonymously": "익명으로 사용해 보기",
+    "passcodePlaceholder": "패스코드가 있나요?",
+    "passcodeSubmit": "패스코드로 로그인",
+    "anonymousHint": "익명 세션에는 mighty-hill-hero 같은 임의의 이름이 부여됩니다. 이메일도, 신원을 식별하는 정보도 없습니다."
   },
   "blog": {
     "title": "블로그",
@@ -155,7 +160,8 @@
       "activity": "활동",
       "moderation": "콘텐츠 검토",
       "music": "뮤직",
-      "videos": "동영상"
+      "videos": "동영상",
+      "anonAccess": "익명 액세스"
     }
   },
   "player": {
@@ -216,6 +222,7 @@
     "use": "사용",
     "appliesEverywhere": "변경하기 전까지 모든 플레이그라운드와 API 요청에 적용됩니다.",
     "updateFailed": "공유 설정을 저장하지 못했습니다",
-    "loadCollectionsFailed": "컬렉션을 불러오지 못했습니다"
+    "loadCollectionsFailed": "컬렉션을 불러오지 못했습니다",
+    "anonymousNoPublic": "익명 계정은 공개로 게시할 수 없습니다."
   }
 }

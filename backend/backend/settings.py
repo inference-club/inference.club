@@ -139,6 +139,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Logs out sessions whose stored epoch no longer matches the user's —
+    # how passcode/guest revocation kills live sessions instantly.
+    "apps.accounts.middleware.SessionEpochMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "social_django.middleware.SocialAuthExceptionMiddleware",
@@ -205,6 +208,10 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "inference": os.environ.get("INFERENCE_RATE_LIMIT", "60/min"),
         "models": os.environ.get("MODELS_RATE_LIMIT", "120/min"),
+        # Fallbacks for guest/passcode accounts; the live values come from
+        # the admin-editable AccessPolicy (these apply if it's unreadable).
+        "inference_anon": os.environ.get("ANON_INFERENCE_RATE_LIMIT", "15/min"),
+        "models_anon": os.environ.get("ANON_MODELS_RATE_LIMIT", "60/min"),
     },
 }
 
@@ -250,6 +257,23 @@ SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 
 # CustomUser uses email as USERNAME_FIELD with no username column.
 SOCIAL_AUTH_USER_FIELDS = ["email"]
+
+# Default pipeline + two custom steps: upgrading a logged-in guest/passcode
+# account that links GitHub ("Keep this account"), and keeping `handle` in
+# sync with the GitHub login for non-aliased users. See apps/accounts/pipeline.py.
+SOCIAL_AUTH_PIPELINE = (
+    "social_core.pipeline.social_auth.social_details",
+    "social_core.pipeline.social_auth.social_uid",
+    "social_core.pipeline.social_auth.auth_allowed",
+    "social_core.pipeline.social_auth.social_user",
+    "social_core.pipeline.user.get_username",
+    "social_core.pipeline.user.create_user",
+    "social_core.pipeline.social_auth.associate_user",
+    "social_core.pipeline.social_auth.load_extra_data",
+    "social_core.pipeline.user.user_details",
+    "apps.accounts.pipeline.finalize_anonymous_upgrade",
+    "apps.accounts.pipeline.set_handle_from_github",
+)
 
 # Where to send the browser after the OAuth handshake. Defaults match local dev.
 SOCIAL_AUTH_LOGIN_REDIRECT_URL = os.environ.get(

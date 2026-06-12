@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   Users, UserPlus, Activity, Coins, Cpu, Radio, ShieldAlert, Boxes,
+  VenetianMask, KeyRound,
 } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -103,6 +104,24 @@ const fmtDay = (iso: string) => {
               <UserPlus class="size-4" /> New (30d)
             </div>
             <div class="text-2xl font-bold mt-1 tabular-nums">{{ fmt(data.users.new_30d) }}</div>
+          </Card>
+          <Card class="p-4">
+            <div class="flex items-center gap-2 text-muted-foreground text-xs">
+              <VenetianMask class="size-4" /> Guests
+            </div>
+            <div class="text-2xl font-bold mt-1 tabular-nums">{{ fmt(data.users.guests_active) }}</div>
+            <div class="text-xs text-muted-foreground mt-1">
+              {{ fmt(data.users.guests_new_24h) }} new today · {{ fmt(data.users.guests_total) }} ever
+            </div>
+          </Card>
+          <Card class="p-4">
+            <div class="flex items-center gap-2 text-muted-foreground text-xs">
+              <KeyRound class="size-4" /> Passcode accounts
+            </div>
+            <div class="text-2xl font-bold mt-1 tabular-nums">{{ fmt(data.users.passcode_accounts) }}</div>
+            <div class="text-xs text-muted-foreground mt-1">
+              <NuxtLink to="/dashboard/admin/access" class="underline underline-offset-2">manage access →</NuxtLink>
+            </div>
           </Card>
         </div>
       </section>

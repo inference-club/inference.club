@@ -89,7 +89,12 @@
     "continueWithGithub": "通过 GitHub 继续",
     "termsAgreement": "继续即表示你同意我们的{terms}和{privacy}。",
     "termsLink": "服务条款",
-    "privacyLink": "隐私政策"
+    "privacyLink": "隐私政策",
+    "or": "或",
+    "tryAnonymously": "匿名试用",
+    "passcodePlaceholder": "有通行码？",
+    "passcodeSubmit": "使用通行码登录",
+    "anonymousHint": "匿名会话会获得一个随机名称，例如 mighty-hill-hero。无需邮箱，没有任何可识别你身份的信息。"
   },
   "blog": {
     "title": "博客",
@@ -155,7 +160,8 @@
       "activity": "活动",
       "moderation": "内容审核",
       "music": "音乐",
-      "videos": "视频"
+      "videos": "视频",
+      "anonAccess": "匿名访问"
     }
   },
   "player": {
@@ -216,6 +222,7 @@
     "use": "使用",
     "appliesEverywhere": "在你更改之前，适用于所有演练场和 API 请求。",
     "updateFailed": "无法保存共享偏好",
-    "loadCollectionsFailed": "无法加载收藏集"
+    "loadCollectionsFailed": "无法加载收藏集",
+    "anonymousNoPublic": "匿名账户无法公开发布。"
   }
 }

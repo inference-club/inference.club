@@ -89,7 +89,12 @@
     "continueWithGithub": "GitHubで続ける",
     "termsAgreement": "続行すると、{terms}および{privacy}に同意したものとみなされます。",
     "termsLink": "利用規約",
-    "privacyLink": "プライバシーポリシー"
+    "privacyLink": "プライバシーポリシー",
+    "or": "または",
+    "tryAnonymously": "匿名で試す",
+    "passcodePlaceholder": "パスコードをお持ちですか？",
+    "passcodeSubmit": "パスコードでサインイン",
+    "anonymousHint": "匿名セッションには mighty-hill-hero のようなランダムな名前が付きます。メールアドレス不要、個人を特定する情報は一切ありません。"
   },
   "blog": {
     "title": "ブログ",
@@ -155,7 +160,8 @@
       "activity": "アクティビティ",
       "moderation": "モデレーション",
       "music": "ミュージック",
-      "videos": "動画"
+      "videos": "動画",
+      "anonAccess": "匿名アクセス"
     }
   },
   "player": {
@@ -216,6 +222,7 @@
     "use": "使用",
     "appliesEverywhere": "変更するまで、すべてのプレイグラウンドと API リクエストに適用されます。",
     "updateFailed": "共有設定を保存できませんでした",
-    "loadCollectionsFailed": "コレクションを読み込めませんでした"
+    "loadCollectionsFailed": "コレクションを読み込めませんでした",
+    "anonymousNoPublic": "匿名アカウントは公開設定にできません。"
   }
 }

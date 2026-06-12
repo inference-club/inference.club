@@ -22,27 +22,38 @@ import {
 import { Badge } from '@/components/ui/badge'
 import {
   ChevronsUpDown,
+  Github,
   KeyRound,
   LogOut,
   Settings,
   Shield,
   UserRound,
+  VenetianMask,
 } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { NuxtLink } from '#components'
 import { useAuth } from '@/composables/useAuth'
 
-const { user, logout } = useAuth()
+const { user, logout, isAnonymous } = useAuth()
 const { isMobile } = useSidebar()
+const config = useRuntimeConfig()
 
-const githubLogin = computed(() => user.value?.github_login ?? '')
-const displayName = computed(() => githubLogin.value || user.value?.email || 'Not signed in')
+// The handle is the canonical public identity (PRD 08); github_login is only
+// shown to the owner in settings.
+const handle = computed(() => user.value?.handle ?? user.value?.github_login ?? '')
+const displayName = computed(() => handle.value || user.value?.email || 'Not signed in')
 const isStaff = computed(() => !!user.value?.is_staff)
-const profilePath = computed(() => (githubLogin.value ? `/${githubLogin.value}` : null))
+const profilePath = computed(() => (handle.value ? `/${handle.value}` : null))
 const initials = computed(() => {
-  const source = githubLogin.value || (user.value?.email?.split('@')[0] ?? '')
+  const source = handle.value || (user.value?.email?.split('@')[0] ?? '')
   return (source.slice(0, 2) || '?').toUpperCase()
 })
+
+// "Keep this account": OAuth while logged in associates the GitHub identity
+// with this anonymous account server-side (the upgrade pipeline).
+const keepAccount = () => {
+  window.location.href = `${config.public.apiBase}/oauth/login/github/`
+}
 </script>
 
 <template>
@@ -70,6 +81,15 @@ const initials = computed(() => {
                 >
                   <Shield class="size-2.5" />
                   Staff
+                </Badge>
+                <Badge
+                  v-if="isAnonymous"
+                  variant="secondary"
+                  class="h-4 shrink-0 gap-0.5 px-1 text-[10px] leading-none"
+                  title="Anonymous account"
+                >
+                  <VenetianMask class="size-2.5" />
+                  Anon
                 </Badge>
               </span>
             </div>
@@ -101,7 +121,8 @@ const initials = computed(() => {
                     Staff
                   </Badge>
                 </span>
-                <span v-if="user?.email" class="truncate text-xs text-muted-foreground">{{ user.email }}</span>
+                <span v-if="isAnonymous" class="truncate text-xs text-muted-foreground">Anonymous account</span>
+                <span v-else-if="user?.email" class="truncate text-xs text-muted-foreground">{{ user.email }}</span>
               </div>
             </div>
           </DropdownMenuLabel>
@@ -110,7 +131,7 @@ const initials = computed(() => {
             <DropdownMenuItem v-if="profilePath" as-child>
               <NuxtLink :to="profilePath">
                 <UserRound />
-                Public profile
+                {{ isAnonymous ? 'Unlisted profile' : 'Public profile' }}
               </NuxtLink>
             </DropdownMenuItem>
             <DropdownMenuItem as-child>
@@ -119,11 +140,15 @@ const initials = computed(() => {
                 Account
               </NuxtLink>
             </DropdownMenuItem>
-            <DropdownMenuItem as-child>
+            <DropdownMenuItem v-if="!isAnonymous" as-child>
               <NuxtLink to="/dashboard/settings/token">
                 <KeyRound />
                 API token
               </NuxtLink>
+            </DropdownMenuItem>
+            <DropdownMenuItem v-if="isAnonymous" @click="keepAccount">
+              <Github />
+              Keep this account…
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />

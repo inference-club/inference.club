@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
+import { onMounted, ref } from 'vue'
+import { VenetianMask, KeyRound, ArrowRight } from 'lucide-vue-next'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { useAuth, type AuthOptions } from '@/composables/useAuth'
 
 const props = defineProps<{
   class?: HTMLAttributes['class']
@@ -11,9 +15,40 @@ const props = defineProps<{
 const { t } = useI18n()
 const localePath = useLocalePath()
 const config = useRuntimeConfig()
+const { fetchAuthOptions, guestLogin, passcodeLogin } = useAuth()
 
 const githubLogin = () => {
   window.location.href = `${config.public.apiBase}/oauth/login/github/`
+}
+
+// Which pathways the admin has live right now; defaults render GitHub-only
+// until the options load (no layout jump for the common case).
+const options = ref<AuthOptions>({ github: true, guest: false, passcode: false, guest_message: '' })
+onMounted(async () => {
+  options.value = await fetchAuthOptions()
+})
+
+const busy = ref(false)
+const errorMessage = ref('')
+const passcode = ref('')
+
+const onGuest = async () => {
+  busy.value = true
+  errorMessage.value = ''
+  const result = await guestLogin()
+  busy.value = false
+  if (result.success) return navigateTo(localePath('/dashboard'))
+  errorMessage.value = result.error
+}
+
+const onPasscode = async () => {
+  if (!passcode.value.trim()) return
+  busy.value = true
+  errorMessage.value = ''
+  const result = await passcodeLogin(passcode.value.trim())
+  busy.value = false
+  if (result.success) return navigateTo(localePath('/dashboard'))
+  errorMessage.value = result.error
 }
 </script>
 
@@ -32,12 +67,56 @@ const githubLogin = () => {
                 {{ t('auth.welcomeSubtitle') }}
               </p>
             </div>
-            <Button type="button" class="w-full" @click="githubLogin">
+            <Button type="button" class="w-full" :disabled="busy" @click="githubLogin">
               <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" fill="currentColor" class="bi bi-github" viewBox="0 0 16 16">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/>
               </svg>
               {{ t('auth.continueWithGithub') }}
             </Button>
+
+            <template v-if="options.guest || options.passcode">
+              <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                <div class="h-px flex-1 bg-border" />
+                {{ t('auth.or') }}
+                <div class="h-px flex-1 bg-border" />
+              </div>
+
+              <Button
+                v-if="options.guest"
+                type="button"
+                variant="outline"
+                class="w-full"
+                :disabled="busy"
+                @click="onGuest"
+              >
+                <VenetianMask class="size-4" />
+                {{ t('auth.tryAnonymously') }}
+              </Button>
+
+              <form v-if="options.passcode" class="flex items-center gap-2" @submit.prevent="onPasscode">
+                <div class="relative flex-1">
+                  <KeyRound class="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    v-model="passcode"
+                    :placeholder="t('auth.passcodePlaceholder')"
+                    class="pl-8 font-mono"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </div>
+                <Button type="submit" variant="outline" size="icon" :disabled="busy || !passcode.trim()" :aria-label="t('auth.passcodeSubmit')">
+                  <ArrowRight class="size-4" />
+                </Button>
+              </form>
+
+              <p class="text-xs text-muted-foreground text-center text-balance">
+                {{ t('auth.anonymousHint') }}
+              </p>
+
+              <p v-if="errorMessage" class="text-xs text-destructive text-center">
+                {{ errorMessage }}
+              </p>
+            </template>
           </div>
         </div>
         <div class="bg-muted relative hidden md:block">

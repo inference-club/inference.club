@@ -102,7 +102,14 @@ export default defineNuxtConfig({
     },
   },
   components: {
-    dirs: ['~/components', '~/components/ui']
+    // ~/components/content holds MDC components used inside markdown (blog,
+    // docs). Nuxt Content only renders globally-registered components, so
+    // that dir must opt into global.
+    dirs: [
+      { path: '~/components/content', global: true },
+      '~/components',
+      '~/components/ui',
+    ]
   },
   shadcn: {
     /**

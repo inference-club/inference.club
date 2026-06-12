@@ -16,7 +16,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
+from .throttling import AccountTypeScopedRateThrottle, anon_scope_rate, is_anon_account
 from rest_framework.views import APIView
 
 from apps.accounts.models import CustomUser
@@ -28,7 +28,7 @@ from .models import (
     ProviderModel,
     slugify_model_id,
 )
-from .serializers import _user_github_login
+from .serializers import _user_real_github_login
 from .sharing import SHARING_KEYS, file_into_collection, pop_sharing_params
 from .views import _tailnet_proxies, refresh_provider_models, scope_usage
 
@@ -220,7 +220,12 @@ class _RateLimitHeadersMixin:
         user = getattr(request, "user", None)
         if scope and user is not None and user.is_authenticated:
             try:
-                u = scope_usage(scope, user.pk)
+                if is_anon_account(user):
+                    u = scope_usage(
+                        f"{scope}_anon", user.pk, rate=anon_scope_rate(scope)
+                    )
+                else:
+                    u = scope_usage(scope, user.pk)
                 if u:
                     response["X-RateLimit-Limit"] = str(u["limit"])
                     response["X-RateLimit-Remaining"] = str(u["remaining"])
@@ -376,7 +381,7 @@ def _find_provider_for_model(user, model_name, service_type=None):
         return None
 
     pref = getattr(user, "routing_preference", None) or CustomUser.ROUTING_ANY
-    github_login = _user_github_login(user)
+    github_login = _user_real_github_login(user)
 
     if pref == CustomUser.ROUTING_ONLY_OWN:
         return _own_provider_match(user, model_name, service_type)
@@ -399,7 +404,7 @@ class ModelsView(_RateLimitHeadersMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "models"
 
     def get(self, request):
@@ -438,7 +443,7 @@ class ModelsView(_RateLimitHeadersMixin, APIView):
         # 2) Shared models from other members' services the user can access.
         # Bound to recently-seen providers so we don't probe; access is checked
         # per service in Python.
-        github_login = _user_github_login(request.user)
+        github_login = _user_real_github_login(request.user)
         cutoff = timezone.now() - PROVIDER_LAST_SEEN_WINDOW
         shared = (
             ProviderModel.objects.filter(
@@ -471,7 +476,7 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
     """Shared proxy logic for /v1/chat/completions and /v1/completions."""
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "inference"
     upstream_path = ""  # set by subclass
     inference_type = ""  # set by subclass
@@ -702,7 +707,7 @@ class AudioTranscriptionsView(_RateLimitHeadersMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "inference"
     inference_type = "STT"
     upstream_path = "/audio/transcriptions"
@@ -935,7 +940,7 @@ class _ImageProxyBase(_RateLimitHeadersMixin, APIView):
     proxy and the STT view; routes only to ``image`` services."""
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "inference"
     inference_type = "IMAGE"
     upstream_path = ""  # set by subclass
@@ -1076,7 +1081,7 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "inference"
     inference_type = "TTS"
 
@@ -1243,7 +1248,7 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "inference"
     inference_type = "MUSIC"
     upstream_path = "/music/generations"
@@ -1477,7 +1482,7 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "inference"
     inference_type = "VIDEO"
     upstream_path = "/videos/generations"
@@ -1726,7 +1731,7 @@ class AudioVoicesView(_RateLimitHeadersMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "models"
 
     def get(self, request):
@@ -2020,7 +2025,7 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "inference"
     upstream_path = "/3d/generations"
 
@@ -2652,7 +2657,7 @@ class RetryInferenceRequestView(_RateLimitHeadersMixin, APIView):
     place (owner only). Synchronous, like the original endpoints."""
 
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [AccountTypeScopedRateThrottle]
     throttle_scope = "inference"
 
     def post(self, request, id):

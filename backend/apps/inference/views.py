@@ -19,6 +19,8 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework.views import APIView
 
+from apps.core.permissions import IsFullMember
+
 from .manifest_validator import SERVICE_TYPES
 from .manifest_validator import validate as validate_manifest
 from .sharing import unique_collection_slug
@@ -413,9 +415,12 @@ class AgentRegisterView(APIView):
 
     Idempotent on (user, name): re-registering an existing provider rebumps
     last_seen_at and re-mints an auth key. Safe to call repeatedly.
+
+    Full members only — guest/passcode accounts are playground-only and must
+    never join the tailnet or register compute.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFullMember]
 
     @transaction.atomic
     def post(self, request):
@@ -519,7 +524,7 @@ class ProviderServiceUpdateView(generics.RetrieveUpdateAPIView):
     """GET / PATCH one of the requesting user's services to set its access
     policy. Scoped to the owner — others' services 404 here."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFullMember]
     serializer_class = ProviderServiceSerializer
     lookup_field = "id"
 
@@ -535,7 +540,7 @@ class ProviderUpdateView(generics.RetrieveUpdateAPIView):
     """PATCH a provider's owner-editable settings (the accepting_requests
     pause/kill switch). Scoped to the owner."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFullMember]
     serializer_class = ProviderUpdateSerializer
     lookup_field = "id"
 
@@ -626,14 +631,15 @@ def _parse_throttle_rate(rate):
     return num_requests, duration
 
 
-def scope_usage(scope, ident):
+def scope_usage(scope, ident, rate=None):
     """Current usage for a throttle scope + identity, read straight from the
     throttle cache (no quota consumed). Returns None if the scope has no rate.
 
     Mirrors DRF's SimpleRateThrottle cache key/format so it reflects exactly
-    what the throttle enforces.
+    what the throttle enforces. ``rate`` overrides the settings lookup for
+    scopes whose rate lives elsewhere (the AccessPolicy anon scopes).
     """
-    rate = api_settings.DEFAULT_THROTTLE_RATES.get(scope)
+    rate = rate or api_settings.DEFAULT_THROTTLE_RATES.get(scope)
     num_requests, duration = _parse_throttle_rate(rate)
     if num_requests is None:
         return None
@@ -665,12 +671,17 @@ class RateLimitUsageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from .throttling import anon_scope_rate, is_anon_account
+
         ident = request.user.pk
-        scopes = [
-            u
-            for u in (scope_usage(s, ident) for s in INFERENCE_THROTTLE_SCOPES)
-            if u is not None
-        ]
+        if is_anon_account(request.user):
+            usages = (
+                scope_usage(f"{s}_anon", ident, rate=anon_scope_rate(s))
+                for s in INFERENCE_THROTTLE_SCOPES
+            )
+        else:
+            usages = (scope_usage(s, ident) for s in INFERENCE_THROTTLE_SCOPES)
+        scopes = [u for u in usages if u is not None]
         return Response({"scopes": scopes})
 
 
@@ -1365,7 +1376,7 @@ def _apply_context_lengths(provider, incoming: dict) -> None:
 class RefreshProviderModelsView(APIView):
     """POST /api/inference/providers/<id>/refresh-models/ — UI-triggered model sync."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFullMember]
 
     def post(self, request, id):
         provider = get_object_or_404(Provider, id=id, user=request.user)
@@ -1763,33 +1774,35 @@ def _profile_stats(user) -> dict:
     }
 
 
-def _user_by_github_login(github_login):
-    """Return ``(user, github_data)`` for a GitHub login (case-insensitive), or
-    ``(None, None)`` if no such user. Signup is GitHub-only, so every user has a
-    ``github`` social_auth row.
+def _user_by_handle(handle):
+    """Return ``(user, github_data)`` for a public handle (case-insensitive),
+    or ``(None, None)`` if no such user.
 
-    The match is done in Python on the JSON-stored ``login`` key so it works
-    regardless of whether ``extra_data`` is a JSONField or a legacy TextField.
-    Prefetches the data the public profile needs; the requests endpoint reuses
-    the same lookup (the extra prefetch there is negligible).
+    ``handle`` is the canonical public identity (PRD 08): the GitHub login for
+    non-aliased GitHub users, a generated slug for aliased/anonymous accounts.
+    ``github_data`` is the GitHub social_auth extra_data ONLY when the profile
+    may show it (GitHub account, alias mode off) — for aliased and anonymous
+    accounts it's ``{}`` so nothing public can leak the GitHub identity.
     """
-    from social_django.models import UserSocialAuth
-
-    target = (github_login or "").lower()
-    social = (
-        UserSocialAuth.objects.filter(provider="github")
-        .select_related("user")
+    User = get_user_model()
+    user = (
+        User.objects.filter(handle__iexact=(handle or ""))
         .prefetch_related(
-            "user__social_auth",
-            "user__providers__models",
-            "user__providers__manifest",
+            "social_auth",
+            "providers__models",
+            "providers__manifest",
         )
+        .first()
     )
-    for sa in social:
-        login_value = (sa.extra_data or {}).get("login") or ""
-        if login_value.lower() == target:
-            return sa.user, (sa.extra_data or {})
-    return None, None
+    if user is None:
+        return None, None
+    github_data = {}
+    if user.account_type == User.AccountType.GITHUB and not user.use_anon_alias:
+        for sa in user.social_auth.all():
+            if sa.provider == "github":
+                github_data = sa.extra_data or {}
+                break
+    return user, github_data
 
 
 def _user_served_models(user) -> list:
@@ -1815,35 +1828,57 @@ def _user_served_models(user) -> list:
 
 
 class PublicUserProfileView(APIView):
-    """GET /api/users/<github_login>/ — unauthenticated public profile.
+    """GET /api/users/<handle>/ — unauthenticated public profile.
 
     Returns display info, the models this user serves (with capabilities), and
     active providers with their (parsed-only) manifests. The raw YAML is never
     exposed here.
+
+    ``account_badge`` tells the UI the provenance to show: ``github`` (a
+    GitHub-verified account — icon only, never a link when aliased) or
+    ``anonymous`` (guest/passcode/aliased). GitHub name/avatar/url are only
+    emitted for non-aliased GitHub accounts; the GitHub avatar URL is itself
+    reverse-searchable, so aliased users get none and the UI renders an
+    identicon from the handle.
     """
 
     permission_classes = [AllowAny]
     authentication_classes: list = []
 
-    def get(self, request, github_login):
-        user, github_data = _user_by_github_login(github_login)
+    def get(self, request, handle):
+        user, github_data = _user_by_handle(handle)
         if user is None or not user.public_profile_enabled:
             return Response(
-                {"detail": f"no public profile for {github_login!r}"},
+                {"detail": f"no public profile for {handle!r}"},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        is_github_account = (
+            user.account_type
+            == get_user_model().AccountType.GITHUB
+        )
         providers_qs = user.providers.filter(is_active=True)
         return Response(
             {
-                "github_login": github_data.get("login") or github_login,
-                "name": github_data.get("name") or github_data.get("login") or "",
+                "handle": user.handle,
+                # Legacy key — the frontend used it as the profile slug
+                # everywhere; it now always carries the canonical handle.
+                "github_login": user.handle,
+                "name": github_data.get("name")
+                or github_data.get("login")
+                or user.handle,
                 "avatar_url": github_data.get("avatar_url") or "",
                 "github_url": (
                     f"https://github.com/{github_data.get('login')}"
                     if github_data.get("login")
                     else ""
                 ),
+                "account_badge": (
+                    "github"
+                    if is_github_account
+                    else "anonymous"
+                ),
+                "is_anonymous_account": user.is_anonymous_account,
                 "joined": user.date_joined,
                 "models": _user_served_models(user),
                 "providers": PublicProviderSerializer(
@@ -1855,13 +1890,17 @@ class PublicUserProfileView(APIView):
 
 
 class PublicUserRequestsView(generics.ListAPIView):
-    """GET /api/users/<github_login>/requests/ — unauthenticated, paginated
+    """GET /api/users/<handle>/requests/ — unauthenticated, paginated
     list of a user's inference requests for their public profile.
 
     ``?scope=consumed`` (default) = requests this user made; ``?scope=served``
     = requests this user's nodes served to others; ``?scope=bookmarked`` =
     requests this user has bookmarked onto their profile. Only PUBLIC requests
-    are listed (UNLISTED/PRIVATE/SECRET never surface publicly). ``is_owner`` is
+    are listed (UNLISTED/PRIVATE/SECRET never surface publicly), with one
+    deliberate exception: an *anonymous account's* own consumed items include
+    UNLISTED — those accounts can't publish publicly, their random handle is
+    itself the unguessable share token, and nothing links to the page, so the
+    profile acts as their "unlisted public profile" (PRD 08). ``is_owner`` is
     always False here (anonymous), so no delete affordance is exposed.
     """
 
@@ -1871,11 +1910,12 @@ class PublicUserRequestsView(generics.ListAPIView):
     serializer_class = InferenceRequestListSerializer
 
     def get_queryset(self):
-        user, _ = _user_by_github_login(self.kwargs["github_login"])
+        user, _ = _user_by_handle(self.kwargs["handle"])
         if user is None or not user.public_profile_enabled:
             raise Http404("no such profile")
         scope = self.request.query_params.get("scope")
         qs = _requests_with_owner()
+        allowed = [VISIBILITY_PUBLIC]
         if scope == "served":
             qs = qs.filter(provider__user=user)
         elif scope == "bookmarked":
@@ -1885,8 +1925,11 @@ class PublicUserRequestsView(generics.ListAPIView):
             qs = qs.filter(id__in=list(bookmarked_ids))
         else:
             qs = qs.filter(user=user)
-        # Public profile shows PUBLIC content only, whoever owns it.
-        qs = qs.filter(visibility=VISIBILITY_PUBLIC)
+            if user.is_anonymous_account:
+                from .models import VISIBILITY_UNLISTED
+
+                allowed.append(VISIBILITY_UNLISTED)
+        qs = qs.filter(visibility__in=allowed)
         return _apply_request_filters(qs, self.request.query_params)
 
 
@@ -2124,14 +2167,14 @@ class CollectionOrderView(APIView):
 
 
 class PublicUserCollectionsView(APIView):
-    """GET /api/users/<github_login>/collections/ — the user's PUBLIC
+    """GET /api/users/<handle>/collections/ — the user's PUBLIC
     collections, for their profile. 404 when the profile is disabled."""
 
     permission_classes = [AllowAny]
     authentication_classes: list = []
 
-    def get(self, request, github_login):
-        user, _ = _user_by_github_login(github_login)
+    def get(self, request, handle):
+        user, _ = _user_by_handle(handle)
         if user is None or not user.public_profile_enabled:
             raise Http404("no such profile")
         cols = _collections_annotated(
@@ -2143,14 +2186,14 @@ class PublicUserCollectionsView(APIView):
 
 
 class PublicCollectionDetailView(APIView):
-    """GET /api/users/<github_login>/collections/<slug>/ — a PUBLIC collection +
+    """GET /api/users/<handle>/collections/<slug>/ — a PUBLIC collection +
     its publicly-visible items."""
 
     permission_classes = [AllowAny]
     authentication_classes: list = []
 
-    def get(self, request, github_login, slug):
-        user, _ = _user_by_github_login(github_login)
+    def get(self, request, handle, slug):
+        user, _ = _user_by_handle(handle)
         if user is None or not user.public_profile_enabled:
             raise Http404("no such profile")
         col = get_object_or_404(

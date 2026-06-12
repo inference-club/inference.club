@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  Activity, BookOpen, Boxes, Cpu, ExternalLink, Github, Image as ImageIcon, KeyRound, Server, Sparkles, Wrench,
+  Activity, BookOpen, Boxes, Cpu, ExternalLink, Github, Image as ImageIcon, KeyRound, Server, Sparkles, VenetianMask, Wrench,
 } from 'lucide-vue-next'
 import {
   ENGINE_LABELS,
@@ -22,6 +22,14 @@ const config = useRuntimeConfig()
 const auth = useAuthStore()
 
 const username = computed(() => String(route.params.username || ''))
+
+// Deterministic identicon hue for accounts without a (GitHub) avatar.
+const identiconColor = computed(() => {
+  const source = data.value?.handle || username.value
+  let hash = 0
+  for (const ch of source) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
+  return `hsl(${hash % 360} 55% 45%)`
+})
 
 // The public, production API base shown in the "use it" snippets (matches the
 // homepage examples), independent of the dev/SSR apiBase used for fetching.
@@ -268,6 +276,15 @@ console.log(resp.choices[0].message.content)`,
         :alt="data.github_login"
         class="size-20 rounded-full ring-1 ring-border"
       >
+      <!-- Identicon for anonymous/aliased accounts: deterministic hue from the
+           handle, never an avatar that could identify anyone. -->
+      <div
+        v-else
+        class="flex size-20 shrink-0 items-center justify-center rounded-full ring-1 ring-border text-white font-semibold text-xl"
+        :style="{ backgroundColor: identiconColor }"
+      >
+        {{ (data.handle || data.github_login || '?').slice(0, 2).toUpperCase() }}
+      </div>
       <div class="flex-1 min-w-0">
         <h1 class="text-2xl font-semibold leading-tight truncate">
           {{ data.name || data.github_login }}
@@ -283,6 +300,21 @@ console.log(resp.choices[0].message.content)`,
           @{{ data.github_login }}
           <ExternalLink class="size-3" />
         </a>
+        <!-- Provenance badge without a link: GitHub-verified (aliased) or anonymous. -->
+        <span
+          v-else
+          class="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
+          :title="data.account_badge === 'github'
+            ? 'GitHub-verified account going by an alias'
+            : 'Anonymous account'"
+        >
+          <Github v-if="data.account_badge === 'github'" class="size-3.5" />
+          <VenetianMask v-else class="size-3.5" />
+          @{{ data.handle || data.github_login }}
+          <span class="text-xs">
+            · {{ data.account_badge === 'github' ? 'GitHub account' : 'anonymous' }}
+          </span>
+        </span>
         <p class="text-xs text-muted-foreground mt-1">
           joined {{ formatJoined(data.joined) }}
         </p>

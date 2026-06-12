@@ -6,7 +6,6 @@ author: briancaffey
 tags: [distributed-inference, vision, industry]
 image: /images/blog/the-case-for-distributed-inference.png
 image_prompt: "Wide cinematic abstract illustration: a distributed mesh network of glowing GPU nodes spread across stylized rooftops of houses and small buildings at dusk, connected by threads of violet, fuchsia and cyan light, edge-computing and power-grid theme, dark moody futuristic, soft glow, no text, no words, no letters"
-featured: true
 ---
 
 For a long time, the obvious objection to a community inference network was "why would anyone do this when the hyperscalers have all the GPUs?" That objection is quietly falling apart, and the most interesting evidence didn't come from a scrappy open-source project — it came from NVIDIA.

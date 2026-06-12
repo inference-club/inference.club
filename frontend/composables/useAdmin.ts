@@ -11,6 +11,11 @@ export interface AdminActivity {
     new_30d: number
     active_24h: number
     staff: number
+    guests_total: number
+    guests_active: number
+    guests_new_24h: number
+    guests_new_7d: number
+    passcode_accounts: number
   }
   requests: {
     total: number
@@ -34,7 +39,45 @@ export interface AdminActivity {
     github_login: string | null
     joined: string
     is_staff: boolean
+    account_type: 'GITHUB' | 'GUEST' | 'PASSCODE'
   }[]
+}
+
+// --- anonymous access management (PRD 08) -----------------------------------
+
+export interface AccessCode {
+  id: number
+  code: string
+  label: string
+  handle: string
+  user_id: number
+  user_is_active: boolean
+  is_active: boolean
+  expires_at: string | null
+  created_at: string
+  last_used_at: string | null
+  use_count: number
+  request_count: number
+}
+
+export interface GuestAccount {
+  id: number
+  handle: string
+  is_active: boolean
+  date_joined: string
+  last_login: string | null
+  request_count: number
+}
+
+export interface AnonAccessPolicy {
+  guest_signin_enabled: boolean
+  passcode_signin_enabled: boolean
+  max_active_guests: number
+  guest_creation_rate: string
+  passcode_attempt_rate: string
+  anon_inference_rate: string
+  anon_models_rate: string
+  guest_message: string
 }
 
 export type ReportStatus = 'OPEN' | 'REVIEWING' | 'RESOLVED' | 'DISMISSED'
@@ -163,6 +206,48 @@ export function useAdmin() {
       ),
     )
 
+  // --- anonymous access management (PRD 08) --------------------------------
+
+  const getAccessPolicy = () => withState(() => api<AnonAccessPolicy>('/access-policy/'))
+
+  const updateAccessPolicy = (payload: Partial<AnonAccessPolicy>) =>
+    withState(() =>
+      api<AnonAccessPolicy>('/access-policy/', {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+    )
+
+  const listAccessCodes = () =>
+    withState(() => api<{ codes: AccessCode[] }>('/access-codes/'))
+
+  const createAccessCode = (payload: { label?: string; expires_at?: string | null }) =>
+    withState(() =>
+      api<AccessCode>('/access-codes/', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    )
+
+  const updateAccessCode = (
+    id: number,
+    payload: { label?: string; expires_at?: string | null; is_active?: boolean },
+  ) =>
+    withState(() =>
+      api<AccessCode>(`/access-codes/${id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+    )
+
+  const listGuests = () => withState(() => api<{ guests: GuestAccount[] }>('/guests/'))
+
+  const revokeGuest = (id: number) =>
+    withState(() => api<GuestAccount>(`/guests/${id}/revoke/`, { method: 'POST' }))
+
+  const purgeGuest = (id: number) =>
+    withState(() => api<{ detail: string }>(`/guests/${id}/purge/`, { method: 'POST' }))
+
   return {
     loading,
     error,
@@ -170,5 +255,13 @@ export function useAdmin() {
     listReports,
     updateReport,
     moderateRequest,
+    getAccessPolicy,
+    updateAccessPolicy,
+    listAccessCodes,
+    createAccessCode,
+    updateAccessCode,
+    listGuests,
+    revokeGuest,
+    purgeGuest,
   }
 }

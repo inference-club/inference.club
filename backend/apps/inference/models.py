@@ -44,16 +44,30 @@ def generate_share_token() -> str:
     return secrets.token_urlsafe(16)
 
 
+def _is_member_viewer(user) -> bool:
+    """Authenticated full member. Guest/passcode accounts don't qualify for
+    the PRIVATE ("members only") tier — they see what the public sees, plus
+    their own content."""
+    return bool(
+        user is not None
+        and getattr(user, "is_authenticated", False)
+        and not getattr(user, "is_anonymous_account", False)
+    )
+
+
 def visible_list_q(user) -> Q:
     """A ``Q`` selecting requests that may appear in *listings* (the
     network-wide feed, profiles). UNLISTED and SECRET are deliberately
     excluded — they're reachable only by direct link/owner. Direct access
     (by token or PK) uses ``InferenceRequest.is_visible_to`` instead, which is
     more permissive for the link case."""
-    if user is not None and getattr(user, "is_authenticated", False):
+    if _is_member_viewer(user):
         return Q(user=user) | Q(
             visibility__in=[VISIBILITY_PUBLIC, VISIBILITY_PRIVATE]
         )
+    if user is not None and getattr(user, "is_authenticated", False):
+        # Anonymous account: own content + PUBLIC only.
+        return Q(user=user) | Q(visibility=VISIBILITY_PUBLIC)
     return Q(visibility=VISIBILITY_PUBLIC)
 
 
@@ -580,6 +594,12 @@ class InferenceRequest(BaseModel):
         if self._state.adding:
             if not self.visibility:
                 self.visibility = self._account_default_visibility()
+            # Anonymous accounts can never publish publicly — clamp at the
+            # model so every create path (proxy, playground, API) is covered.
+            if self.visibility == VISIBILITY_PUBLIC and getattr(
+                self.user, "is_anonymous_account", False
+            ):
+                self.visibility = VISIBILITY_UNLISTED
             if not self.share_token:
                 self.share_token = generate_share_token()
         super().save(*args, **kwargs)
@@ -597,7 +617,9 @@ class InferenceRequest(BaseModel):
         if self.visibility in (VISIBILITY_PUBLIC, VISIBILITY_UNLISTED):
             return True
         if self.visibility == VISIBILITY_PRIVATE:
-            return bool(user is not None and getattr(user, "is_authenticated", False))
+            # "Members only" means full members — guest/passcode accounts
+            # count as the public here.
+            return _is_member_viewer(user)
         return False  # SECRET — owner only
 
     def recount_stars(self) -> int:
