@@ -33,6 +33,9 @@ function flatten(items: DocsNavItem[], out: DocsNavItem[] = []): DocsNavItem[] {
   return out
 }
 
+// The single fetch — called by the docs LAYOUT only. Pages read the same
+// data through useDocsReadingOrder below; registering a second useAsyncData
+// under the same key would warn about mismatched handlers.
 export async function useDocsNav() {
   const { collectionName, locale } = useLocalizedContent()
 
@@ -41,9 +44,11 @@ export async function useDocsNav() {
   const { data: nav } = await useAsyncData(
     'docs-nav',
     async () => {
-      const localized = await queryCollectionNavigation(collectionName('docs'))
+      // `order` must be requested explicitly — navigation items only carry
+      // title/path by default, which would silently fall back to title sort.
+      const localized = await queryCollectionNavigation(collectionName('docs'), ['order'])
       if (localized?.length) return localized
-      return await queryCollectionNavigation(collectionName('docs', 'en'))
+      return await queryCollectionNavigation(collectionName('docs', 'en'), ['order'])
     },
     { watch: [locale] },
   )
@@ -51,4 +56,14 @@ export async function useDocsNav() {
   const tree = computed<DocsNavItem[]>(() => sorted(nav.value as DocsNavItem[] | undefined))
   const flat = computed<DocsNavItem[]>(() => flatten(tree.value))
   return { tree, flat }
+}
+
+// Reading order for prev/next links, from the nav the layout already fetched.
+// Safe because the docs layout's setup (and its await) completes before the
+// page inside it is rendered.
+export function useDocsReadingOrder() {
+  const { data: nav } = useNuxtData('docs-nav')
+  return computed<DocsNavItem[]>(() =>
+    flatten(sorted(nav.value as DocsNavItem[] | undefined)),
+  )
 }

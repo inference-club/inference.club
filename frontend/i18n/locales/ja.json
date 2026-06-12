@@ -143,6 +143,7 @@
       "myNodes": "自分のノード",
       "allNodes": "すべてのノード",
       "manifests": "マニフェスト",
+      "cluster": "クラスター",
       "introduction": "はじめに",
       "getStarted": "使ってみる",
       "apiReference": "APIリファレンス",

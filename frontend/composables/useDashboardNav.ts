@@ -75,6 +75,7 @@ export const dashboardNav: DashboardNavGroup[] = [
       { titleKey: 'dashboard.items.myNodes', url: '/dashboard/providers/my-nodes' },
       { titleKey: 'dashboard.items.allNodes', url: '/dashboard/providers/all-nodes' },
       { titleKey: 'dashboard.items.manifests', url: '/dashboard/manifest' },
+      { titleKey: 'dashboard.items.cluster', url: '/dashboard/cluster' },
     ],
   },
   {

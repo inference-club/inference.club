@@ -345,6 +345,13 @@ console.log(resp.choices[0].message.content)`,
             />
             {{ provider.is_online ? 'online' : 'offline' }}
           </span>
+          <NuxtLink
+            v-if="provider.manifest?.parsed.discovery === 'kubernetes'"
+            :to="`/${data.github_login}/cluster?provider=${provider.id}`"
+            class="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400 hover:bg-sky-500/20"
+          >
+            <Boxes class="size-3" /> 3D cluster
+          </NuxtLink>
         </div>
         <button
           v-if="isOwner && provider.manifest"

@@ -143,6 +143,7 @@
       "myNodes": "Мои узлы",
       "allNodes": "Все узлы",
       "manifests": "Манифесты",
+      "cluster": "Кластер",
       "introduction": "Введение",
       "getStarted": "Начало работы",
       "apiReference": "Справочник API",

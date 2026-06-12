@@ -143,6 +143,7 @@
       "myNodes": "我的节点",
       "allNodes": "全部节点",
       "manifests": "清单",
+      "cluster": "集群",
       "introduction": "简介",
       "getStarted": "快速开始",
       "apiReference": "API 参考",

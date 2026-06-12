@@ -30,6 +30,24 @@ export default defineNuxtConfig({
       tailwindcss(),
     ],
   },
+  content: {
+    build: {
+      markdown: {
+        highlight: {
+          // Dual Shiki themes: MDC emits both palettes as CSS variables
+          // (--shiki-default / --shiki-dark) and switches them on `html.dark`;
+          // main.css keeps the surrounding pre chrome in sync.
+          theme: { default: 'github-light', dark: 'github-dark' },
+          // Every fence language used under content/ — a language missing
+          // from this list silently renders as plain, unhighlighted text.
+          langs: [
+            'bash', 'json', 'jsonc', 'python', 'go', 'http', 'yaml',
+            'js', 'ts', 'html', 'vue', 'scss', 'mdc',
+          ],
+        },
+      },
+    },
+  },
   modules: [
     '@nuxt/content',
     '@nuxt/eslint',

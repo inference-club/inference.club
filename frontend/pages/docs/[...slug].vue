@@ -21,7 +21,7 @@ if (!page.value) {
 }
 
 // Prev/next follow the sidebar's reading order (same tree, same sort).
-const { flat } = await useDocsNav()
+const flat = useDocsReadingOrder()
 const surroundings = computed(() => {
   const idx = flat.value.findIndex((item) => localePath(item.path) === route.path)
   if (idx === -1) return { prev: null, next: null }

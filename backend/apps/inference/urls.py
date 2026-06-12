@@ -5,6 +5,7 @@ from .views import (
     AgentRegisterView,
     AllInferenceRequestView,
     AllProvidersListView,
+    ProviderClusterStateView,
     BookmarkedRequestsView,
     CollectionDetailView,
     CollectionItemView,
@@ -148,5 +149,10 @@ urlpatterns = [
         "providers/<int:id>/manifest/",
         ProviderManifestView.as_view(),
         name="provider-manifest",
+    ),
+    path(
+        "providers/<int:id>/cluster/",
+        ProviderClusterStateView.as_view(),
+        name="provider-cluster-state",
     ),
 ]

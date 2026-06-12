@@ -143,6 +143,7 @@
       "myNodes": "Mes nœuds",
       "allNodes": "Tous les nœuds",
       "manifests": "Manifestes",
+      "cluster": "Cluster",
       "introduction": "Introduction",
       "getStarted": "Démarrer",
       "apiReference": "Référence API",

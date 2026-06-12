@@ -144,6 +144,7 @@
       "myNodes": "My nodes",
       "allNodes": "All nodes",
       "manifests": "Manifests",
+      "cluster": "Cluster",
       "introduction": "Introduction",
       "getStarted": "Get Started",
       "apiReference": "API reference",

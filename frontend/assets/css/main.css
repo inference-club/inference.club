@@ -162,3 +162,25 @@
     background: transparent;
   }
 }
+
+/* Code blocks in prose (docs/blog). Shiki highlights with the dual
+   github-light/github-dark themes (nuxt.config content.build.markdown
+   .highlight); MDC injects each token's palette as --shiki-default /
+   --shiki-dark variables and flips them on `html.dark`. The typography
+   plugin, however, paints `pre` near-black in BOTH modes — which rendered
+   the github-light palette on a dark background in light mode. Drive the
+   pre chrome from the same two themes so tokens and background always
+   belong together. (Unlayered on purpose: it must override the typography
+   plugin's layered defaults.) */
+.prose {
+  --tw-prose-pre-bg: #f6f8fa;   /* github-light editor background */
+  --tw-prose-pre-code: #24292e; /* github-light foreground */
+}
+.dark .prose {
+  --tw-prose-pre-bg: #24292e;   /* github-dark editor background */
+  --tw-prose-pre-code: #e1e4e8; /* github-dark foreground */
+}
+/* A light block on a light page needs an edge to read as a block. */
+.prose pre {
+  border: 1px solid var(--border);
+}

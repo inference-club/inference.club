@@ -1501,6 +1501,66 @@ class ProviderManifestView(APIView):
         return Response(ServiceManifestSerializer(manifest).data)
 
 
+CLUSTER_STATE_CACHE_TTL = 30  # seconds — "live-ish" per PRD 07 (30–60s poll)
+
+
+class ProviderClusterStateView(APIView):
+    """GET /api/inference/providers/<id>/cluster/ — live cluster snapshot.
+
+    Proxies the agent's ``GET /cluster/state`` (node conditions, memory
+    allocatable/usage, GPU allocatable, pod phases/restarts) for providers
+    whose latest manifest is kubernetes-derived (``discovery: kubernetes``).
+    Public whenever the owner's profile is public — the cluster page is the
+    profile's storefront — and always available to the owner. A short
+    server-side cache keeps a busy viz page from hammering the agent.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, id):
+        provider = get_object_or_404(
+            Provider.objects.select_related("user"), id=id, is_active=True
+        )
+        is_owner = (
+            request.user.is_authenticated and provider.user_id == request.user.id
+        )
+        if not is_owner and not provider.user.public_profile_enabled:
+            raise Http404
+        manifest = getattr(provider, "manifest", None)
+        parsed = manifest.parsed if manifest is not None and manifest.is_valid else None
+        if not isinstance(parsed, dict) or parsed.get("discovery") != "kubernetes":
+            return Response(
+                {"detail": "provider's manifest is not kubernetes-derived"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not provider.tailnet_hostname:
+            return Response(
+                {"detail": "provider has no reachable agent"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        cache_key = f"cluster_state:{provider.id}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        url = (
+            f"http://{provider.tailnet_hostname}:{provider.agent_port}/cluster/state"
+        )
+        try:
+            upstream = requests.get(url, timeout=15, proxies=_tailnet_proxies())
+            upstream.raise_for_status()
+            payload = upstream.json()
+        except (requests.RequestException, ValueError):
+            logger.warning("cluster state fetch failed for provider %s", provider.id)
+            return Response(
+                {"detail": "agent did not return cluster state"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        cache.set(cache_key, payload, CLUSTER_STATE_CACHE_TTL)
+        return Response(payload)
+
+
 def _daily_series(qs, days: int = 365) -> list[dict]:
     """Per-day request counts + tokens over the trailing window, for a
     GitHub-style activity heatmap. Sparse — only days with activity."""

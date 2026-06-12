@@ -29,6 +29,10 @@ MAX_HOSTS = 50
 MAX_SERVICES = 100
 MAX_STRING_LEN = 1024
 SUPPORTED_SCHEMA_VERSIONS = {1}
+# Where the manifest came from. "kubernetes" marks a cluster-derived manifest
+# (agent AGENT_DISCOVERY=kubernetes) — the gate for the live cluster-state
+# proxy (PRD 07). Optional and additive: hand-written manifests omit it.
+DISCOVERY_MODES = {"static", "kubernetes"}
 
 
 class ManifestError(str):
@@ -60,6 +64,13 @@ def validate(parsed: dict, raw_yaml: str = "") -> list[str]:
         errors.append(
             f"schema_version must be one of {sorted(SUPPORTED_SCHEMA_VERSIONS)}, "
             f"got {schema_version!r}"
+        )
+
+    discovery = parsed.get("discovery")
+    if discovery is not None and discovery not in DISCOVERY_MODES:
+        errors.append(
+            f"discovery: must be omitted or one of {sorted(DISCOVERY_MODES)}, "
+            f"got {discovery!r}"
         )
 
     agent = parsed.get("agent")

@@ -12,6 +12,10 @@ export interface ManifestModel {
 
 export interface ManifestService {
   name: string
+  // What the service provides: llm (default) | stt | tts | image | mesh |
+  // music | video. Drives the modality color in lists and the cluster scene.
+  type?: string
+  features?: string[]
   engine: string
   url: string
   models?: ManifestModel[]
@@ -37,6 +41,9 @@ export interface ManifestHost {
 
 export interface ParsedManifest {
   schema_version: number
+  // "kubernetes" when the agent derived this manifest from a cluster
+  // (AGENT_DISCOVERY=kubernetes) — the gate for the live cluster page.
+  discovery?: string
   agent: { name: string; hostname?: string; listen_port?: number }
   hosts: ManifestHost[]
 }

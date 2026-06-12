@@ -143,6 +143,7 @@
       "myNodes": "내 노드",
       "allNodes": "모든 노드",
       "manifests": "매니페스트",
+      "cluster": "클러스터",
       "introduction": "소개",
       "getStarted": "시작하기",
       "apiReference": "API 참조",
