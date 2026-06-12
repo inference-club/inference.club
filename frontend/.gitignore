@@ -30,3 +30,4 @@ e2e/test-results/
 e2e/report/
 e2e/screenshots-before/
 e2e/review.html
+.nuxt-local

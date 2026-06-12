@@ -29,6 +29,7 @@ from .models import (
     CollectionItem,
     ContentReport,
     InferenceRequest,
+    ManifestRevision,
     MediaAsset,
     Provider,
     ProviderModel,
@@ -1471,6 +1472,11 @@ class AgentManifestView(APIView):
         # broken manifest can't wipe out a previously-good model list.
         if not errors:
             sync_provider_models_from_manifest(provider, manifest.parsed)
+            # Story-mode history (PRD 07 V3): append-only, deduped against
+            # the previous revision so agent restarts don't spam rows.
+            ManifestRevision.record(
+                provider, manifest.parsed, schema_version=schema_version
+            )
 
         body = {
             "manifest": ServiceManifestSerializer(manifest).data,
@@ -1502,6 +1508,30 @@ class ProviderManifestView(APIView):
 
 
 CLUSTER_STATE_CACHE_TTL = 30  # seconds — "live-ish" per PRD 07 (30–60s poll)
+CLUSTER_ACTIVITY_CACHE_TTL = 20  # seconds
+CLUSTER_ACTIVITY_WINDOW_MIN = 60
+CLUSTER_ACTIVITY_BUCKET_SEC = 60
+CLUSTER_HISTORY_MAX_REVISIONS = 200
+
+
+def _cluster_provider_or_404(request, provider_id, require_k8s=True):
+    """Resolve a provider for the cluster endpoints (PRD 07), enforcing the
+    shared access rule: public whenever the owner's profile is public — the
+    cluster page is the profile's storefront — and always for the owner.
+    With ``require_k8s`` the latest manifest must be kubernetes-derived
+    (``discovery: kubernetes``); 404 otherwise."""
+    provider = get_object_or_404(
+        Provider.objects.select_related("user"), id=provider_id, is_active=True
+    )
+    is_owner = request.user.is_authenticated and provider.user_id == request.user.id
+    if not is_owner and not provider.user.public_profile_enabled:
+        raise Http404
+    if require_k8s:
+        manifest = getattr(provider, "manifest", None)
+        parsed = manifest.parsed if manifest is not None and manifest.is_valid else None
+        if not isinstance(parsed, dict) or parsed.get("discovery") != "kubernetes":
+            raise Http404("provider's manifest is not kubernetes-derived")
+    return provider
 
 
 class ProviderClusterStateView(APIView):
@@ -1510,29 +1540,13 @@ class ProviderClusterStateView(APIView):
     Proxies the agent's ``GET /cluster/state`` (node conditions, memory
     allocatable/usage, GPU allocatable, pod phases/restarts) for providers
     whose latest manifest is kubernetes-derived (``discovery: kubernetes``).
-    Public whenever the owner's profile is public — the cluster page is the
-    profile's storefront — and always available to the owner. A short
-    server-side cache keeps a busy viz page from hammering the agent.
+    A short server-side cache keeps a busy viz page from hammering the agent.
     """
 
     permission_classes = [AllowAny]
 
     def get(self, request, id):
-        provider = get_object_or_404(
-            Provider.objects.select_related("user"), id=id, is_active=True
-        )
-        is_owner = (
-            request.user.is_authenticated and provider.user_id == request.user.id
-        )
-        if not is_owner and not provider.user.public_profile_enabled:
-            raise Http404
-        manifest = getattr(provider, "manifest", None)
-        parsed = manifest.parsed if manifest is not None and manifest.is_valid else None
-        if not isinstance(parsed, dict) or parsed.get("discovery") != "kubernetes":
-            return Response(
-                {"detail": "provider's manifest is not kubernetes-derived"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        provider = _cluster_provider_or_404(request, id)
         if not provider.tailnet_hostname:
             return Response(
                 {"detail": "provider has no reachable agent"},
@@ -1559,6 +1573,140 @@ class ProviderClusterStateView(APIView):
             )
         cache.set(cache_key, payload, CLUSTER_STATE_CACHE_TTL)
         return Response(payload)
+
+
+class ProviderClusterActivityView(APIView):
+    """GET /api/inference/providers/<id>/cluster/activity/ — per-service
+    request activity for the cluster scene (PRD 07 V1): the sparkline on the
+    service card and the request pulses flowing into machines.
+
+    Buckets the provider's served requests over the trailing hour into
+    per-minute counts, grouped by the manifest service that serves each
+    request's model (model_name → ProviderModel → ProviderService). Counts
+    only — no prompt/response content, so it shares the public gating of the
+    cluster state endpoint.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, id):
+        provider = _cluster_provider_or_404(request, id)
+
+        cache_key = f"cluster_activity:{provider.id}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        now = timezone.now()
+        window = timedelta(minutes=CLUSTER_ACTIVITY_WINDOW_MIN)
+        buckets_per_service = CLUSTER_ACTIVITY_WINDOW_MIN * 60 // CLUSTER_ACTIVITY_BUCKET_SEC
+
+        service_by_model = {
+            pm.name: pm.service.name
+            for pm in ProviderModel.objects.filter(
+                provider=provider, service__isnull=False
+            ).select_related("service")
+        }
+
+        rows = InferenceRequest.objects.filter(
+            provider=provider, created_on__gte=now - window
+        ).values_list("model_name", "created_on")
+
+        services: dict[str, dict] = {}
+        for model_name, created_on in rows:
+            service = service_by_model.get(model_name)
+            if service is None:
+                continue
+            entry = services.setdefault(
+                service,
+                {
+                    "service": service,
+                    "total": 0,
+                    "last_request_at": None,
+                    "buckets": [0] * buckets_per_service,
+                },
+            )
+            entry["total"] += 1
+            if entry["last_request_at"] is None or created_on > entry["last_request_at"]:
+                entry["last_request_at"] = created_on
+            idx = int(
+                (now - created_on).total_seconds() // CLUSTER_ACTIVITY_BUCKET_SEC
+            )
+            # buckets[0] is the oldest minute, buckets[-1] the current one.
+            idx = buckets_per_service - 1 - min(max(idx, 0), buckets_per_service - 1)
+            entry["buckets"][idx] += 1
+
+        payload = {
+            "window_minutes": CLUSTER_ACTIVITY_WINDOW_MIN,
+            "bucket_seconds": CLUSTER_ACTIVITY_BUCKET_SEC,
+            "generated_at": now.isoformat(),
+            "services": sorted(services.values(), key=lambda s: s["service"]),
+        }
+        cache.set(cache_key, payload, CLUSTER_ACTIVITY_CACHE_TTL)
+        return Response(payload)
+
+
+class ProviderClusterHistoryView(APIView):
+    """GET /api/inference/providers/<id>/cluster/history/ — manifest
+    revisions for story mode (PRD 07 V3): scrub through how the cluster grew
+    from the first Service to the full fleet.
+
+    Returns a chronological index (id, uploaded_at, host/service counts) of
+    the most recent revisions; the parsed manifest of one revision comes from
+    the detail endpoint. ``require_k8s`` matches the other cluster endpoints:
+    story mode is part of the cluster page.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, id):
+        provider = _cluster_provider_or_404(request, id)
+        revisions = list(
+            ManifestRevision.objects.filter(provider=provider)
+            .order_by("-uploaded_at")[:CLUSTER_HISTORY_MAX_REVISIONS]
+        )
+        revisions.reverse()
+
+        def counts(parsed):
+            hosts = parsed.get("hosts") or [] if isinstance(parsed, dict) else []
+            services = sum(
+                len(h.get("services") or [])
+                for h in hosts
+                if isinstance(h, dict)
+            )
+            return len(hosts), services
+
+        out = []
+        for rev in revisions:
+            host_count, service_count = counts(rev.parsed)
+            out.append(
+                {
+                    "id": rev.id,
+                    "uploaded_at": rev.uploaded_at,
+                    "host_count": host_count,
+                    "service_count": service_count,
+                }
+            )
+        return Response({"revisions": out})
+
+
+class ProviderClusterRevisionView(APIView):
+    """GET /api/inference/providers/<id>/cluster/history/<rev_id>/ — one
+    revision's parsed manifest, for rendering the scene as of that moment."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, id, rev_id):
+        provider = _cluster_provider_or_404(request, id)
+        rev = get_object_or_404(ManifestRevision, id=rev_id, provider=provider)
+        return Response(
+            {
+                "id": rev.id,
+                "uploaded_at": rev.uploaded_at,
+                "schema_version": rev.schema_version,
+                "parsed": rev.parsed,
+            }
+        )
 
 
 def _daily_series(qs, days: int = 365) -> list[dict]:

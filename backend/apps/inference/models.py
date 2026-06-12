@@ -431,6 +431,44 @@ class ServiceManifest(BaseModel):
         return f"manifest for {self.provider}"
 
 
+class ManifestRevision(BaseModel):
+    """Append-only history of a provider's valid manifests (PRD 07 V3,
+    story mode). ServiceManifest is OneToOne — only the latest survives — so
+    time-scrubbing needs its own table. A revision is recorded on every
+    accepted upload whose ``parsed`` differs from the previous revision (the
+    agent re-pushes on restart; identical bodies would just be noise).
+
+    Only valid manifests are recorded: history is "what the cluster looked
+    like", not "what the operator mistyped".
+    """
+
+    provider = models.ForeignKey(
+        Provider,
+        on_delete=models.CASCADE,
+        related_name="manifest_revisions",
+    )
+    schema_version = models.PositiveSmallIntegerField(default=1)
+    parsed = models.JSONField()
+    uploaded_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["uploaded_at"]
+
+    def __str__(self):
+        return f"manifest revision {self.id} for {self.provider}"
+
+    @classmethod
+    def record(cls, provider, parsed, schema_version=1):
+        """Append a revision unless it matches the provider's latest one.
+        Returns the revision or None when skipped as a duplicate."""
+        latest = cls.objects.filter(provider=provider).order_by("-uploaded_at").first()
+        if latest is not None and latest.parsed == parsed:
+            return None
+        return cls.objects.create(
+            provider=provider, parsed=parsed, schema_version=schema_version
+        )
+
+
 class InferenceRequest(BaseModel):
     INFERENCE_TYPES = (
         ("LLM", "Language Model"),

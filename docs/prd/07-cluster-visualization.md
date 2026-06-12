@@ -1,21 +1,27 @@
 # PRD 07 — Living Cluster: a 3D visualization of a provider's Kubernetes fleet
 
-**Status: V0 + V1 shipped 2026-06-11 (scene from manifest; agent
+**Status: V0–V3 shipped 2026-06-11/12.** V0+V1: scene from manifest; agent
 `GET /cluster/state` + backend proxy; memory volumes, pod phases, degradation
-states). Deferred from V1: request-flow pulses and the per-model request
-sparkline — both need a per-model stats source that doesn't exist yet.
-V2 (self-generated assets) and V3 (story mode) not started.**
+states; per-service request activity → service-card sparkline + flow pulses.
+V2: generated-asset pipeline (assets.json + GLB loading with procedural
+fallback, attribution cards, staff `/design/cluster-assets` FLUX→TRELLIS
+page) — actual asset GLBs still to be generated once a mesh service is
+healthy (the spark box's rehabilitation run). V3: `ManifestRevision`
+append-only history + story-mode scrubber.
 
 Implementation (cross-repo contract — keep in sync):
 - agent: `internal/discovery/clusterstate.go` (`ClusterState` JSON),
   `/cluster/state` route in `main.go`, `discovery: kubernetes` manifest marker
-- backend: `ProviderClusterStateView` →
-  `GET /api/inference/providers/<id>/cluster/` (30s cache), validator accepts
-  optional top-level `discovery`
-- frontend: `composables/useClusterState.ts` (`ClusterSnapshot`, poller),
-  `components/cluster/{Scene,HostMachine}.vue`, pages
+- backend: `GET /api/inference/providers/<id>/cluster/` (30s cache, proxies
+  agent), `.../cluster/activity/` (per-service request buckets, trailing
+  hour), `.../cluster/history/[<rev>/]` (`ManifestRevision`, deduped on
+  upload, backfilled from current manifests); validator accepts optional
+  top-level `discovery`
+- frontend: `composables/useClusterState.ts` (`ClusterSnapshot`, poller,
+  activity, history), `useClusterAssets.ts` (assets.json → normalized GLBs),
+  `components/cluster/{Scene,HostMachine,StoryBar}.vue`, pages
   `/[username]/cluster` (public, commands redacted) + `/dashboard/cluster`
-  (owner, commands shown)
+  (owner, commands shown), staff `/design/cluster-assets`
 
 ## One-liner
 

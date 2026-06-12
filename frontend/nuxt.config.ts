@@ -5,6 +5,13 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineNuxtConfig({
   compatibilityDate: '2024-11-01',
   devtools: { enabled: true },
+  // The compose frontend bind-mounts this directory (/app) and runs its own
+  // `nuxt dev`, so a bare-metal `yarn dev` on the host shares .nuxt with the
+  // container — each writes absolute paths the other can't resolve and they
+  // corrupt each other (the recurring "/app/... not found" / missing-entry-
+  // script breakage). Run host-side dev with NUXT_LOCAL_BUILD_DIR=.nuxt-local
+  // to keep the two build dirs apart.
+  buildDir: process.env.NUXT_LOCAL_BUILD_DIR || undefined,
   app: {
     head: {
       title: 'inference.club',

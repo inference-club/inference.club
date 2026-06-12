@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "_readme": "Living Cluster generated assets (PRD 07 V2). Each entry points at a GLB generated through inference.club's own /v1/images/generations + /v1/3d/generations (use /design/cluster-assets to make them) and carries the attribution the scene credits. null = procedural fallback geometry. URLs may be GCS media URLs from the generation request, or files dropped next to this manifest (same pattern as design/jax.obj).",
+  "assets": {
+    "tower": null,
+    "slab": null,
+    "box": null,
+    "satellite": null
+  }
+}

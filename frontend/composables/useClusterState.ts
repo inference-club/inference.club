@@ -50,6 +50,31 @@ export interface ClusterStatePayload {
   pods: LivePod[]
 }
 
+// Per-service request activity (PRD 07 V1: sparkline + request pulses) —
+// mirrors the backend's ProviderClusterActivityView payload.
+export interface ServiceActivity {
+  service: string
+  total: number
+  last_request_at: string | null
+  // buckets[0] = oldest minute of the window, buckets[-1] = the current one.
+  buckets: number[]
+}
+
+export interface ClusterActivityPayload {
+  window_minutes: number
+  bucket_seconds: number
+  generated_at: string
+  services: ServiceActivity[]
+}
+
+// One manifest revision in story mode (PRD 07 V3).
+export interface ManifestRevisionInfo {
+  id: number
+  uploaded_at: string
+  host_count: number
+  service_count: number
+}
+
 // ── Snapshot — the one structure the scene graph reads ─────────────────────
 
 export type HostFormFactor = 'tower' | 'slab' | 'box' | 'satellite'
@@ -61,6 +86,7 @@ export interface SnapshotService {
   command?: string
   models: string[]
   pods: LivePod[]
+  activity?: ServiceActivity
 }
 
 export interface SnapshotHost {
@@ -122,16 +148,19 @@ function formFactorFor(host: { id: string; gpu?: ManifestGPU; notes?: string }, 
 export function buildClusterSnapshot(
   manifest: ParsedManifest | null | undefined,
   live?: ClusterStatePayload | null,
+  activity?: ClusterActivityPayload | null,
 ): ClusterSnapshot | null {
   if (!manifest) return null
   const liveByHostId = new Map<string, LiveNode>()
   const podsByService = new Map<string, LivePod[]>()
+  const activityByService = new Map<string, ServiceActivity>()
   for (const n of live?.nodes ?? []) liveByHostId.set(n.host_id, n)
   for (const p of live?.pods ?? []) {
     const list = podsByService.get(p.service) ?? []
     list.push(p)
     podsByService.set(p.service, list)
   }
+  for (const a of activity?.services ?? []) activityByService.set(a.service, a)
 
   const hosts: SnapshotHost[] = (manifest.hosts ?? []).map((h) => {
     const liveNode = liveByHostId.get(h.id)
@@ -150,6 +179,7 @@ export function buildClusterSnapshot(
         command: s.command,
         models: serviceModels(s),
         pods: podsByService.get(s.name) ?? [],
+        activity: activityByService.get(s.name),
       })),
       live: liveNode,
     }
@@ -195,14 +225,29 @@ export const useClusterState = (providerId: () => number | null | undefined) => 
   const config = useRuntimeConfig()
 
   const state = ref<ClusterStatePayload | null>(null)
+  const activity = ref<ClusterActivityPayload | null>(null)
   // null = not yet determined; false = provider has no k8s cluster (404)
   const available = ref<boolean | null>(null)
   const error = ref<string | null>(null)
   let timer: ReturnType<typeof setInterval> | null = null
 
+  // Activity rides the same poll. Non-fatal: a scene without pulses is still
+  // a scene, so failures here never block the state fetch.
+  const fetchActivity = async (id: number) => {
+    try {
+      activity.value = await $fetch<ClusterActivityPayload>(
+        `${config.public.apiBase}/api/inference/providers/${id}/cluster/activity/`,
+        { credentials: 'include' },
+      )
+    } catch {
+      // keep the previous activity payload
+    }
+  }
+
   const fetchState = async () => {
     const id = providerId()
     if (!id) return
+    void fetchActivity(id)
     try {
       state.value = await $fetch<ClusterStatePayload>(
         `${config.public.apiBase}/api/inference/providers/${id}/cluster/`,
@@ -217,6 +262,7 @@ export const useClusterState = (providerId: () => number | null | undefined) => 
         // Not a kubernetes-derived manifest — stop polling, the scene runs
         // on manifest shape alone.
         available.value = false
+        activity.value = null
         stop()
       } else {
         // Agent unreachable (502 etc.): keep the last snapshot and keep
@@ -242,5 +288,47 @@ export const useClusterState = (providerId: () => number | null | undefined) => 
 
   onBeforeUnmount(stop)
 
-  return { state, available, error, start, stop, refresh: fetchState }
+  return { state, activity, available, error, start, stop, refresh: fetchState }
+}
+
+// ── Story mode (PRD 07 V3): manifest revision history ───────────────────────
+
+export const useClusterHistory = (providerId: () => number | null | undefined) => {
+  const config = useRuntimeConfig()
+
+  const revisions = ref<ManifestRevisionInfo[]>([])
+  const revisionCache = new Map<number, ParsedManifest>()
+
+  const loadHistory = async () => {
+    const id = providerId()
+    if (!id) return
+    try {
+      const res = await $fetch<{ revisions: ManifestRevisionInfo[] }>(
+        `${config.public.apiBase}/api/inference/providers/${id}/cluster/history/`,
+        { credentials: 'include' },
+      )
+      revisions.value = res.revisions
+    } catch {
+      revisions.value = []
+    }
+  }
+
+  const fetchRevision = async (revId: number): Promise<ParsedManifest | null> => {
+    const id = providerId()
+    if (!id) return null
+    const cached = revisionCache.get(revId)
+    if (cached) return cached
+    try {
+      const res = await $fetch<{ parsed: ParsedManifest }>(
+        `${config.public.apiBase}/api/inference/providers/${id}/cluster/history/${revId}/`,
+        { credentials: 'include' },
+      )
+      revisionCache.set(revId, res.parsed)
+      return res.parsed
+    } catch {
+      return null
+    }
+  }
+
+  return { revisions, loadHistory, fetchRevision }
 }

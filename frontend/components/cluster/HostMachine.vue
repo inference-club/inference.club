@@ -9,7 +9,9 @@
 // unhealthy pods make their module flicker. All geometry is procedural —
 // generated TRELLIS/FLUX assets are V2's progressive enhancement.
 import { computed } from 'vue'
+import { AdditiveBlending } from 'three'
 import { useScenePalette } from '@/composables/useScenePalette'
+import { radialGlowTexture } from '@/utils/glow'
 import {
   modalityHex,
   type ClusterSelection,
@@ -17,6 +19,7 @@ import {
   type SnapshotHost,
   type SnapshotService,
 } from '@/composables/useClusterState'
+import type { LoadedClusterAsset } from '@/composables/useClusterAssets'
 
 const props = defineProps<{
   host: SnapshotHost
@@ -24,6 +27,9 @@ const props = defineProps<{
   // Seconds since scene start — drives the unhealthy-module flicker.
   clock: number
   selectedKey?: string | null
+  // Generated chassis (PRD 07 V2): a TRELLIS-made GLB replacing the
+  // procedural body. Absent → procedural boxes (progressive enhancement).
+  asset?: LoadedClusterAsset | null
 }>()
 
 const emit = defineEmits<{
@@ -32,6 +38,10 @@ const emit = defineEmits<{
 }>()
 
 const { palette, isDark } = useScenePalette()
+
+// Dark-mode neon: a shared radial gradient, tinted per use and rendered
+// additively — cheap glow without a bloom pass.
+const glowTex = import.meta.client ? radialGlowTexture() : null
 
 const DIMS: Record<string, { w: number; h: number; d: number }> = {
   tower: { w: 1.5, h: 2.2, d: 1.3 },
@@ -64,7 +74,34 @@ const bodyColor = computed(() => {
   }
 })
 
+// The machine's neon accent: its first service's modality color, so the
+// underglow says what the box does. Cyan for service-less nodes.
+const accentColor = computed(() =>
+  notReady.value ? '#ef4444' : (props.host.services[0] ? modalityHex(props.host.services[0].type) : '#22d3ee'))
+
+const bodyEmissive = computed(() => {
+  if (isSelected.value) return { color: '#6366f1', intensity: 0.35 }
+  if (isDark.value && !notReady.value) {
+    // The gold slab smolders warm; everything else self-illuminates a cool
+    // slate-blue so silhouettes read against the dark floor. A dead node
+    // gets none — it should look dead.
+    if (props.host.formFactor === 'slab') return { color: '#8a6914', intensity: 0.35 }
+    return { color: '#22335f', intensity: 0.65 }
+  }
+  return { color: '#000000', intensity: 0 }
+})
+
 const isSelected = computed(() => props.selectedKey === `host:${props.host.id}`)
+
+// The generated chassis, cloned per host (one GLB instance per machine) and
+// scaled from the loader's unit-normalized size up to this form factor.
+const assetObject = computed(() => {
+  if (!props.asset) return null
+  const clone = props.asset.object.clone(true)
+  const target = Math.max(dims.value.w, dims.value.h, dims.value.d)
+  clone.scale.multiplyScalar(target)
+  return clone
+})
 
 // Module slots per form factor: towers/boxes stack on the front face (two
 // columns past four services), slabs/satellites line up on top.
@@ -74,7 +111,8 @@ function moduleTransform(i: number): { position: [number, number, number] } {
   if (ff === 'slab' || ff === 'satellite') {
     const n = props.host.services.length
     const x = (i - (n - 1) / 2) * 0.62
-    return { position: [x, h + 0.17, 0] }
+    // baseY lifts satellite modules up to the floating device.
+    return { position: [x, baseY.value + h + 0.29, 0] }
   }
   const col = Math.floor(i / 4)
   const row = i % 4
@@ -117,6 +155,21 @@ const moduleColor = (s: SnapshotService): string => {
     return t > 0.5 ? '#7f1d1d' : modalityHex(s.type)
   }
   return modalityHex(s.type)
+}
+
+// Glow halo behind each module (dark mode): sits just outside the module
+// face and breathes with the same flicker as the emissive, so an unhealthy
+// module's halo gutters too.
+const moduleGlowPos = (i: number): [number, number, number] => {
+  const [x, y, z] = moduleTransform(i).position
+  const ff = props.host.formFactor
+  if (ff === 'slab' || ff === 'satellite') return [x, y + 0.14, z]
+  return [x, y, z + 0.18]
+}
+
+const moduleGlowOpacity = (s: SnapshotService): number => {
+  const base = isDark.value ? 1.6 : 0.9
+  return 0.18 + 0.3 * (moduleEmissiveIntensity(s) / base)
 }
 
 // ── Memory volume (live only): allocatable shell, usage fill, pod cargo ────
@@ -192,8 +245,17 @@ const setHover = (h: boolean) => {
         <TresMeshStandardMaterial :color="palette.deskDark" :roughness="0.9" />
       </TresMesh>
 
-      <!-- Body -->
+      <!-- Body: generated chassis when an asset exists, procedural box else -->
+      <primitive
+        v-if="assetObject"
+        :object="assetObject"
+        :position="[0, baseY + 0.12, 0]"
+        @click="selectHost"
+        @pointer-enter="setHover(true)"
+        @pointer-leave="setHover(false)"
+      />
       <TresMesh
+        v-else
         :position="[0, baseY + dims.h / 2 + 0.12, 0]"
         cast-shadow
         @click="selectHost"
@@ -205,9 +267,16 @@ const setHover = (h: boolean) => {
           :color="bodyColor"
           :metalness="host.formFactor === 'slab' ? 0.85 : 0.3"
           :roughness="host.formFactor === 'slab' ? 0.25 : 0.6"
-          :emissive="isSelected ? '#6366f1' : '#000000'"
-          :emissive-intensity="isSelected ? 0.35 : 0"
+          :emissive="bodyEmissive.color"
+          :emissive-intensity="bodyEmissive.intensity"
         />
+      </TresMesh>
+
+      <!-- Selection ring: highlight that works for any chassis (generated
+           materials can't be tinted the way the procedural box can) -->
+      <TresMesh v-if="isSelected" :position="[0, 0.14, 0]" :rotation="[-Math.PI / 2, 0, 0]">
+        <TresRingGeometry :args="[Math.max(dims.w, dims.d) * 0.72, Math.max(dims.w, dims.d) * 0.82, 32]" />
+        <TresMeshBasicMaterial color="#6366f1" :transparent="true" :opacity="0.7" :depth-write="false" />
       </TresMesh>
 
       <!-- Power LED: green alive, red down -->
@@ -215,9 +284,24 @@ const setHover = (h: boolean) => {
         <TresSphereGeometry :args="[0.05, 10, 8]" />
         <TresMeshBasicMaterial :color="notReady ? '#ef4444' : '#22c55e'" />
       </TresMesh>
+      <TresSprite
+        v-if="isDark && glowTex"
+        :position="[dims.w / 2 - 0.16, baseY + dims.h + 0.04, dims.d / 2 - 0.16]"
+        :scale="[0.45, 0.45, 1]"
+      >
+        <TresSpriteMaterial
+          :map="glowTex"
+          :color="notReady ? '#ef4444' : '#22c55e'"
+          :transparent="true"
+          :opacity="0.55"
+          :blending="AdditiveBlending"
+          :depth-write="false"
+        />
+      </TresSprite>
 
-      <!-- Visible GPU card (towers): dark PCB + one VRAM chip per GPU -->
-      <template v-if="host.formFactor === 'tower' && host.gpu">
+      <!-- Visible GPU card (towers): dark PCB + one VRAM chip per GPU.
+           Skipped under a generated chassis — it would clip into the mesh. -->
+      <template v-if="host.formFactor === 'tower' && host.gpu && !assetObject">
         <TresMesh :position="[0, baseY + 0.42, dims.d / 2 + 0.06]">
           <TresBoxGeometry :args="[dims.w * 0.78, 0.3, 0.1]" />
           <TresMeshStandardMaterial color="#10131c" :roughness="0.4" :metalness="0.5" />
@@ -253,7 +337,44 @@ const setHover = (h: boolean) => {
           :roughness="0.35"
         />
       </TresMesh>
+
+      <!-- Neon halos behind the modules (dark mode) -->
+      <template v-if="isDark && glowTex && !notReady">
+        <TresSprite
+          v-for="(s, i) in host.services"
+          :key="`halo-${s.name}`"
+          :position="moduleGlowPos(i)"
+          :scale="[1.15, 0.8, 1]"
+        >
+          <TresSpriteMaterial
+            :map="glowTex"
+            :color="moduleColor(s)"
+            :transparent="true"
+            :opacity="moduleGlowOpacity(s)"
+            :blending="AdditiveBlending"
+            :depth-write="false"
+          />
+        </TresSprite>
+      </template>
     </TresGroup>
+
+    <!-- Underglow pool (dark mode): the machine lights its patch of floor in
+         its accent color — red when the node is down -->
+    <TresMesh
+      v-if="isDark && glowTex && host.formFactor !== 'satellite'"
+      :position="[0, 0.14, 0]"
+      :rotation="[-Math.PI / 2, 0, 0]"
+    >
+      <TresPlaneGeometry :args="[dims.w + 2.6, dims.d + 2.6]" />
+      <TresMeshBasicMaterial
+        :map="glowTex"
+        :color="accentColor"
+        :transparent="true"
+        :opacity="notReady ? 0.24 : 0.4"
+        :blending="AdditiveBlending"
+        :depth-write="false"
+      />
+    </TresMesh>
 
     <!-- Memory volume: allocatable shell, usage fill, pods as stacked cargo -->
     <TresGroup v-if="memVolume" :position="[dims.w / 2 + 0.95, 0.12, 0]">
@@ -270,8 +391,10 @@ const setHover = (h: boolean) => {
         <TresBoxGeometry :args="[0.76, memVolume.fillH, 0.76]" />
         <TresMeshStandardMaterial
           color="#0ea5e9"
+          :emissive="isDark ? '#0ea5e9' : '#000000'"
+          :emissive-intensity="isDark ? 0.35 : 0"
           :transparent="true"
-          :opacity="0.3"
+          :opacity="isDark ? 0.38 : 0.3"
           :depth-write="false"
         />
       </TresMesh>
@@ -284,7 +407,7 @@ const setHover = (h: boolean) => {
         <TresMeshStandardMaterial
           :color="brick.color"
           :emissive="brick.color"
-          :emissive-intensity="isDark ? 0.5 : 0.15"
+          :emissive-intensity="isDark ? 0.8 : 0.15"
           :transparent="true"
           :opacity="0.85"
         />

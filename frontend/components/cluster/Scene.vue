@@ -7,7 +7,7 @@
 // runtime-built polylines, HTML overlay labels projected per frame.
 import { TresCanvas } from '@tresjs/core'
 import { OrbitControls } from '@tresjs/cientos'
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import * as THREE from 'three'
 import { useScenePalette } from '@/composables/useScenePalette'
 import { ENGINE_LABELS, VENDOR_LABELS } from '@/composables/useManifest'
@@ -17,7 +17,10 @@ import {
   type ClusterSelection,
   type ClusterSnapshot,
   type SnapshotHost,
+  type SnapshotService,
 } from '@/composables/useClusterState'
+import { useClusterAssets } from '@/composables/useClusterAssets'
+import { radialGlowTexture } from '@/utils/glow'
 import type { InferenceType } from '@/types'
 
 const props = defineProps<{
@@ -28,6 +31,15 @@ const props = defineProps<{
 }>()
 
 const { palette, isDark } = useScenePalette()
+
+// Generated chassis assets (V2) — empty map until loaded; machines render
+// procedurally in the meantime and swap in meshes when they arrive.
+const clusterAssets = useClusterAssets()
+
+// Dark-mode neon: shared glow sprite texture + additive blending constants.
+const glowTex = import.meta.client ? radialGlowTexture() : null
+const ADDITIVE = THREE.AdditiveBlending
+const NORMAL = THREE.NormalBlending
 
 // ── Layout ──────────────────────────────────────────────────────────────────
 
@@ -64,7 +76,7 @@ const layout = computed(() => {
   const floorD = rows * ROW_SPACING + 4
   // Satellites hover off the right edge of the cluster floor.
   externals.forEach((host, j) => {
-    placed.push({ host, position: [floorW / 2 + 2.6 + (j % 2) * 1.2, 0, -2.5 + j * 3.2] })
+    placed.push({ host, position: [floorW / 2 + 1.9 + (j % 2) * 1.2, 0, -2.0 + j * 3.2] })
   })
 
   const hub: [number, number, number] = [0, 0, floorD / 2 + 1.6]
@@ -124,12 +136,15 @@ function rebuildCables() {
   for (const child of group.children) (child as THREE.Line).geometry?.dispose()
   group.clear()
   cableMaterial?.dispose()
+  // Additive dashes in the dark read as light running through fiber.
   cableMaterial = new THREE.LineDashedMaterial({
     color: palette.value.linkTailscale,
     dashSize: 0.18,
     gapSize: 0.14,
     transparent: true,
-    opacity: 0.65,
+    opacity: isDark.value ? 0.95 : 0.65,
+    blending: isDark.value ? THREE.AdditiveBlending : THREE.NormalBlending,
+    depthWrite: !isDark.value,
   })
   const { placed, hub } = layout.value
   const hubTop = new THREE.Vector3(hub[0], 0.7, hub[2])
@@ -145,6 +160,135 @@ function rebuildCables() {
     line.computeLineDistances()
     group.add(line)
   }
+}
+
+// ── Request pulses (V1 "Flow"): per-service activity → pulses hub → machine ─
+//
+// The activity endpoint buckets the provider's served requests per service
+// per minute; the freshest buckets set each service's pulse rate. No
+// activity → no pulses: the flow animation only shows traffic that exists.
+
+interface Pulse {
+  id: number
+  color: string
+  position: [number, number, number]
+  opacity: number
+}
+
+const PULSE_FLIGHT_SEC = 1.4
+const MAX_PULSES = 48
+const pulses = reactive<Pulse[]>([])
+// Bookkeeping that doesn't need reactivity: flight paths + spawn clocks.
+const pulseFlights = new Map<number, { start: number; points: THREE.Vector3[] }>()
+const nextSpawnByService = new Map<string, number>()
+let pulseSeq = 0
+
+function pulseIntervalFor(s: SnapshotService): number | null {
+  const buckets = s.activity?.buckets
+  if (!buckets?.length) return null
+  // Rate from the trailing 5 minutes, so a burst fades out within minutes.
+  const recent = buckets.slice(-5).reduce((a, b) => a + b, 0)
+  if (recent <= 0) return null
+  return THREE.MathUtils.clamp(60 / (recent / 5), 2, 20)
+}
+
+const pulseSources = computed(() => {
+  const { hub, placed } = layout.value
+  const hubTop = new THREE.Vector3(hub[0], 0.7, hub[2])
+  const out: { key: string; interval: number; color: string; points: THREE.Vector3[] }[] = []
+  for (const p of placed) {
+    for (const s of p.host.services) {
+      const interval = pulseIntervalFor(s)
+      if (!interval) continue
+      const end = new THREE.Vector3(
+        p.position[0],
+        p.host.formFactor === 'satellite' ? 2.1 : 1.0,
+        p.position[2],
+      )
+      const mid = new THREE.Vector3((hubTop.x + end.x) / 2, 0.15, (hubTop.z + end.z) / 2)
+      out.push({ key: s.name, interval, color: modalityHex(s.type), points: [hubTop, mid, end] })
+    }
+  }
+  return out
+})
+
+const _pulseVec = new THREE.Vector3()
+
+function samplePolyline(points: THREE.Vector3[], t: number): THREE.Vector3 {
+  const segA = points[1].clone().sub(points[0]).length()
+  const segB = points[2].clone().sub(points[1]).length()
+  const total = segA + segB || 1
+  const dist = THREE.MathUtils.clamp(t, 0, 1) * total
+  if (dist <= segA) return _pulseVec.lerpVectors(points[0], points[1], segA > 0 ? dist / segA : 0)
+  return _pulseVec.lerpVectors(points[1], points[2], segB > 0 ? (dist - segA) / segB : 0)
+}
+
+function tickPulses(now: number) {
+  for (const src of pulseSources.value) {
+    let next = nextSpawnByService.get(src.key)
+    if (next === undefined) {
+      // Stagger first spawns so services don't fire in lockstep.
+      next = now + Math.random() * src.interval
+      nextSpawnByService.set(src.key, next)
+    }
+    while (now >= next) {
+      if (pulses.length < MAX_PULSES) {
+        const id = pulseSeq++
+        pulses.push({ id, color: src.color, position: [src.points[0].x, src.points[0].y, src.points[0].z], opacity: 0 })
+        pulseFlights.set(id, { start: next, points: src.points })
+      }
+      next += src.interval
+    }
+    nextSpawnByService.set(src.key, next)
+  }
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const pulse = pulses[i]
+    const flight = pulseFlights.get(pulse.id)
+    const t = flight ? (now - flight.start) / PULSE_FLIGHT_SEC : 2
+    if (!flight || t > 1) {
+      pulseFlights.delete(pulse.id)
+      pulses.splice(i, 1)
+      continue
+    }
+    const pos = samplePolyline(flight.points, t)
+    pulse.position = [pos.x, pos.y, pos.z]
+    pulse.opacity = 0.9 * Math.min(1, Math.min(t, 1 - t) * 6)
+  }
+}
+
+// ── Floor grid (dark mode): faint additive cyan lines on the cluster floor ──
+
+const gridGroupRef = shallowRef<THREE.Group | null>(null)
+let gridMaterial: THREE.LineBasicMaterial | null = null
+
+function rebuildFloorGrid() {
+  const group = gridGroupRef.value
+  if (!group) return
+  for (const child of group.children) (child as THREE.LineSegments).geometry?.dispose()
+  group.clear()
+  gridMaterial?.dispose()
+  gridMaterial = null
+  if (!isDark.value) return
+  gridMaterial = new THREE.LineBasicMaterial({
+    color: '#1d7a9e',
+    transparent: true,
+    opacity: 0.55,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  })
+  const { floorW, floorD } = layout.value
+  const halfW = floorW / 2
+  const halfD = floorD / 2
+  const step = 1.4
+  const pts: THREE.Vector3[] = []
+  for (let x = -halfW; x <= halfW + 0.001; x += step) {
+    pts.push(new THREE.Vector3(x, 0, -halfD), new THREE.Vector3(x, 0, halfD))
+  }
+  for (let z = -halfD; z <= halfD + 0.001; z += step) {
+    pts.push(new THREE.Vector3(-halfW, 0, z), new THREE.Vector3(halfW, 0, z))
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts)
+  group.add(new THREE.LineSegments(geo, gridMaterial))
 }
 
 // ── Camera, labels, clock ───────────────────────────────────────────────────
@@ -187,6 +331,7 @@ function updateLabels() {
 onMounted(() => {
   if (!import.meta.client) return
   rebuildCables()
+  rebuildFloorGrid()
   const start = performance.now()
   const tick = (now: number) => {
     clock.value = (now - start) / 1000
@@ -196,6 +341,7 @@ onMounted(() => {
         Math.round((Date.now() - new Date(props.snapshot.live.collected_at).getTime()) / 1000),
       )
     }
+    tickPulses(clock.value)
     updateLabels()
     animFrame = requestAnimationFrame(tick)
   }
@@ -206,10 +352,16 @@ onBeforeUnmount(() => {
   if (animFrame !== null) cancelAnimationFrame(animFrame)
   if (import.meta.client) document.body.style.cursor = ''
   cableMaterial?.dispose()
+  gridMaterial?.dispose()
 })
 
-watch([() => layout.value, isDark], () => {
-  if (import.meta.client) rebuildCables()
+// The Tres group refs populate after ClientOnly mounts the canvas — often
+// AFTER this component's onMounted — so watch the refs themselves too, or a
+// scene whose snapshot never changes (e.g. agent offline) gets no cables.
+watch([cablesGroupRef, gridGroupRef, () => layout.value, isDark], () => {
+  if (!import.meta.client) return
+  rebuildCables()
+  rebuildFloorGrid()
 })
 
 // ── Card helpers ────────────────────────────────────────────────────────────
@@ -231,6 +383,24 @@ const badConditions = (h: SnapshotHost) =>
   (h.live?.conditions ?? []).filter(c =>
     c.type === 'Ready' ? c.status !== 'True' : c.status !== 'False',
   )
+
+// V2 attribution: the scene credits its own generation requests — clicking a
+// machine tells you which request made its chassis.
+const assetCredit = (h: SnapshotHost) => clusterAssets.value.get(h.formFactor)?.entry ?? null
+
+// Sparkline (V1): the service's last hour of request buckets as an SVG
+// polyline, normalized into a 120×26 viewBox.
+const sparklinePoints = (s: SnapshotService): string => {
+  const buckets = s.activity?.buckets ?? []
+  if (!buckets.length) return ''
+  const max = Math.max(...buckets, 1)
+  const w = 120
+  const h = 26
+  const step = w / Math.max(buckets.length - 1, 1)
+  return buckets
+    .map((v, i) => `${(i * step).toFixed(1)},${(h - 2 - (v / max) * (h - 4)).toFixed(1)}`)
+    .join(' ')
+}
 </script>
 
 <template>
@@ -254,16 +424,37 @@ const badConditions = (h: SnapshotHost) =>
           :max-polar-angle="1.45"
         />
 
-        <TresAmbientLight :intensity="isDark ? 0.4 : 0.9" :color="isDark ? '#aab5d8' : '#ffffff'" />
+        <TresAmbientLight :intensity="isDark ? 0.45 : 0.9" :color="isDark ? '#aab5d8' : '#ffffff'" />
+        <TresHemisphereLight v-if="isDark" :args="['#46598f', '#0b1020', 0.55]" />
         <TresDirectionalLight :position="[12, 16, 8]" :intensity="isDark ? 0.8 : 1.4" :color="isDark ? '#bcd0ff' : '#ffffff'" />
         <TresDirectionalLight :position="[-10, 8, -6]" :intensity="isDark ? 0.25 : 0.45" :color="isDark ? '#5a4cff' : '#ffe9c4'" />
-        <TresPointLight :position="[0, 6, 0]" :intensity="isDark ? 16 : 0" :distance="24" :decay="2" color="#38bdf8" />
+        <TresPointLight :position="[0, 6, 0]" :intensity="isDark ? 18 : 0" :distance="26" :decay="2" color="#38bdf8" />
+        <!-- Dark-mode rim accents: cool cyan and violet washes from opposite corners -->
+        <TresPointLight
+          v-if="isDark"
+          :position="[-layout.floorW / 2 - 2, 3.5, layout.floorD / 3]"
+          :intensity="11"
+          :distance="20"
+          :decay="2"
+          color="#22d3ee"
+        />
+        <TresPointLight
+          v-if="isDark"
+          :position="[layout.floorW / 2 + 2, 3.5, -layout.floorD / 3]"
+          :intensity="11"
+          :distance="20"
+          :decay="2"
+          color="#a855f7"
+        />
 
         <!-- Cluster floor -->
         <TresMesh :position="[0, -0.16, 0]" receive-shadow>
           <TresBoxGeometry :args="[layout.floorW, 0.3, layout.floorD]" />
           <TresMeshStandardMaterial :color="palette.floor" :roughness="0.95" />
         </TresMesh>
+
+        <!-- Neon floor grid (dark mode, built at runtime) -->
+        <TresGroup ref="gridGroupRef" :position="[0, 0.005, 0]" />
 
         <!-- Agent hub: where requests enter the cluster -->
         <TresGroup :position="layout.hub">
@@ -280,6 +471,16 @@ const badConditions = (h: SnapshotHost) =>
               :roughness="0.4"
             />
           </TresMesh>
+          <TresSprite v-if="isDark && glowTex" :position="[0, 0.55, 0]" :scale="[2.6, 1.8, 1]">
+            <TresSpriteMaterial
+              :map="glowTex"
+              color="#22d3ee"
+              :transparent="true"
+              :opacity="0.32 + 0.08 * Math.sin(clock * 2.2)"
+              :blending="ADDITIVE"
+              :depth-write="false"
+            />
+          </TresSprite>
         </TresGroup>
 
         <!-- Cables hub → machines (built at runtime) -->
@@ -292,8 +493,22 @@ const badConditions = (h: SnapshotHost) =>
           :position="p.position"
           :clock="clock"
           :selected-key="selectedKey"
+          :asset="clusterAssets.get(p.host.formFactor) ?? null"
           @select="onSelect"
         />
+
+        <!-- Request pulses: live traffic flowing hub → machine. Additive in
+             the dark (would clamp to white over a light background). -->
+        <TresMesh v-for="pulse in pulses" :key="pulse.id" :position="pulse.position">
+          <TresSphereGeometry :args="[0.11, 12, 10]" />
+          <TresMeshBasicMaterial
+            :color="pulse.color"
+            :transparent="true"
+            :opacity="pulse.opacity"
+            :blending="isDark ? ADDITIVE : NORMAL"
+            :depth-write="false"
+          />
+        </TresMesh>
       </TresCanvas>
 
       <!-- Hostname labels, projected to screen space each frame -->
@@ -418,6 +633,25 @@ const badConditions = (h: SnapshotHost) =>
             <p v-if="selection.host.notes" class="pt-1 text-[12px] text-slate-500 dark:text-slate-400">
               {{ selection.host.notes }}
             </p>
+            <div
+              v-if="assetCredit(selection.host)"
+              class="mt-2 border-t border-slate-200 dark:border-slate-700 pt-2 text-[11px] text-slate-500 dark:text-slate-400"
+            >
+              <p>
+                Chassis{{ assetCredit(selection.host)?.label ? ` “${assetCredit(selection.host)?.label}”` : '' }}
+                — generated by
+                <span class="font-mono">{{ assetCredit(selection.host)?.model || 'inference.club' }}</span>
+                <template v-if="assetCredit(selection.host)?.provider"> on {{ assetCredit(selection.host)?.provider }}</template>
+                <template v-if="assetCredit(selection.host)?.seed != null">, seed {{ assetCredit(selection.host)?.seed }}</template>
+              </p>
+              <NuxtLink
+                v-if="assetCredit(selection.host)?.href"
+                :to="assetCredit(selection.host)!.href!"
+                class="underline underline-offset-2 hover:text-slate-700 dark:hover:text-slate-200"
+              >
+                request #{{ assetCredit(selection.host)?.request_id }}
+              </NuxtLink>
+            </div>
           </dl>
 
           <!-- Service card -->
@@ -429,6 +663,22 @@ const badConditions = (h: SnapshotHost) =>
             <div class="flex justify-between gap-2">
               <span class="text-slate-500 dark:text-slate-400">Node</span>
               <span class="font-mono text-slate-700 dark:text-slate-200">{{ selection.host.hostname || selection.host.id }}</span>
+            </div>
+            <div v-if="selection.service.activity?.buckets?.length">
+              <p class="text-slate-500 dark:text-slate-400">
+                Requests · last hour
+                <span class="font-mono text-slate-700 dark:text-slate-200">{{ selection.service.activity.total }}</span>
+              </p>
+              <svg viewBox="0 0 120 26" class="mt-1 h-7 w-full">
+                <polyline
+                  :points="sparklinePoints(selection.service)"
+                  fill="none"
+                  :stroke="modalityHex(selection.service.type)"
+                  stroke-width="1.5"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                />
+              </svg>
             </div>
             <div v-if="selection.service.models.length">
               <p class="text-slate-500 dark:text-slate-400">Models</p>

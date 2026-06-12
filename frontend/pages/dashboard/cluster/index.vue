@@ -5,7 +5,12 @@
 // one agent runs kubernetes discovery.
 import { Boxes, ExternalLink } from 'lucide-vue-next'
 import { useProviders } from '@/composables/useProviders'
-import { buildClusterSnapshot, useClusterState } from '@/composables/useClusterState'
+import type { ParsedManifest } from '@/composables/useManifest'
+import {
+  buildClusterSnapshot,
+  useClusterHistory,
+  useClusterState,
+} from '@/composables/useClusterState'
 import { useAuthStore } from '@/stores/auth'
 
 definePageMeta({
@@ -29,23 +34,38 @@ const provider = computed(
     null,
 )
 
-const { state, start, refresh } = useClusterState(() => provider.value?.id)
+const { state, activity, start, refresh } = useClusterState(() => provider.value?.id)
+const { revisions, loadHistory, fetchRevision } = useClusterHistory(() => provider.value?.id)
 
 onMounted(async () => {
   await fetchProviders()
-  if (provider.value) start()
+  if (provider.value) {
+    start()
+    void loadHistory()
+  }
+})
+
+// Story mode (V3): a selected revision freezes the scene at that moment.
+const storyRevisionId = ref<number | null>(null)
+const storyManifest = ref<ParsedManifest | null>(null)
+watch(storyRevisionId, async (id) => {
+  storyManifest.value = id == null ? null : await fetchRevision(id)
 })
 
 // Providers load async, and the picker can switch agents — (re)start or
 // refetch against whichever provider is current. start() is idempotent.
 watch(provider, (p, prev) => {
   if (!p) return
+  storyRevisionId.value = null
   if (!prev) start()
   else if (p.id !== prev.id) void refresh()
+  void loadHistory()
 })
 
 const snapshot = computed(() =>
-  buildClusterSnapshot(provider.value?.manifest?.parsed, state.value),
+  storyRevisionId.value != null && storyManifest.value
+    ? buildClusterSnapshot(storyManifest.value)
+    : buildClusterSnapshot(provider.value?.manifest?.parsed, state.value, activity.value),
 )
 
 const publicUrl = computed(() =>
@@ -106,11 +126,15 @@ useHead({ title: 'Cluster — inference.club' })
       </div>
     </div>
 
-    <ClusterScene
-      v-else-if="snapshot"
-      :snapshot="snapshot"
-      :show-commands="true"
-      class="flex-1 rounded-lg border bg-card"
-    />
+    <template v-else-if="snapshot">
+      <ClusterScene
+        :snapshot="snapshot"
+        :show-commands="true"
+        class="flex-1 rounded-lg border bg-card"
+      />
+      <div class="mt-3">
+        <ClusterStoryBar v-model="storyRevisionId" :revisions="revisions" />
+      </div>
+    </template>
   </div>
 </template>

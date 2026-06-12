@@ -21,6 +21,11 @@ const sections = [
     title: 'Logo exploration: the jack',
     desc: 'Toy-jack logo candidates — four static marks plus the animated 3D jack for the top bar.',
   },
+  {
+    to: '/design/cluster-assets',
+    title: 'Cluster assets',
+    desc: 'Generate the Living Cluster chassis meshes through our own image + 3D modalities (PRD 07 V2).',
+  },
 ]
 </script>
 

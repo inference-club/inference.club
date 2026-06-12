@@ -4,8 +4,12 @@
 // live state layered on via the cluster proxy. Linked from the provider
 // profile. Owners get the richer /dashboard/cluster (commands shown there).
 import { ArrowLeft, Boxes } from 'lucide-vue-next'
-import type { PublicProfile } from '@/composables/useManifest'
-import { buildClusterSnapshot, useClusterState } from '@/composables/useClusterState'
+import type { ParsedManifest, PublicProfile } from '@/composables/useManifest'
+import {
+  buildClusterSnapshot,
+  useClusterHistory,
+  useClusterState,
+} from '@/composables/useClusterState'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
@@ -50,13 +54,27 @@ const provider = computed(() => {
   )
 })
 
-const { state, start } = useClusterState(() => provider.value?.id)
+const { state, activity, start } = useClusterState(() => provider.value?.id)
+const { revisions, loadHistory, fetchRevision } = useClusterHistory(() => provider.value?.id)
 onMounted(() => {
-  if (provider.value) start()
+  if (provider.value) {
+    start()
+    void loadHistory()
+  }
+})
+
+// Story mode (V3): a selected revision freezes the scene at that moment —
+// live state and request pulses only apply to the live view.
+const storyRevisionId = ref<number | null>(null)
+const storyManifest = ref<ParsedManifest | null>(null)
+watch(storyRevisionId, async (id) => {
+  storyManifest.value = id == null ? null : await fetchRevision(id)
 })
 
 const snapshot = computed(() =>
-  buildClusterSnapshot(provider.value?.manifest?.parsed, state.value),
+  storyRevisionId.value != null && storyManifest.value
+    ? buildClusterSnapshot(storyManifest.value)
+    : buildClusterSnapshot(provider.value?.manifest?.parsed, state.value, activity.value),
 )
 
 const isOwner = computed(
@@ -91,11 +109,15 @@ useHead({
       </p>
     </div>
 
-    <ClusterScene
-      v-else-if="snapshot"
-      :snapshot="snapshot"
-      :show-commands="isOwner"
-      class="flex-1"
-    />
+    <template v-else-if="snapshot">
+      <ClusterScene
+        :snapshot="snapshot"
+        :show-commands="isOwner"
+        class="flex-1"
+      />
+      <div class="px-4 pb-3">
+        <ClusterStoryBar v-model="storyRevisionId" :revisions="revisions" />
+      </div>
+    </template>
   </div>
 </template>

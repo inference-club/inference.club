@@ -5,6 +5,9 @@ from .views import (
     AgentRegisterView,
     AllInferenceRequestView,
     AllProvidersListView,
+    ProviderClusterActivityView,
+    ProviderClusterHistoryView,
+    ProviderClusterRevisionView,
     ProviderClusterStateView,
     BookmarkedRequestsView,
     CollectionDetailView,
@@ -154,5 +157,20 @@ urlpatterns = [
         "providers/<int:id>/cluster/",
         ProviderClusterStateView.as_view(),
         name="provider-cluster-state",
+    ),
+    path(
+        "providers/<int:id>/cluster/activity/",
+        ProviderClusterActivityView.as_view(),
+        name="provider-cluster-activity",
+    ),
+    path(
+        "providers/<int:id>/cluster/history/",
+        ProviderClusterHistoryView.as_view(),
+        name="provider-cluster-history",
+    ),
+    path(
+        "providers/<int:id>/cluster/history/<int:rev_id>/",
+        ProviderClusterRevisionView.as_view(),
+        name="provider-cluster-revision",
     ),
 ]
