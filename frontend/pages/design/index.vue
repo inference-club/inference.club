@@ -26,6 +26,11 @@ const sections = [
     title: 'Cluster assets',
     desc: 'Generate the Living Cluster chassis meshes through our own image + 3D modalities (PRD 07 V2).',
   },
+  {
+    to: '/design/cluster',
+    title: 'Living cluster scene',
+    desc: 'The 3D cluster viz rendered from a frozen mock of the real fleet — light/dark, live/degraded/manifest scenarios.',
+  },
 ]
 </script>
 

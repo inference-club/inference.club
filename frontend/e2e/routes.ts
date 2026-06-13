@@ -69,4 +69,5 @@ export const ROUTES: RouteSpec[] = [
   { name: 'design-cards', path: '/design/cards', auth: true },
   { name: 'design-primitives', path: '/design/primitives', auth: true },
   { name: 'design-logo', path: '/design/logo', auth: true },
+  { name: 'design-cluster', path: '/design/cluster', auth: true },
 ]

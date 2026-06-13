@@ -3,7 +3,7 @@
     <div class="flex h-14 items-center px-4 sm:px-6 lg:px-8">
       <div class="mr-2 sm:mr-4 flex min-w-0">
         <NuxtLink :to="localePath('/')" class="mr-0 sm:mr-6 flex min-w-0 items-center gap-1.5 sm:gap-2">
-          <AppLogo class="size-5 sm:size-6 shrink-0 text-primary" />
+          <LogoJack3D :size="24" pose="upright" />
           <span class="whitespace-nowrap font-bold text-sm sm:text-xl">inference.club</span>
         </NuxtLink>
         <nav class="hidden md:flex items-center space-x-4 text-sm">

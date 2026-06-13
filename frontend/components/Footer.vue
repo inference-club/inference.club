@@ -3,6 +3,7 @@
     <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
       <!-- Left: Logo/Name -->
       <div class="flex items-center space-x-2">
+        <LogoJack3D :size="22" pose="tossed" />
         <NuxtLink :to="localePath('/')" class="font-bold text-lg">inference.club</NuxtLink>
       </div>
       <!-- Center: Navigation Links -->

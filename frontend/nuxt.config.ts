@@ -36,6 +36,17 @@ export default defineNuxtConfig({
     plugins: [
       tailwindcss(),
     ],
+    optimizeDeps: {
+      // three example modules imported by the cluster scene + jack logo —
+      // pre-bundle them so dev doesn't force-reload mid-navigation when the
+      // optimizer discovers them at runtime.
+      include: [
+        'three/examples/jsm/geometries/RoundedBoxGeometry.js',
+        'three/examples/jsm/environments/RoomEnvironment.js',
+        'three/examples/jsm/loaders/OBJLoader.js',
+        'three/examples/jsm/utils/BufferGeometryUtils.js',
+      ],
+    },
   },
   content: {
     build: {

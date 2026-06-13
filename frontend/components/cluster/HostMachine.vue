@@ -10,7 +10,8 @@
 // generated TRELLIS/FLUX assets are V2's progressive enhancement.
 import { computed } from 'vue'
 import { AdditiveBlending } from 'three'
-import { useScenePalette } from '@/composables/useScenePalette'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import { useClusterPalette } from '@/composables/useClusterPalette'
 import { radialGlowTexture } from '@/utils/glow'
 import {
   modalityHex,
@@ -24,6 +25,8 @@ import type { LoadedClusterAsset } from '@/composables/useClusterAssets'
 const props = defineProps<{
   host: SnapshotHost
   position: [number, number, number]
+  // Y rotation in radians — the arc layout turns each machine toward the hub.
+  rotationY?: number
   // Seconds since scene start — drives the unhealthy-module flicker.
   clock: number
   selectedKey?: string | null
@@ -37,24 +40,51 @@ const emit = defineEmits<{
   hover: [hovering: boolean]
 }>()
 
-const { palette, isDark } = useScenePalette()
+const { palette, isDark } = useClusterPalette()
 
 // Dark-mode neon: a shared radial gradient, tinted per use and rendered
 // additively — cheap glow without a bloom pass.
 const glowTex = import.meta.client ? radialGlowTexture() : null
 
 const DIMS: Record<string, { w: number; h: number; d: number }> = {
-  tower: { w: 1.5, h: 2.2, d: 1.3 },
+  tower: { w: 1.4, h: 1.65, d: 1.15 },
   slab: { w: 1.7, h: 0.45, d: 1.3 },
-  box: { w: 1.3, h: 1.3, d: 1.3 },
+  box: { w: 1.2, h: 1.2, d: 1.2 },
   satellite: { w: 0.9, h: 0.25, d: 0.7 },
 }
 
 const dims = computed(() => DIMS[props.host.formFactor] ?? DIMS.box)
 
+// Rounded chassis geometry, cached per form factor (chamfered edges catch
+// the env-map light — square boxes read as cardboard, these read as metal).
+const BODY_GEO_CACHE = new Map<string, RoundedBoxGeometry>()
+const bodyGeometry = computed(() => {
+  const { w, h, d } = dims.value
+  const key = `${w}x${h}x${d}`
+  let geo = BODY_GEO_CACHE.get(key)
+  if (!geo) {
+    geo = new RoundedBoxGeometry(w, h, d, 3, Math.min(w, h, d) * 0.07)
+    BODY_GEO_CACHE.set(key, geo)
+  }
+  return geo
+})
+
+// Material finish per form factor: brushed gunmetal towers, polished gold
+// slab, plastic satellite tile.
+const bodyFinish = computed(() => {
+  switch (props.host.formFactor) {
+    case 'slab':
+      return { metalness: 0.8, roughness: 0.28 }
+    case 'satellite':
+      return { metalness: 0.3, roughness: 0.5 }
+    default:
+      return { metalness: 0.5, roughness: 0.45 }
+  }
+})
+
 // Satellites float — an external endpoint lives off the cluster floor,
 // tethered by a cable (drawn by the parent scene).
-const FLOAT_Y = 2.0
+const FLOAT_Y = 1.35
 const baseY = computed(() => (props.host.formFactor === 'satellite' ? FLOAT_Y : 0))
 
 // Degradation: only live state may declare a node unhealthy. Shape-only
@@ -64,13 +94,13 @@ const notReady = computed(() => props.host.live != null && !props.host.live.read
 const bodyColor = computed(() => {
   switch (props.host.formFactor) {
     case 'slab':
-      return '#c9a23c' // DGX Spark gold
+      return palette.value.slab // DGX Spark gold
     case 'satellite':
-      return palette.value.laptopBody
+      return palette.value.satellite
     case 'tower':
-      return palette.value.pc
+      return palette.value.tower
     default:
-      return palette.value.serverBody
+      return palette.value.box
   }
 })
 
@@ -104,9 +134,9 @@ const assetObject = computed(() => {
 })
 
 // Module slots per form factor: towers/boxes stack on the front face (two
-// columns past four services), slabs/satellites line up on top.
+// columns past three services), slabs/satellites line up on top.
 function moduleTransform(i: number): { position: [number, number, number] } {
-  const { w, h, d } = dims.value
+  const { h, d } = dims.value
   const ff = props.host.formFactor
   if (ff === 'slab' || ff === 'satellite') {
     const n = props.host.services.length
@@ -114,10 +144,10 @@ function moduleTransform(i: number): { position: [number, number, number] } {
     // baseY lifts satellite modules up to the floating device.
     return { position: [x, baseY.value + h + 0.29, 0] }
   }
-  const col = Math.floor(i / 4)
-  const row = i % 4
-  const x = col === 0 ? (props.host.services.length > 4 ? -0.36 : 0) : 0.36
-  return { position: [x, Math.min(0.5 + row * 0.45, h - 0.25), d / 2 + 0.17] }
+  const col = Math.floor(i / 3)
+  const row = i % 3
+  const x = col === 0 ? (props.host.services.length > 3 ? -0.36 : 0) : 0.36
+  return { position: [x, Math.min(0.46 + row * 0.42, h - 0.22), d / 2 + 0.17] }
 }
 
 interface ModuleHealth {
@@ -174,7 +204,7 @@ const moduleGlowOpacity = (s: SnapshotService): number => {
 
 // ── Memory volume (live only): allocatable shell, usage fill, pod cargo ────
 
-const MEM_VOL_H = 1.9
+const MEM_VOL_H = 1.6
 const memVolume = computed(() => {
   const live = props.host.live
   if (!live || live.memory.allocatable_bytes <= 0) return null
@@ -230,7 +260,7 @@ const setHover = (h: boolean) => {
 </script>
 
 <template>
-  <TresGroup :position="position">
+  <TresGroup :position="position" :rotation="[0, rotationY ?? 0, 0]">
     <!--
       NotReady → the machine tips over (rotated about its floor edge) and its
       lights die. The viz must never show a healthier cluster than kubectl.
@@ -241,8 +271,8 @@ const setHover = (h: boolean) => {
     >
       <!-- Pedestal (cluster machines sit on a low plinth; satellites float) -->
       <TresMesh v-if="host.formFactor !== 'satellite'" :position="[0, 0.06, 0]" receive-shadow>
-        <TresBoxGeometry :args="[dims.w + 0.7, 0.12, dims.d + 0.7]" />
-        <TresMeshStandardMaterial :color="palette.deskDark" :roughness="0.9" />
+        <TresBoxGeometry :args="[dims.w + 0.55, 0.12, dims.d + 0.55]" />
+        <TresMeshStandardMaterial :color="palette.pedestal" :roughness="0.55" :metalness="0.45" />
       </TresMesh>
 
       <!-- Body: generated chassis when an asset exists, procedural box else -->
@@ -257,18 +287,71 @@ const setHover = (h: boolean) => {
       <TresMesh
         v-else
         :position="[0, baseY + dims.h / 2 + 0.12, 0]"
+        :geometry="bodyGeometry"
         cast-shadow
+        receive-shadow
         @click="selectHost"
         @pointer-enter="setHover(true)"
         @pointer-leave="setHover(false)"
       >
-        <TresBoxGeometry :args="[dims.w, dims.h, dims.d]" />
         <TresMeshStandardMaterial
           :color="bodyColor"
-          :metalness="host.formFactor === 'slab' ? 0.85 : 0.3"
-          :roughness="host.formFactor === 'slab' ? 0.25 : 0.6"
+          :metalness="bodyFinish.metalness"
+          :roughness="bodyFinish.roughness"
           :emissive="bodyEmissive.color"
           :emissive-intensity="bodyEmissive.intensity"
+        />
+      </TresMesh>
+
+      <!-- Brushed top plate: a slightly inset lighter cap so the silhouette
+           reads as machined, not extruded -->
+      <TresMesh
+        v-if="!assetObject && host.formFactor !== 'satellite'"
+        :position="[0, baseY + dims.h + 0.12, 0]"
+      >
+        <TresBoxGeometry :args="[dims.w * 0.86, 0.035, dims.d * 0.86]" />
+        <TresMeshStandardMaterial :color="bodyColor" :metalness="0.75" :roughness="0.3" />
+      </TresMesh>
+
+      <!-- Front detailing (procedural towers/boxes only): vent slits up top
+           and a thin accent strip along the bottom edge in the machine's
+           modality color, so each box carries its service hue in both modes. -->
+      <template v-if="!assetObject && (host.formFactor === 'tower' || host.formFactor === 'box')">
+        <TresMesh
+          v-for="k in 3"
+          :key="`vent-${k}`"
+          :position="[0, baseY + dims.h - 0.06 - k * 0.09, dims.d / 2 + 0.012]"
+        >
+          <TresBoxGeometry :args="[dims.w * 0.55, 0.028, 0.02]" />
+          <TresMeshStandardMaterial :color="palette.vent" :roughness="0.45" :metalness="0.4" />
+        </TresMesh>
+        <!-- Neon corner bars (dark): vertical accent light on each front edge -->
+        <template v-if="isDark && !notReady">
+          <TresMesh
+            v-for="side in [-1, 1]"
+            :key="`edge-${side}`"
+            :position="[side * (dims.w / 2 - 0.01), baseY + 0.12 + dims.h / 2, dims.d / 2 + 0.005]"
+          >
+            <TresBoxGeometry :args="[0.022, dims.h * 0.72, 0.018]" />
+            <TresMeshStandardMaterial
+              :color="accentColor"
+              :emissive="accentColor"
+              :emissive-intensity="0.9"
+              :roughness="0.4"
+            />
+          </TresMesh>
+        </template>
+      </template>
+      <TresMesh
+        v-if="!assetObject && host.formFactor !== 'satellite'"
+        :position="[0, baseY + 0.17, dims.d / 2 + 0.02]"
+      >
+        <TresBoxGeometry :args="[dims.w * 0.92, 0.05, 0.03]" />
+        <TresMeshStandardMaterial
+          :color="accentColor"
+          :emissive="accentColor"
+          :emissive-intensity="notReady ? 0 : (isDark ? 1.3 : 0.7)"
+          :roughness="0.4"
         />
       </TresMesh>
 
@@ -325,6 +408,7 @@ const setHover = (h: boolean) => {
         v-for="(s, i) in host.services"
         :key="s.name"
         :position="moduleTransform(i).position"
+        cast-shadow
         @click="(e: any) => selectService(s, e)"
         @pointer-enter="setHover(true)"
         @pointer-leave="setHover(false)"
@@ -334,7 +418,8 @@ const setHover = (h: boolean) => {
           :color="moduleColor(s)"
           :emissive="moduleColor(s)"
           :emissive-intensity="moduleEmissiveIntensity(s)"
-          :roughness="0.35"
+          :metalness="0.2"
+          :roughness="0.3"
         />
       </TresMesh>
 
@@ -376,25 +461,32 @@ const setHover = (h: boolean) => {
       />
     </TresMesh>
 
-    <!-- Memory volume: allocatable shell, usage fill, pods as stacked cargo -->
-    <TresGroup v-if="memVolume" :position="[dims.w / 2 + 0.95, 0.12, 0]">
+    <!-- Memory pillar: allocatable shell, usage fill, pods as stacked cargo.
+         Slim and flush against the machine's side so it reads as a gauge on
+         the box, not a second building. -->
+    <TresGroup v-if="memVolume" :position="[dims.w / 2 + 0.52, 0.12, 0]">
       <TresMesh :position="[0, MEM_VOL_H / 2, 0]">
-        <TresBoxGeometry :args="[0.8, MEM_VOL_H, 0.8]" />
+        <TresBoxGeometry :args="[0.5, MEM_VOL_H, 0.5]" />
         <TresMeshStandardMaterial
           color="#38bdf8"
           :transparent="true"
-          :opacity="0.12"
+          :opacity="isDark ? 0.1 : 0.08"
           :depth-write="false"
         />
       </TresMesh>
+      <!-- Cap line marking 100% of allocatable -->
+      <TresMesh :position="[0, MEM_VOL_H, 0]">
+        <TresBoxGeometry :args="[0.54, 0.02, 0.54]" />
+        <TresMeshBasicMaterial color="#38bdf8" :transparent="true" :opacity="isDark ? 0.5 : 0.35" />
+      </TresMesh>
       <TresMesh v-if="memVolume.frac > 0" :position="[0, memVolume.fillH / 2, 0]">
-        <TresBoxGeometry :args="[0.76, memVolume.fillH, 0.76]" />
+        <TresBoxGeometry :args="[0.46, memVolume.fillH, 0.46]" />
         <TresMeshStandardMaterial
           color="#0ea5e9"
           :emissive="isDark ? '#0ea5e9' : '#000000'"
           :emissive-intensity="isDark ? 0.35 : 0"
           :transparent="true"
-          :opacity="isDark ? 0.38 : 0.3"
+          :opacity="isDark ? 0.34 : 0.25"
           :depth-write="false"
         />
       </TresMesh>
@@ -403,7 +495,7 @@ const setHover = (h: boolean) => {
         :key="brick.pod.name"
         :position="[0, brick.y, 0]"
       >
-        <TresBoxGeometry :args="[0.6, brick.h, 0.6]" />
+        <TresBoxGeometry :args="[0.36, brick.h, 0.36]" />
         <TresMeshStandardMaterial
           :color="brick.color"
           :emissive="brick.color"
