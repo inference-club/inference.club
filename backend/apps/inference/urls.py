@@ -1,5 +1,6 @@
 from django.urls import path
 from .openai_views import RetryInferenceRequestView
+from .job_views import QueueSummaryView
 from .views import (
     AgentManifestView,
     AgentRegisterView,
@@ -131,6 +132,7 @@ urlpatterns = [
     path("providers/all/", AllProvidersListView.as_view(), name="provider-list-all"),
     path("providers/<int:id>/", ProviderUpdateView.as_view(), name="provider-detail"),
     path("network/", NetworkStatusView.as_view(), name="network-status"),
+    path("queue/summary/", QueueSummaryView.as_view(), name="queue-summary"),
     path("models/", ModelCatalogView.as_view(), name="model-catalog"),
     path("leaderboard/", LeaderboardView.as_view(), name="leaderboard"),
     path("usage/", RateLimitUsageView.as_view(), name="rate-limit-usage"),

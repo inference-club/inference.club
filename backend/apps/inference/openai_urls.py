@@ -1,5 +1,16 @@
 from django.urls import path
 
+from .job_views import (
+    BatchDetailView,
+    BatchListCreateView,
+    JobCancelView,
+    JobDetailView,
+    JobListView,
+    JobRetryView,
+    WorkflowGateView,
+    WorkflowRunDetailView,
+    WorkflowRunListCreateView,
+)
 from .openai_views import (
     AudioSpeechView,
     AudioTranscriptionsView,
@@ -42,4 +53,29 @@ urlpatterns = [
     path("videos/generations/", VideoGenerationsView.as_view()),
     path("voice/generations", VoiceGenerationsView.as_view(), name="voice-generations"),
     path("voice/generations/", VoiceGenerationsView.as_view()),
+    # --- async jobs / batches / workflows (PRD 10) ---
+    path("jobs", JobListView.as_view(), name="jobs"),
+    path("jobs/", JobListView.as_view()),
+    path("jobs/<int:id>", JobDetailView.as_view(), name="job-detail"),
+    path("jobs/<int:id>/", JobDetailView.as_view()),
+    path("jobs/<int:id>/cancel", JobCancelView.as_view(), name="job-cancel"),
+    path("jobs/<int:id>/cancel/", JobCancelView.as_view()),
+    path("jobs/<int:id>/retry", JobRetryView.as_view(), name="job-retry"),
+    path("jobs/<int:id>/retry/", JobRetryView.as_view()),
+    path("batches", BatchListCreateView.as_view(), name="batches"),
+    path("batches/", BatchListCreateView.as_view()),
+    path("batches/<int:id>", BatchDetailView.as_view(), name="batch-detail"),
+    path("batches/<int:id>/", BatchDetailView.as_view()),
+    path("workflows/runs", WorkflowRunListCreateView.as_view(), name="workflow-runs"),
+    path("workflows/runs/", WorkflowRunListCreateView.as_view()),
+    path("workflows/runs/<int:id>", WorkflowRunDetailView.as_view(), name="workflow-run-detail"),
+    path("workflows/runs/<int:id>/", WorkflowRunDetailView.as_view()),
+    path(
+        "workflows/runs/<int:id>/steps/<str:step_id>/<str:action>",
+        WorkflowGateView.as_view(), name="workflow-gate",
+    ),
+    path(
+        "workflows/runs/<int:id>/steps/<str:step_id>/<str:action>/",
+        WorkflowGateView.as_view(),
+    ),
 ]

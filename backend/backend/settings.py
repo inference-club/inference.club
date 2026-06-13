@@ -242,6 +242,71 @@ else:
         }
     }
 
+# ---- Celery (async jobs & workflows, PRD 10) ----------------------------
+# Celery is the execution engine for queued jobs; Postgres is the source of
+# truth. Broker + result backend default to REDIS_URL (a separate logical DB
+# so the queue never collides with the cache). Async is OPT-IN and degrades
+# safely: with no broker, ASYNC_ENABLED is False and the API rejects async
+# submissions with a 503 — synchronous inference is unaffected either way.
+def _redis_db(url: str, db: int) -> str:
+    """Point a redis:// URL at a specific logical DB index (keeps the broker,
+    results, and cache from stepping on each other when one server is shared)."""
+    if not url:
+        return ""
+    base, _, _ = url.partition("?")
+    base = base.rstrip("/")
+    # Strip an existing trailing "/<n>" db selector, then append ours.
+    head, sep, tail = base.rpartition("/")
+    if sep and tail.isdigit():
+        base = head
+    return f"{base}/{db}"
+
+
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "") or _redis_db(_REDIS_URL, 1)
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "") or _redis_db(
+    _REDIS_URL, 2
+)
+# Master switch the API/dispatcher read. True only when a broker exists, unless
+# explicitly forced (e.g. CELERY_TASK_ALWAYS_EAGER in tests).
+ASYNC_ENABLED = _env_bool("ASYNC_ENABLED", default=bool(CELERY_BROKER_URL))
+CELERY_TASK_ALWAYS_EAGER = _env_bool("CELERY_TASK_ALWAYS_EAGER", default=False)
+if CELERY_TASK_ALWAYS_EAGER:
+    ASYNC_ENABLED = True
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # one heavy job at a time per worker slot
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TIMEZONE = "UTC"
+CELERY_RESULT_EXPIRES = 3600
+
+# How often the dispatcher tick claims queued jobs and advances workflow runs.
+JOB_DISPATCH_INTERVAL_SECONDS = float(
+    os.environ.get("JOB_DISPATCH_INTERVAL_SECONDS", "2.0")
+)
+# A job that can't find an online provider stays QUEUED this long before it's
+# failed as "no capacity ever showed up" (bounds a job waiting forever).
+JOB_NO_PROVIDER_TIMEOUT_SECONDS = int(
+    os.environ.get("JOB_NO_PROVIDER_TIMEOUT_SECONDS", str(60 * 60))
+)
+# A job stuck PROCESSING past this (worker died mid-run) is reclaimed by the
+# reaper and retried. Comfortably above the per-call upstream timeout (300s).
+JOB_RUNNING_TIMEOUT_SECONDS = int(
+    os.environ.get("JOB_RUNNING_TIMEOUT_SECONDS", str(20 * 60))
+)
+# Max items a workflow `map` step may fan out to (bounds runaway fan-out).
+WORKFLOW_MAX_FANOUT = int(os.environ.get("WORKFLOW_MAX_FANOUT", "64"))
+
+CELERY_BEAT_SCHEDULE = {}
+if ASYNC_ENABLED:
+    CELERY_BEAT_SCHEDULE["dispatch-queued-jobs"] = {
+        "task": "apps.inference.tasks.dispatch_queued",
+        "schedule": JOB_DISPATCH_INTERVAL_SECONDS,
+    }
+    CELERY_BEAT_SCHEDULE["reap-stuck-jobs"] = {
+        "task": "apps.inference.tasks.reap_stuck_jobs",
+        "schedule": 60.0,
+    }
+
 AUTHENTICATION_BACKENDS = (
     "social_core.backends.github.GithubOAuth2",
     "django.contrib.auth.backends.ModelBackend",

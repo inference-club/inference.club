@@ -1067,6 +1067,10 @@ def _manifest_services(parsed) -> list[dict]:
                 for f in (svc.get("features") or [])
                 if isinstance(f, str) and f.strip()
             ]
+            mc = svc.get("max_concurrent")
+            mc = mc if isinstance(mc, int) and mc >= 1 else 1
+            rg = svc.get("resource_group")
+            rg = rg.strip() if isinstance(rg, str) else ""
             out.append(
                 {
                     "name": name.strip(),
@@ -1074,10 +1078,39 @@ def _manifest_services(parsed) -> list[dict]:
                     "engine": svc.get("engine") if isinstance(svc.get("engine"), str) else "",
                     "service_type": svc_type,
                     "features": features,
+                    "max_concurrent": mc,
+                    "resource_group": rg,
                     "models": models_list,
                 }
             )
     return out
+
+
+def _sync_resource_groups(provider, parsed) -> None:
+    """Mirror the manifest's top-level ``resource_groups`` into ResourceGroup
+    rows (PRD 10 capacity pools). Groups absent from the manifest are dropped —
+    they carry no operator state worth preserving, unlike services."""
+    from .models import ResourceGroup
+
+    rgs = parsed.get("resource_groups") if isinstance(parsed, dict) else None
+    declared = {}
+    if isinstance(rgs, dict):
+        for name, val in rgs.items():
+            if not isinstance(name, str) or not name.strip():
+                continue
+            mc = val.get("max_concurrent") if isinstance(val, dict) else None
+            declared[name.strip()] = mc if isinstance(mc, int) and mc >= 1 else 1
+    existing = {g.name: g for g in provider.resource_groups.all()}
+    for name, mc in declared.items():
+        g = existing.get(name)
+        if g is None:
+            ResourceGroup.objects.create(provider=provider, name=name, max_concurrent=mc)
+        elif g.max_concurrent != mc:
+            g.max_concurrent = mc
+            g.save(update_fields=["max_concurrent", "modified_on"])
+    for name, g in existing.items():
+        if name not in declared:
+            g.delete()
 
 
 def sync_provider_models_from_manifest(provider, parsed) -> int:
@@ -1106,6 +1139,8 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
                 engine=sd["engine"],
                 service_type=sd["service_type"],
                 declared_features=sd["features"],
+                max_concurrent=sd["max_concurrent"],
+                resource_group=sd["resource_group"],
                 is_active=True,
             )
         else:
@@ -1122,12 +1157,20 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
             if list(svc.declared_features or []) != sd["features"]:
                 svc.declared_features = sd["features"]
                 fields.append("declared_features")
+            if svc.max_concurrent != sd["max_concurrent"]:
+                svc.max_concurrent = sd["max_concurrent"]
+                fields.append("max_concurrent")
+            if svc.resource_group != sd["resource_group"]:
+                svc.resource_group = sd["resource_group"]
+                fields.append("resource_group")
             if not svc.is_active:
                 svc.is_active = True
                 fields.append("is_active")
             if fields:
                 svc.save(update_fields=fields + ["modified_on"])
         service_by_name[sd["name"]] = svc
+
+    _sync_resource_groups(provider, parsed)
 
     # Deactivate services no longer in the manifest, but keep their policy in
     # case the operator brings the service back later.

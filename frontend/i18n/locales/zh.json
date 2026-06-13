@@ -162,7 +162,8 @@
       "moderation": "内容审核",
       "music": "音乐",
       "videos": "视频",
-      "anonAccess": "匿名访问"
+      "anonAccess": "匿名访问",
+      "queue": "Queue & workflows"
     }
   },
   "player": {
@@ -225,5 +226,26 @@
     "updateFailed": "无法保存共享偏好",
     "loadCollectionsFailed": "无法加载收藏集",
     "anonymousNoPublic": "匿名账户无法公开发布。"
+  },
+  "queue": {
+    "title": "Queue & workflows",
+    "subtitle": "Queued jobs and the workflows that orchestrate them, updating live.",
+    "runDemo": "Run demo workflow",
+    "active": "Active",
+    "done": "Done",
+    "failed": "Failed",
+    "loading": "Loading…",
+    "workflows": "Workflows",
+    "jobs": "Jobs",
+    "noWorkflows": "No workflow runs yet. Launch the demo to see the live DAG.",
+    "noJobs": "No queued jobs yet. Add async: true to any /v1 request, or submit a batch.",
+    "untitledRun": "Untitled run",
+    "steps": "steps",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "backToQueue": "Back to queue",
+    "runHashLabel": "Run #",
+    "refresh": "Refresh",
+    "awaitingHint": "This run is paused at a human gate — approve or reject a step above to continue."
   }
 }

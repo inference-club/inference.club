@@ -73,6 +73,29 @@ def validate(parsed: dict, raw_yaml: str = "") -> list[str]:
             f"got {discovery!r}"
         )
 
+    # Optional async-queue capacity pools (PRD 10): a top-level map of
+    # group name → {max_concurrent}. Services reference one via
+    # services[].resource_group to share a slot budget (e.g. one GPU).
+    rgs = parsed.get("resource_groups")
+    if rgs is not None:
+        if not isinstance(rgs, dict):
+            errors.append(
+                "resource_groups: must be an object mapping name → {max_concurrent}"
+            )
+        else:
+            for gname, gval in rgs.items():
+                if not isinstance(gname, str) or not gname.strip():
+                    errors.append("resource_groups: keys must be non-empty strings")
+                if not isinstance(gval, dict):
+                    errors.append(f"resource_groups[{gname!r}]: must be an object")
+                    continue
+                gmc = gval.get("max_concurrent")
+                if gmc is not None and (not isinstance(gmc, int) or gmc < 1):
+                    errors.append(
+                        f"resource_groups[{gname!r}].max_concurrent: "
+                        "must be a positive integer"
+                    )
+
     agent = parsed.get("agent")
     if not isinstance(agent, dict):
         errors.append("agent: required object missing")
@@ -187,6 +210,18 @@ def validate(parsed: dict, raw_yaml: str = "") -> list[str]:
                     isinstance(f, str) for f in features
                 ):
                     errors.append(f"{sprefix}.features: must be a list of strings")
+
+            # Async-queue capacity (PRD 10), both optional. ``max_concurrent``
+            # caps this service's in-flight queued jobs; ``resource_group``
+            # names a shared slot pool (e.g. a GPU two services contend for).
+            mc = svc.get("max_concurrent")
+            if mc is not None and (not isinstance(mc, int) or mc < 1):
+                errors.append(f"{sprefix}.max_concurrent: must be a positive integer")
+            rg = svc.get("resource_group")
+            if rg is not None and (not isinstance(rg, str) or len(rg) > 64):
+                errors.append(
+                    f"{sprefix}.resource_group: must be a string up to 64 chars"
+                )
 
             url = svc.get("url")
             if not isinstance(url, str) or not url.strip():

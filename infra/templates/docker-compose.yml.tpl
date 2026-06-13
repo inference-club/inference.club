@@ -134,6 +134,43 @@ services:
       tailscale:
         condition: service_started
 
+  # Async job execution (PRD 10). The worker runs queued jobs (reaching agents
+  # over the tailnet via the SOCKS sidecar, exactly like the backend) and beat
+  # fires the dispatcher tick. Both reuse the backend image with a different
+  # command, so a backend deploy updates them too. Redis is broker + results.
+  celery-worker:
+    image: __BACKEND_IMAGE__
+    restart: unless-stopped
+    command: ["celery", "-A", "backend", "worker", "-l", "info", "--concurrency=4"]
+    env_file:
+      - /srv/inference-club/backend.env
+    environment:
+      TAILNET_PROXY_URL: socks5h://tailscale:1055
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tailscale:
+        condition: service_started
+      minio:
+        condition: service_started
+
+  celery-beat:
+    image: __BACKEND_IMAGE__
+    restart: unless-stopped
+    command: ["celery", "-A", "backend", "beat", "-l", "info"]
+    env_file:
+      - /srv/inference-club/backend.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   frontend:
     image: __FRONTEND_IMAGE__
     restart: unless-stopped

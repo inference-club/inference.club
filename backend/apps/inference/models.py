@@ -221,6 +221,16 @@ class ProviderService(BaseModel):
         blank=True,
         help_text="GitHub usernames allowed when access_policy is RESTRICTED.",
     )
+    # --- Async queue capacity (see docs/prd/10-async-jobs-and-workflows.md) ---
+    # How many *queued* (async) jobs this service may run at once. Declared in
+    # the manifest as services[].max_concurrent; defaults to 1 (safe for a
+    # single-GPU box). Does not gate synchronous, user-blocking requests.
+    max_concurrent = models.PositiveIntegerField(default=1)
+    # Optional named pool this service draws slots from. Services sharing a
+    # resource_group within one provider contend for a single ResourceGroup
+    # slot budget — this is how "two services on one GPU, only one at a time"
+    # is expressed (declared in the manifest's services[].resource_group).
+    resource_group = models.CharField(max_length=64, blank=True, default="")
 
     class Meta:
         ordering = ["name"]
@@ -500,8 +510,12 @@ class InferenceRequest(BaseModel):
         ("QUEUED", "Queued"),
         ("PROCESSING", "Processing"),
         ("PROCESSED", "Processed"),
+        ("FAILED", "Failed"),
+        ("CANCELED", "Canceled"),
         ("SAVED", "Saved"),
     )
+    # Terminal states an async job can't leave (the dispatcher ignores them).
+    TERMINAL_STATUSES = ("PROCESSED", "FAILED", "CANCELED")
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -542,6 +556,44 @@ class InferenceRequest(BaseModel):
     # tokens/seconds for image generation; null for non-image requests.
     image_count = models.PositiveIntegerField(null=True, blank=True)
 
+    # --- Async queue / jobs (see docs/prd/10-async-jobs-and-workflows.md) ----
+    # An async job IS an InferenceRequest created in QUEUED state and run later
+    # by a worker when a capacity slot frees up — same row, same finalization
+    # as a synchronous request. These fields are inert for sync requests
+    # (is_async=False), so the live inference path is unchanged.
+    is_async = models.BooleanField(default=False, db_index=True)
+    # The routing service type the dispatcher resolves a provider against
+    # (e.g. "image"); blank means the LLM path (no restriction).
+    job_service_type = models.CharField(max_length=16, blank=True, default="")
+    queued_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    # The dispatcher skips the job until this time — used for retry backoff.
+    run_after = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    max_attempts = models.PositiveIntegerField(default=3)
+    # Higher priority dispatches first; ties broken by queued_at (FIFO).
+    priority = models.SmallIntegerField(default=0)
+    # Optional per-user idempotency key: a duplicate submit returns the
+    # existing job instead of creating a second (safe agent resubmits).
+    idempotency_key = models.CharField(max_length=128, blank=True, default="")
+    # Structured last-failure detail (message + classification), distinct from
+    # `results` which holds the upstream body.
+    error = models.JSONField(null=True, blank=True)
+    canceled_at = models.DateTimeField(null=True, blank=True)
+    # Internal scheduling breadcrumbs (resolved served name, service id, etc.).
+    dispatch_meta = models.JSONField(default=dict, blank=True)
+    # Grouping: a job may belong to a Batch (submitted together) and/or a
+    # workflow step (a node in a DAG). Both null for a standalone job.
+    batch = models.ForeignKey(
+        "Batch", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="jobs",
+    )
+    step_run = models.ForeignKey(
+        "WorkflowStepRun", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="jobs",
+    )
+
     # --- Sharing & curation (see docs/prd/01-content-sharing.md) ------------
     # Who may see this request. Left blank on the model so save() can fill it
     # from the owner's account default; the data migration backfills existing
@@ -578,6 +630,21 @@ class InferenceRequest(BaseModel):
             models.Index(fields=["user", "status", "created_on"]),
             # Powers the leaderboard's time-windowed token aggregation.
             models.Index(fields=["created_on"], name="ir_created_on_idx"),
+            # Powers the dispatcher's "next queued job" scan.
+            models.Index(
+                fields=["is_async", "status", "priority", "queued_at"],
+                name="ir_dispatch_idx",
+            ),
+        ]
+        constraints = [
+            # One job per (user, idempotency_key) — a resubmit returns the
+            # existing job rather than creating a duplicate. Partial: blank
+            # keys (every sync/non-idempotent request) are unconstrained.
+            models.UniqueConstraint(
+                fields=["user", "idempotency_key"],
+                condition=~models.Q(idempotency_key=""),
+                name="unique_idempotency_key_per_user",
+            )
         ]
 
     def __str__(self):
@@ -954,3 +1021,186 @@ class ContentReport(BaseModel):
 
     def __str__(self):
         return f"report#{self.pk} r{self.request_id} [{self.status}]"
+
+
+# --- Async jobs, batches & workflows -----------------------------------------
+# See docs/prd/10-async-jobs-and-workflows.md. A "job" is just an
+# InferenceRequest with is_async=True (above). Batches group jobs submitted
+# together; workflows arrange jobs into a dependency graph.
+
+
+class ResourceGroup(BaseModel):
+    """A named slot pool on one provider. Services that declare the same
+    ``resource_group`` contend for this group's ``max_concurrent`` budget — the
+    way "two services on one GPU, only one at a time" is modeled. Mirrored from
+    the manifest's top-level ``resource_groups`` on every accepted upload.
+    """
+
+    provider = models.ForeignKey(
+        Provider, on_delete=models.CASCADE, related_name="resource_groups"
+    )
+    name = models.CharField(max_length=64)
+    max_concurrent = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "name"], name="unique_resource_group_per_provider"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.provider}/group:{self.name}"
+
+
+class Batch(BaseModel):
+    """A set of jobs submitted together in one ``POST /v1/batches`` call. The
+    batch has no status column of its own — it's derived from its member jobs
+    (see ``aggregate_status``) so it can never drift out of sync."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="batches"
+    )
+    label = models.CharField(max_length=160, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_on"]
+
+    def __str__(self):
+        return f"batch#{self.pk} ({self.label or 'unlabeled'})"
+
+    def aggregate_status(self) -> str:
+        """Roll the member jobs' statuses up into one batch status."""
+        statuses = list(self.jobs.values_list("status", flat=True))
+        if not statuses:
+            return "EMPTY"
+        if any(s in ("QUEUED", "PROCESSING") for s in statuses):
+            return "RUNNING"
+        done = sum(1 for s in statuses if s == "PROCESSED")
+        failed = any(s in ("FAILED", "CANCELED") for s in statuses)
+        if done == len(statuses):
+            return "DONE"
+        if done == 0 and failed:
+            return "FAILED"
+        return "PARTIAL"
+
+
+# Workflow run / step lifecycle states. Steps and runs share most labels so the
+# DAG viewer can color them uniformly.
+WF_PENDING = "PENDING"        # not yet eligible (deps unmet) / not started
+WF_RUNNING = "RUNNING"        # jobs dispatched / in flight
+WF_AWAITING = "AWAITING"      # a human gate is blocking
+WF_DONE = "DONE"
+WF_FAILED = "FAILED"
+WF_CANCELED = "CANCELED"
+WF_SKIPPED = "SKIPPED"        # an upstream failure pruned this branch
+WF_STATUS_CHOICES = (
+    (WF_PENDING, "Pending"),
+    (WF_RUNNING, "Running"),
+    (WF_AWAITING, "Awaiting input"),
+    (WF_DONE, "Done"),
+    (WF_FAILED, "Failed"),
+    (WF_CANCELED, "Canceled"),
+    (WF_SKIPPED, "Skipped"),
+)
+
+# Step kinds (see the workflow engine). inference → one job; map → one job per
+# item of an upstream list; transform/collect → pure data steps run inline;
+# gate → pause for human approval.
+STEP_INFERENCE = "inference"
+STEP_MAP = "map"
+STEP_TRANSFORM = "transform"
+STEP_COLLECT = "collect"
+STEP_GATE = "gate"
+STEP_KIND_CHOICES = (
+    (STEP_INFERENCE, "Inference"),
+    (STEP_MAP, "Map (fan-out)"),
+    (STEP_TRANSFORM, "Transform"),
+    (STEP_COLLECT, "Collect"),
+    (STEP_GATE, "Human gate"),
+)
+
+
+class Workflow(BaseModel):
+    """A reusable DAG definition (a ``spec``) authored by a human or an agent.
+    A run snapshots the spec, so editing a Workflow never mutates history."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="workflows"
+    )
+    name = models.CharField(max_length=160)
+    description = models.TextField(blank=True, default="")
+    spec = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["-modified_on"]
+
+    def __str__(self):
+        return f"workflow {self.name!r} (u{self.user_id})"
+
+
+class WorkflowRun(BaseModel):
+    """One execution of a workflow spec. ``context`` accumulates each step's
+    output so later steps can template against it; the DAG viewer polls this."""
+
+    workflow = models.ForeignKey(
+        Workflow, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="runs",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="workflow_runs"
+    )
+    name = models.CharField(max_length=160, blank=True, default="")
+    # The spec actually run (snapshot, so it's immutable for this run).
+    spec = models.JSONField(default=dict)
+    inputs = models.JSONField(default=dict, blank=True)
+    # {"inputs": {...}, "steps": {step_id: <output>}} — the templating scope.
+    context = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=12, choices=WF_STATUS_CHOICES, default=WF_PENDING, db_index=True
+    )
+    error = models.JSONField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_on"]
+
+    def __str__(self):
+        return f"run#{self.pk} of {self.name or 'workflow'} [{self.status}]"
+
+
+class WorkflowStepRun(BaseModel):
+    """One node in a run's DAG. Edges are the ``depends_on`` step ids. The jobs
+    a step spawns point back via ``InferenceRequest.step_run``."""
+
+    run = models.ForeignKey(
+        WorkflowRun, on_delete=models.CASCADE, related_name="steps"
+    )
+    step_id = models.CharField(max_length=64)
+    kind = models.CharField(max_length=16, choices=STEP_KIND_CHOICES)
+    title = models.CharField(max_length=160, blank=True, default="")
+    depends_on = models.JSONField(default=list, blank=True)
+    # The step definition from the spec (endpoint, body template, over, op, …).
+    spec = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=12, choices=WF_STATUS_CHOICES, default=WF_PENDING, db_index=True
+    )
+    # The step's produced value, merged into the run context under this step id.
+    output = models.JSONField(null=True, blank=True)
+    error = models.JSONField(null=True, blank=True)
+    position = models.PositiveIntegerField(default=0)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "step_id"], name="unique_step_id_per_run"
+            )
+        ]
+
+    def __str__(self):
+        return f"step {self.step_id!r} of run#{self.run_id} [{self.status}]"

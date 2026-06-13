@@ -142,6 +142,54 @@ services:
       backend:
         condition: service_started
 
+  # Async job execution (PRD 10). The worker runs queued jobs; beat fires the
+  # dispatcher tick that claims work and assigns it to providers with free
+  # capacity. Both reuse the backend image (so a backend code change means
+  # rebuilding these too) with a different command, and share the same storage
+  # + direct-agent + Redis config the backend uses so a worker can reach agents
+  # and persist generated media exactly like the web process.
+  celery-worker:
+    image: inferenceclub-backend:dev
+    restart: unless-stopped
+    command: ["celery", "-A", "backend", "worker", "-l", "info", "--concurrency=4"]
+    env_file:
+      - ./backend/.env
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-localdev-not-for-production}
+      DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference
+      REDIS_URL: redis://redis:6379/0
+      INFERENCE_DIRECT_AGENTS: "True"
+      OBJECT_STORAGE_BUCKET: inference-club-media
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_ACCESS_KEY: inferenceclub
+      OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-localdevminio}
+      OBJECT_STORAGE_REGION: us-east-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+  celery-beat:
+    image: inferenceclub-backend:dev
+    restart: unless-stopped
+    command: ["celery", "-A", "backend", "beat", "-l", "info"]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-localdev-not-for-production}
+      DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
   frontend:
     build:
       context: ./frontend

@@ -162,7 +162,8 @@
       "moderation": "Moderación",
       "music": "Música",
       "videos": "Vídeos",
-      "anonAccess": "Acceso anónimo"
+      "anonAccess": "Acceso anónimo",
+      "queue": "Queue & workflows"
     }
   },
   "player": {
@@ -225,5 +226,26 @@
     "updateFailed": "No se pudo guardar tu preferencia de compartición",
     "loadCollectionsFailed": "No se pudieron cargar las colecciones",
     "anonymousNoPublic": "Las cuentas anónimas no pueden publicar de forma pública."
+  },
+  "queue": {
+    "title": "Queue & workflows",
+    "subtitle": "Queued jobs and the workflows that orchestrate them, updating live.",
+    "runDemo": "Run demo workflow",
+    "active": "Active",
+    "done": "Done",
+    "failed": "Failed",
+    "loading": "Loading…",
+    "workflows": "Workflows",
+    "jobs": "Jobs",
+    "noWorkflows": "No workflow runs yet. Launch the demo to see the live DAG.",
+    "noJobs": "No queued jobs yet. Add async: true to any /v1 request, or submit a batch.",
+    "untitledRun": "Untitled run",
+    "steps": "steps",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "backToQueue": "Back to queue",
+    "runHashLabel": "Run #",
+    "refresh": "Refresh",
+    "awaitingHint": "This run is paused at a human gate — approve or reject a step above to continue."
   }
 }
