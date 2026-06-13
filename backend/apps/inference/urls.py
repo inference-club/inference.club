@@ -36,6 +36,9 @@ from .views import (
     RetrieveInferenceRequestView,
     SharedRequestView,
     StarredRequestsView,
+    VoiceSampleDetailView,
+    VoiceSampleListCreateView,
+    VoiceSampleTranscribeView,
 )
 
 app_name = "inference"
@@ -132,6 +135,21 @@ urlpatterns = [
     path("leaderboard/", LeaderboardView.as_view(), name="leaderboard"),
     path("usage/", RateLimitUsageView.as_view(), name="rate-limit-usage"),
     path("assets/<int:id>/", MediaAssetView.as_view(), name="media-asset"),
+    path(
+        "voice-samples/",
+        VoiceSampleListCreateView.as_view(),
+        name="voice-sample-list",
+    ),
+    path(
+        "voice-samples/<int:id>/",
+        VoiceSampleDetailView.as_view(),
+        name="voice-sample-detail",
+    ),
+    path(
+        "voice-samples/<int:id>/transcribe/",
+        VoiceSampleTranscribeView.as_view(),
+        name="voice-sample-transcribe",
+    ),
     path(
         "provider/models/",
         ProviderModelsCatalogView.as_view(),

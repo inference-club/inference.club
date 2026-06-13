@@ -492,6 +492,7 @@ class InferenceRequest(BaseModel):
         ("TTS", "Text to Speech"),
         ("MESH", "Image to 3D"),
         ("MUSIC", "Music Generation"),
+        ("VOICE", "Voice Cloning"),
     )
 
     STATUS_CHOICES = (
@@ -701,6 +702,68 @@ class MediaAsset(BaseModel):
 
     def __str__(self):
         return f"{self.kind} asset {self.pk} for {self.user_id}"
+
+
+class VoiceSample(BaseModel):
+    """A user-owned reference voice for cloning with Dia (see
+    docs/prd/09-voice-cloning.md).
+
+    A "speaker" isn't its own table — it's the set of samples sharing
+    ``(user, speaker_name)``. Each speaker has exactly one **default** sample
+    (``is_default``) plus zero or more **variations**. Cloning needs *both* the
+    audio and its transcript, so ``transcript`` is filled in — auto via our own
+    STT, or by hand. Private by design: the clip is an ``INPUT_AUDIO``
+    ``MediaAsset`` (owner-gated, never in ``PUBLIC_KINDS``), so a voice print is
+    never served publicly in V1.
+    """
+
+    SOURCE_STT = "stt"
+    SOURCE_MANUAL = "manual"
+    SOURCE_EDITED = "edited"
+    TRANSCRIPT_SOURCES = (
+        (SOURCE_STT, "Auto (speech-to-text)"),
+        (SOURCE_MANUAL, "Manual"),
+        (SOURCE_EDITED, "Edited"),
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="voice_samples",
+    )
+    speaker_name = models.CharField(max_length=120)
+    # A short variation name ("warm", "fast"); blank for the default sample.
+    label = models.CharField(max_length=120, blank=True, default="")
+    is_default = models.BooleanField(default=False)
+    # CASCADE: deleting the sample drops its private audio blob with it.
+    audio = models.ForeignKey(
+        MediaAsset, on_delete=models.CASCADE, related_name="voice_samples"
+    )
+    transcript = models.TextField(blank=True, default="")
+    transcript_source = models.CharField(
+        max_length=8, choices=TRANSCRIPT_SOURCES, default=SOURCE_MANUAL
+    )
+    language = models.CharField(max_length=16, blank=True, default="")
+    duration_seconds = models.FloatField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["speaker_name", "-is_default", "-created_on"]
+        constraints = [
+            # At most one default sample per (user, speaker). Promoting a new
+            # default clears the old one in the same transaction (see the view).
+            models.UniqueConstraint(
+                fields=["user", "speaker_name"],
+                condition=models.Q(is_default=True),
+                name="one_default_voice_sample_per_speaker",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["user", "speaker_name", "created_on"]),
+        ]
+
+    def __str__(self):
+        return f"voice {self.speaker_name!r} sample {self.pk} for {self.user_id}"
 
 
 class Star(BaseModel):

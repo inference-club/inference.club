@@ -14,6 +14,7 @@ from .models import (
     ProviderService,
     ServiceManifest,
     VISIBILITY_VALUES,
+    VoiceSample,
 )
 
 # Some reasoning models embed their thinking inline as <think>…</think> in the
@@ -978,6 +979,59 @@ class CollectionWriteSerializer(serializers.ModelSerializer):
         value = (value or "").strip()
         if not value:
             raise serializers.ValidationError("Name cannot be blank.")
+        return value
+
+
+# --- Voice cloning (PRD 09) --------------------------------------------------
+
+
+class VoiceSampleSerializer(serializers.ModelSerializer):
+    """Read shape for a voice sample. ``audio_url`` is the owner-gated route to
+    the private INPUT_AUDIO blob (voice prints are never public in V1)."""
+
+    audio_url = serializers.SerializerMethodField()
+    content_type = serializers.CharField(source="audio.content_type", read_only=True)
+
+    class Meta:
+        model = VoiceSample
+        fields = [
+            "id",
+            "speaker_name",
+            "label",
+            "is_default",
+            "transcript",
+            "transcript_source",
+            "language",
+            "duration_seconds",
+            "audio_url",
+            "content_type",
+            "created_on",
+        ]
+        read_only_fields = fields
+
+    def get_audio_url(self, obj):
+        return asset_url(obj.audio, self.context.get("request"))
+
+
+class VoiceSampleWriteSerializer(serializers.ModelSerializer):
+    """Create/update fields a client may set. The ``audio`` asset, ownership,
+    and ``transcript_source`` are managed by the view, never accepted here."""
+
+    class Meta:
+        model = VoiceSample
+        fields = ["speaker_name", "label", "is_default", "transcript", "language"]
+        extra_kwargs = {
+            "speaker_name": {"required": False},
+            "label": {"required": False},
+            "is_default": {"required": False},
+            "transcript": {"required": False},
+            "language": {"required": False},
+        }
+
+    def validate_speaker_name(self, value):
+        value = (value or "").strip()
+        if not value:
+            raise serializers.ValidationError("Speaker name cannot be blank.")
         return value
 
 

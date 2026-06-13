@@ -6,6 +6,7 @@ are passed through unchanged so OpenAI SDK clients can stream as usual.
 """
 import json
 import logging
+import re
 import time
 
 import requests
@@ -1220,6 +1221,427 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
 
         resp = HttpResponse(audio, content_type=out_ct)
         resp["Content-Disposition"] = f'inline; filename="speech.{ext}"'
+        return resp
+
+
+# --- Voice cloning (Dia) — see docs/prd/09-voice-cloning.md ------------------
+
+_SPEAKER_TAG_RE = re.compile(r"\[S(\d+)\]")
+
+
+def _normalize_script(text):
+    """Normalize a voice script and report which speakers it uses.
+
+    Returns ``(normalized_text, speakers_used:set, error:str|None)``:
+
+    - No ``[S*]`` tag at all → treat the whole thing as one line and prefix
+      ``[S1] `` (the single-speaker default).
+    - Has tags → must start with ``[S1]`` and use only ``[S1]``/``[S2]``
+      (``[S3]+`` is rejected in V1).
+    """
+    s = (text or "").strip()
+    nums = [int(n) for n in _SPEAKER_TAG_RE.findall(s)]
+    if not nums:
+        return "[S1] " + s, {"S1"}, None
+    if not s.startswith("[S1]"):
+        return None, None, "Script must start with [S1]."
+    bad = sorted({n for n in nums if n not in (1, 2)})
+    if bad:
+        tags = ", ".join(f"[S{n}]" for n in bad)
+        return None, None, f"Only [S1] and [S2] are supported (found {tags})."
+    return s, {f"S{n}" for n in nums}, None
+
+
+def _has_feature(pm, feature):
+    return feature in (_model_caps(pm).get("supported_features") or [])
+
+
+def _find_voice_provider(user, model_name):
+    """Pick an online ``tts`` deployment that can voice-clone (advertises the
+    ``voice-cloning`` feature). With an explicit ``model_name`` we defer to the
+    normal router (the agent's voice route picks the Dia backend); otherwise we
+    scan for the first accessible voice-cloning model."""
+    if model_name:
+        return _find_provider_for_model(user, model_name, service_type="tts")
+    for provider in _online_providers(user):
+        for pm in (
+            provider.models.filter(is_active=True)
+            .filter(service__service_type="tts")
+            .select_related("provider", "service", "catalog_model")
+        ):
+            if _has_feature(pm, "voice-cloning"):
+                return pm
+    github_login = _user_real_github_login(user)
+    candidates = (
+        ProviderModel.objects.filter(
+            is_active=True,
+            provider__is_active=True,
+            provider__accepting_requests=True,
+        )
+        .exclude(provider__tailnet_hostname="")
+        .filter(service__service_type="tts")
+        .select_related("provider", "service", "catalog_model")
+    )
+    for pm in candidates:
+        if (
+            _has_feature(pm, "voice-cloning")
+            and _model_accessible(pm, user, github_login)
+            and pm.provider.is_online
+        ):
+            return pm
+    return None
+
+
+def _pick_stt_model(user, model_name=None):
+    """An online STT deployment for internal (voice-sample) transcription."""
+    if model_name:
+        return _find_provider_for_model(user, model_name, service_type="stt")
+    for provider in _online_providers(user):
+        pm = (
+            provider.models.filter(is_active=True)
+            .filter(service__service_type="stt")
+            .select_related("provider", "service", "catalog_model")
+            .first()
+        )
+        if pm is not None:
+            return pm
+    github_login = _user_real_github_login(user)
+    candidates = (
+        ProviderModel.objects.filter(
+            is_active=True,
+            provider__is_active=True,
+            provider__accepting_requests=True,
+        )
+        .exclude(provider__tailnet_hostname="")
+        .filter(service__service_type="stt")
+        .select_related("provider", "service", "catalog_model")
+    )
+    for pm in candidates:
+        if _model_accessible(pm, user, github_login) and pm.provider.is_online:
+            return pm
+    return None
+
+
+def transcribe_audio_bytes(user, audio_bytes, filename="sample.wav",
+                           content_type="audio/wav", model_name=None):
+    """Best-effort STT used to auto-fill a voice sample's transcript. Returns
+    ``(text, error)``. Intentionally *not* a billable ``InferenceRequest`` — a
+    library utility, like a thumbnail. If no STT provider is online the caller
+    keeps the sample with an empty transcript and the UI nudges for a manual
+    one (Dia can't clone without it)."""
+    pm = _pick_stt_model(user, model_name)
+    if pm is None:
+        return None, "no_stt_provider"
+    provider = pm.provider
+    endpoint = provider.tailnet_base_url.rstrip("/") + "/audio/transcriptions"
+    try:
+        upstream = requests.post(
+            endpoint,
+            files={"file": (filename, audio_bytes, content_type or "application/octet-stream")},
+            data=[("model", pm.name), ("response_format", "json")],
+            timeout=UPSTREAM_TIMEOUT_SECONDS,
+            verify=False,
+            proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return None, str(e)
+    if not upstream.ok:
+        return None, f"upstream_{upstream.status_code}"
+    try:
+        payload = upstream.json()
+    except ValueError:
+        payload = {"text": upstream.text}
+    return (payload.get("text") or "").strip(), None
+
+
+def _read_asset_bytes(asset):
+    """Read a stored MediaAsset's bytes through the storage backend."""
+    f = asset.file
+    f.open("rb")
+    try:
+        return f.read()
+    finally:
+        try:
+            f.close()
+        except Exception:
+            pass
+
+
+def _concat_wav(clips):
+    """Concatenate decoded mono audio clips (with a short gap) into one WAV.
+
+    Returns ``(wav_bytes, sample_rate)`` or ``None`` when the optional audio
+    libs (soundfile/numpy) aren't installed or decoding fails — the voice view
+    then degrades to single-speaker cloning."""
+    try:
+        import io as _io
+
+        import numpy as np
+        import soundfile as sf
+    except Exception:
+        return None
+    try:
+        target_sr = None
+        parts = []
+        for data in clips:
+            arr, sr = sf.read(_io.BytesIO(data), dtype="float32", always_2d=False)
+            if getattr(arr, "ndim", 1) > 1:
+                arr = arr.mean(axis=1)
+            if target_sr is None:
+                target_sr = sr
+            elif sr != target_sr and len(arr):
+                n = int(len(arr) * target_sr / sr)
+                if n > 0:
+                    arr = np.interp(
+                        np.linspace(0, len(arr) - 1, n), np.arange(len(arr)), arr
+                    ).astype("float32")
+            parts.append(arr)
+            parts.append(np.zeros(int((target_sr or sr) * 0.3), dtype="float32"))
+        combined = np.concatenate(parts) if parts else np.zeros(0, dtype="float32")
+        buf = _io.BytesIO()
+        sf.write(buf, combined, target_sr or 44100, subtype="PCM_16", format="WAV")
+        return buf.getvalue(), int(target_sr or 44100)
+    except Exception:
+        return None
+
+
+def _clamp(val, lo, hi, default):
+    try:
+        n = float(val)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, n))
+
+
+class VoiceGenerationsView(_RateLimitHeadersMixin, APIView):
+    """``POST /v1/voice/generations`` — Dia voice cloning / text-to-dialogue.
+
+    A JSON shape (``model``, ``input`` script, optional ``speakers`` map of
+    ``S1``/``S2`` → voice-sample id, and Dia sampling controls). Routes only to
+    ``tts`` services advertising ``voice-cloning``. The view resolves the
+    referenced private voice samples to ``(audio, transcript)``, assembles
+    Dia's audio prompt, forwards a multipart request through the agent
+    (``/v1/voice/generations`` → Dia's ``/generate``), stores the result as a
+    public ``OUTPUT_AUDIO``, and returns the bytes. See
+    docs/prd/09-voice-cloning.md.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AccountTypeScopedRateThrottle]
+    throttle_scope = "inference"
+    inference_type = "VOICE"
+    upstream_path = "/voice/generations"
+
+    def post(self, request):
+        body = request.data if isinstance(request.data, dict) else {}
+        visibility, collection_name = pop_sharing_params(request)
+        raw_text = body.get("input")
+        if not isinstance(raw_text, str) or not raw_text.strip():
+            return Response(
+                {"error": {"message": "`input` is required.", "type": "missing_input"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(raw_text) > settings.TTS_MAX_INPUT_CHARS:
+            return Response(
+                {"error": {"message": "Input text too long.", "type": "request_too_large"}},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        text, speakers_used, err = _normalize_script(raw_text)
+        if err:
+            return Response(
+                {"error": {"message": err, "type": "invalid_script"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        model_name = body.get("model")
+        provider_model = _find_voice_provider(request.user, model_name)
+        if provider_model is None:
+            return Response(
+                {
+                    "error": {
+                        "message": f"No online voice-cloning provider serving model "
+                        f"'{model_name}' for this user.",
+                        "type": "no_provider",
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        provider = provider_model.provider
+        canonical = _model_slug(provider_model)
+
+        # Resolve speaker → voice sample (only speakers the script actually uses,
+        # in S1→S2 order so prompt audio and prompt transcript line up).
+        from .models import VoiceSample
+
+        speakers = body.get("speakers") if isinstance(body.get("speakers"), dict) else {}
+        resolved = []
+        for key in ("S1", "S2"):
+            if key not in speakers_used or not speakers.get(key):
+                continue
+            try:
+                sample = VoiceSample.objects.select_related("audio").get(
+                    id=speakers[key], user=request.user
+                )
+            except (VoiceSample.DoesNotExist, ValueError, TypeError):
+                return Response(
+                    {"error": {"message": f"Voice sample {speakers[key]!r} not found.",
+                               "type": "invalid_voice_sample"}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not (sample.transcript or "").strip():
+                return Response(
+                    {"error": {"message": f"Voice sample for {sample.speaker_name!r} has no "
+                               f"transcript; Dia needs one to clone.",
+                               "type": "missing_transcript"}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            resolved.append((key, sample))
+
+        cfg_scale = _clamp(body.get("cfg_scale"), 1.0, 5.0, 3.0)
+        temperature = _clamp(body.get("temperature"), 0.1, 2.0, 1.8)
+        top_p = _clamp(body.get("top_p"), 0.1, 1.0, 0.95)
+        cfg_filter_top_k = int(_clamp(body.get("cfg_filter_top_k"), 1, 100, 45))
+        speed_factor = _clamp(body.get("speed_factor"), 0.5, 2.0, 1.0)
+        max_new_tokens = int(_clamp(body.get("max_new_tokens"), 256, 4096, 3072))
+        try:
+            seed = int(body.get("seed"))
+        except (TypeError, ValueError):
+            seed = -1
+
+        # Assemble the cloning prompt: one tagged transcript line per speaker,
+        # and a single audio prompt (the clip, or two clips concatenated).
+        audio_prompt_bytes = None
+        prompt_transcript = ""
+        prompt_note = None
+        if resolved:
+            lines = [f"[{k}] {s.transcript.strip()}" for k, s in resolved]
+            clips = [_read_asset_bytes(s.audio) for _, s in resolved]
+            prompt_transcript = "\n".join(lines)
+            if len(clips) == 1:
+                audio_prompt_bytes = clips[0]
+            else:
+                concat = _concat_wav(clips)
+                if concat is not None:
+                    audio_prompt_bytes = concat[0]
+                else:
+                    # No audio libs to merge two voices — clone S1 only.
+                    audio_prompt_bytes = clips[0]
+                    prompt_transcript = lines[0]
+                    prompt_note = "multi_voice_clone_unavailable"
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="VOICE",
+            payload={
+                "model": canonical or model_name or "",
+                "input": text,
+                "speakers": {k: s.id for k, s in resolved},
+                "cfg_scale": cfg_scale,
+                "temperature": temperature,
+                "top_p": top_p,
+                "cfg_filter_top_k": cfg_filter_top_k,
+                "speed_factor": speed_factor,
+                "max_new_tokens": max_new_tokens,
+                "seed": seed,
+            },
+            status="PROCESSING",
+            visibility=visibility or "",
+        )
+        file_into_collection(request.user, ir, collection_name)
+
+        fields = {
+            "text": (None, text),
+            "max_new_tokens": (None, str(max_new_tokens)),
+            "cfg_scale": (None, str(cfg_scale)),
+            "temperature": (None, str(temperature)),
+            "top_p": (None, str(top_p)),
+            "cfg_filter_top_k": (None, str(cfg_filter_top_k)),
+            "speed_factor": (None, str(speed_factor)),
+            "seed": (None, str(seed)),
+        }
+        if audio_prompt_bytes is not None:
+            fields["audio_prompt_text"] = (None, prompt_transcript)
+            fields["audio_prompt"] = ("prompt.wav", audio_prompt_bytes, "audio/wav")
+
+        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
+        started = time.monotonic()
+        try:
+            upstream = requests.post(
+                endpoint, files=fields, timeout=UPSTREAM_TIMEOUT_SECONDS,
+                verify=False, proxies=_tailnet_proxies(),
+            )
+        except requests.RequestException as e:
+            ir.status = "REQUESTED"
+            ir.results = {"error": str(e)}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            logger.error("Upstream voice generation failed: %s", e)
+            return Response(
+                {"error": {"message": str(e), "type": "upstream_error"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not upstream.ok:
+            err_text = (upstream.text or "")[:1000]
+            ir.status = "REQUESTED"
+            ir.results = {"upstream_status": upstream.status_code, "error": err_text}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            return Response(
+                upstream.json()
+                if upstream.headers.get("content-type", "").startswith("application/json")
+                else {"error": {"message": err_text, "type": "upstream_error"}},
+                status=upstream.status_code,
+            )
+
+        audio = upstream.content
+        out_ct = (upstream.headers.get("content-type") or "audio/wav").split(";", 1)[0]
+        try:
+            seconds = float(upstream.headers.get("x-duration-seconds") or 0) or _wav_seconds(audio)
+        except (TypeError, ValueError):
+            seconds = _wav_seconds(audio)
+        used_seed = upstream.headers.get("x-seed")
+
+        from django.core.files.base import ContentFile
+
+        from .models import MediaAsset
+
+        asset = None
+        try:
+            asset = MediaAsset(
+                user=request.user, inference_request=ir, kind=MediaAsset.OUTPUT_AUDIO,
+                content_type=out_ct, size_bytes=len(audio), duration_seconds=seconds,
+            )
+            asset.file.save("voice.wav", ContentFile(audio), save=False)
+            asset.save()
+        except Exception as e:
+            logger.warning("voice output-audio store failed: %s", e)
+
+        ir.status = "PROCESSED"
+        ir.audio_seconds = seconds
+        ir.results = {
+            "audio_asset_id": asset.id if asset else None,
+            "content_type": out_ct,
+            "seed": used_seed,
+            "characters": len(text),
+        }
+        if prompt_note:
+            ir.results["note"] = prompt_note
+        ir.latency_ms = int((time.monotonic() - started) * 1000)
+        ir.save(
+            update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"]
+        )
+        Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+
+        from django.http import HttpResponse
+
+        resp = HttpResponse(audio, content_type=out_ct)
+        resp["Content-Disposition"] = 'inline; filename="voice.wav"'
+        if used_seed:
+            resp["x-seed"] = used_seed
         return resp
 
 

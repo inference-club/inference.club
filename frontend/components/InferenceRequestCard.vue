@@ -36,7 +36,10 @@ const whenInView = (url?: string | null) => (mediaInView.value && url) || undefi
 
 const isStt = computed(() => props.request.inference_type === 'STT')
 const isImage = computed(() => props.request.inference_type === 'IMAGE')
-const isTts = computed(() => props.request.inference_type === 'TTS')
+// VOICE (Dia voice cloning) renders like TTS: input script → audio output.
+const isTts = computed(
+  () => props.request.inference_type === 'TTS' || props.request.inference_type === 'VOICE',
+)
 const isMesh = computed(() => props.request.inference_type === 'MESH')
 const isMusic = computed(() => props.request.inference_type === 'MUSIC')
 const isVideo = computed(() => props.request.inference_type === 'VIDEO')

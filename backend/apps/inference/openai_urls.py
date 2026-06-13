@@ -12,6 +12,7 @@ from .openai_views import (
     ModelsView,
     MusicGenerationsView,
     VideoGenerationsView,
+    VoiceGenerationsView,
 )
 
 app_name = "openai"
@@ -39,4 +40,6 @@ urlpatterns = [
     path("music/generations/", MusicGenerationsView.as_view()),
     path("videos/generations", VideoGenerationsView.as_view(), name="videos-generations"),
     path("videos/generations/", VideoGenerationsView.as_view()),
+    path("voice/generations", VoiceGenerationsView.as_view(), name="voice-generations"),
+    path("voice/generations/", VoiceGenerationsView.as_view()),
 ]

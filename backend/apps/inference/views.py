@@ -39,6 +39,7 @@ from .models import (
     ServiceManifest,
     Star,
     VISIBILITY_PUBLIC,
+    VoiceSample,
     link_catalog_model,
     slugify_model_id,
     visible_list_q,
@@ -58,6 +59,8 @@ from .serializers import (
     ProviderUpdateSerializer,
     PublicProviderSerializer,
     ServiceManifestSerializer,
+    VoiceSampleSerializer,
+    VoiceSampleWriteSerializer,
     _cover_image_url,
     _user_github_login,
     _user_owner,
@@ -2164,6 +2167,197 @@ class CollectionOrderView(APIView):
             if changed:
                 CollectionItem.objects.bulk_update(changed, ["position"])
         return Response(_collection_with_items(col, request))
+
+
+# --- Voice cloning: the voice-sample library (PRD 09) ------------------------
+
+
+class VoiceSampleListCreateView(generics.ListCreateAPIView):
+    """GET lists the caller's voice samples (the frontend groups them by
+    speaker); POST creates one from an uploaded audio file (multipart). When no
+    transcript is supplied we auto-fill it via the caller's own STT service —
+    Dia needs a transcript to clone."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = VoiceSampleSerializer
+
+    def get_queryset(self):
+        return VoiceSample.objects.filter(user=self.request.user).select_related("audio")
+
+    def create(self, request, *args, **kwargs):
+        from django.core.files.base import ContentFile
+
+        from .openai_views import transcribe_audio_bytes, _wav_seconds
+
+        upload = request.FILES.get("audio")
+        if upload is None:
+            return Response(
+                {"detail": "`audio` file is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if upload.size and upload.size > settings.STT_MAX_UPLOAD_BYTES:
+            return Response(
+                {"detail": "Audio file too large."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        ser = VoiceSampleWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        speaker_name = (data.get("speaker_name") or "Speaker").strip()
+        audio_bytes = upload.read()
+        ctype = (getattr(upload, "content_type", "") or "").split(";", 1)[0]
+
+        asset = MediaAsset(
+            user=request.user,
+            kind=MediaAsset.INPUT_AUDIO,
+            content_type=ctype,
+            size_bytes=len(audio_bytes),
+            duration_seconds=_wav_seconds(audio_bytes),
+        )
+        asset.file.save(
+            getattr(upload, "name", "sample") or "sample",
+            ContentFile(audio_bytes),
+            save=False,
+        )
+        asset.save()
+
+        transcript = (data.get("transcript") or "").strip()
+        source = VoiceSample.SOURCE_MANUAL
+        if not transcript:
+            text, _err = transcribe_audio_bytes(
+                request.user,
+                audio_bytes,
+                filename=getattr(upload, "name", "sample.wav") or "sample.wav",
+                content_type=ctype or "audio/wav",
+            )
+            if text:
+                transcript, source = text, VoiceSample.SOURCE_STT
+
+        make_default = bool(data.get("is_default"))
+        with transaction.atomic():
+            existing = VoiceSample.objects.filter(
+                user=request.user, speaker_name=speaker_name
+            )
+            # The first sample for a speaker is implicitly its default.
+            if make_default or not existing.exists():
+                make_default = True
+                existing.filter(is_default=True).update(is_default=False)
+            sample = VoiceSample.objects.create(
+                user=request.user,
+                speaker_name=speaker_name,
+                label=(data.get("label") or "").strip(),
+                is_default=make_default,
+                audio=asset,
+                transcript=transcript,
+                transcript_source=source,
+                language=(data.get("language") or "").strip(),
+                duration_seconds=asset.duration_seconds,
+            )
+        return Response(
+            VoiceSampleSerializer(sample, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class VoiceSampleDetailView(APIView):
+    """GET / PATCH / DELETE one of the caller's voice samples. PATCH can edit
+    the transcript/label/language/speaker, or promote the sample to be its
+    speaker's default."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _get(self, request, id):
+        return get_object_or_404(
+            VoiceSample.objects.select_related("audio"), id=id, user=request.user
+        )
+
+    def get(self, request, id):
+        return Response(
+            VoiceSampleSerializer(
+                self._get(request, id), context={"request": request}
+            ).data
+        )
+
+    def patch(self, request, id):
+        sample = self._get(request, id)
+        ser = VoiceSampleWriteSerializer(sample, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        with transaction.atomic():
+            if "transcript" in data:
+                sample.transcript = (data["transcript"] or "").strip()
+                sample.transcript_source = VoiceSample.SOURCE_EDITED
+            if "label" in data:
+                sample.label = (data["label"] or "").strip()
+            if "language" in data:
+                sample.language = (data["language"] or "").strip()
+            if data.get("speaker_name"):
+                sample.speaker_name = data["speaker_name"].strip()
+            if data.get("is_default"):
+                VoiceSample.objects.filter(
+                    user=request.user,
+                    speaker_name=sample.speaker_name,
+                    is_default=True,
+                ).exclude(id=sample.id).update(is_default=False)
+                sample.is_default = True
+            sample.save()
+        return Response(
+            VoiceSampleSerializer(sample, context={"request": request}).data
+        )
+
+    def delete(self, request, id):
+        sample = self._get(request, id)
+        was_default, speaker, asset = sample.is_default, sample.speaker_name, sample.audio
+        sample.delete()
+        # The audio FK is CASCADE the other way (asset → sample), so removing
+        # the sample leaves the private blob — drop it explicitly.
+        try:
+            asset.delete()
+        except Exception:
+            pass
+        # If we removed the default, promote the most recent remaining sample.
+        if was_default:
+            nxt = (
+                VoiceSample.objects.filter(user=request.user, speaker_name=speaker)
+                .order_by("-created_on")
+                .first()
+            )
+            if nxt is not None:
+                VoiceSample.objects.filter(id=nxt.id).update(is_default=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class VoiceSampleTranscribeView(APIView):
+    """POST /api/inference/voice-samples/<id>/transcribe/ — (re)run STT on the
+    sample's audio and store the text."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, id):
+        from .openai_views import transcribe_audio_bytes, _read_asset_bytes
+
+        sample = get_object_or_404(
+            VoiceSample.objects.select_related("audio"), id=id, user=request.user
+        )
+        audio_bytes = _read_asset_bytes(sample.audio)
+        text, err = transcribe_audio_bytes(
+            request.user,
+            audio_bytes,
+            content_type=sample.audio.content_type or "audio/wav",
+            model_name=request.data.get("model"),
+        )
+        if not text:
+            return Response(
+                {"detail": f"Transcription unavailable ({err})."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        sample.transcript = text
+        sample.transcript_source = VoiceSample.SOURCE_STT
+        sample.save(update_fields=["transcript", "transcript_source", "modified_on"])
+        return Response(
+            VoiceSampleSerializer(sample, context={"request": request}).data
+        )
 
 
 class PublicUserCollectionsView(APIView):

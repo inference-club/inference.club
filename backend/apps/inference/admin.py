@@ -9,6 +9,7 @@ from .models import (
     Provider,
     ProviderService,
     Star,
+    VoiceSample,
 )
 
 
@@ -61,6 +62,23 @@ class MediaAssetAdmin(admin.ModelAdmin):
     list_filter = ("kind", "created_on")
     readonly_fields = ("created_on", "modified_on")
     search_fields = ("user__username",)
+
+
+@admin.register(VoiceSample)
+class VoiceSampleAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "speaker_name",
+        "label",
+        "is_default",
+        "transcript_source",
+        "created_on",
+    )
+    list_filter = ("is_default", "transcript_source", "created_on")
+    readonly_fields = ("created_on", "modified_on")
+    search_fields = ("user__username", "speaker_name", "transcript")
+    raw_id_fields = ("audio",)
 
 
 @admin.register(ContentReport)
