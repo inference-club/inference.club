@@ -233,10 +233,17 @@ with no Dockerfile and two hardcodes that block cluster use:
 - `HF_HOME` only forced if unset (respect the env when the pod sets it).
 - Model id from `DIA_MODEL` (default `nari-labs/Dia-1.6B-0626`).
 - Port already from `PORT` (default 8491) — keep.
-- New **`Dockerfile`** on a CUDA base (`nvidia/cuda:12.6.x-runtime` +
-  Python, or `pytorch/pytorch:2.6.0-cuda12.6` ) installing the pinned
-  `torch==2.6.0`/`torchaudio==2.6.0` cu126 wheels and `nari-tts` from git.
-  `HEALTHCHECK` on `/health`. Exposes `PORT`.
+- New **`Dockerfile`** built **on the official `pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime`
+  image** (ships a known-good torch + every CUDA userspace lib), layering only
+  the *service* deps (`nari-tts` from git, fastapi, uvicorn, soundfile, …) on
+  top. `HEALTHCHECK` on `/health`; exposes `PORT`. **Gotcha learned the hard
+  way:** installing torch ourselves via the cu126 wheels (uv) repeatedly
+  crashed at `import torch` — first `libcudart.so.12`, then `libcusparseLt.so.0`
+  — because the wheels link CUDA libs they don't all declare as pip deps, and a
+  plain/CUDA base lacks `libcusparseLt`; the committed `uv.lock` was also
+  macOS-resolved, omitting the Linux `nvidia-*-cu12` wheels. Building on the
+  official PyTorch image sidesteps the whole class. (nari-tts needs only
+  `python>=3.10`, so the image's 3.11 is fine.)
 - `.dockerignore`, a short `README` deploy section, and a GitHub Actions
   **build-and-push** workflow → `ghcr.io/inference-club/dia:{latest,sha-…}`
   (mirrors inference.club's existing workflow).
