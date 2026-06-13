@@ -40,6 +40,31 @@ logger = logging.getLogger("django")
 UPSTREAM_TIMEOUT_SECONDS = 300
 
 
+def _pop_async(request) -> bool:
+    """Detect the inference.club ``async`` extension and strip it from the body
+    so it never reaches the upstream server. Returns whether the caller wants
+    the queued path. Only meaningful for JSON bodies (the async-submittable
+    modalities are all JSON); multipart uploads stay synchronous."""
+    body = request.data
+    if not isinstance(body, dict):
+        return False
+    v = body.pop("async", None)
+    if isinstance(v, bool):
+        return v
+    return v is not None and str(v).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _enqueue_async(request, inference_type, payload, visibility, collection_name, model_name=""):
+    """Create a queued job from a validated payload and return the 202 (or a
+    503 if async is disabled). Imported lazily to avoid an import cycle."""
+    from .job_views import submit_async
+
+    return submit_async(
+        request, inference_type, payload,
+        visibility=visibility, collection_name=collection_name, model_name=model_name,
+    )
+
+
 def _assemble_streamed_results(chunks, fallback_model):
     """Reconstruct an OpenAI-style result object from raw SSE stream bytes.
 
@@ -487,6 +512,7 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         # Popped here so the verbatim body forward (and stored payload) never
         # includes the inference.club sharing extensions.
         visibility, collection_name = pop_sharing_params(request)
+        go_async = _pop_async(request)
         model_name = body.get("model")
 
         # Guardrails: reject oversized inputs and clamp runaway output budgets
@@ -523,6 +549,17 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         provider = provider_model.provider
         served_name = provider_model.name
         canonical = _model_slug(provider_model)
+        # Async opt-in: queue the request (buffered, late-bound to whatever
+        # provider is free at run time) instead of proxying inline. Stored with
+        # the canonical model id, not the served name, so the dispatcher can
+        # re-route. Done before the served-name rewrite below.
+        if go_async:
+            job_body = dict(body)
+            job_body["model"] = canonical or model_name or ""
+            return _enqueue_async(
+                request, self.inference_type, job_body,
+                visibility, collection_name, model_name=canonical or model_name or "",
+            )
         # The caller addresses the model by its public slug, but the upstream
         # backend (vLLM et al.) matches model ids case-sensitively against the
         # exact served name. Rewrite so pooling many providers under one slug
@@ -1089,6 +1126,7 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
     def post(self, request):
         body = request.data if isinstance(request.data, dict) else {}
         visibility, collection_name = pop_sharing_params(request)
+        go_async = _pop_async(request)
         text = body.get("input")
         if not isinstance(text, str) or not text.strip():
             return Response(
@@ -1128,18 +1166,25 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
         requested_format = body.get("response_format") or "wav"
         encoding, content_type, ext = _riva_encoding(requested_format)
 
+        stored_payload = {
+            "model": canonical or model_name or "",
+            "input": text,
+            "voice": voice,
+            "language": language,
+            "response_format": requested_format,
+        }
+        if go_async:
+            return _enqueue_async(
+                request, self.inference_type, stored_payload,
+                visibility, collection_name, model_name=canonical or model_name or "",
+            )
+
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
             model_name=canonical or model_name or "",
             inference_type="TTS",
-            payload={
-                "model": canonical or model_name or "",
-                "input": text,
-                "voice": voice,
-                "language": language,
-                "response_format": requested_format,
-            },
+            payload=stored_payload,
             status="PROCESSING",
             visibility=visibility or "",
         )
@@ -1367,42 +1412,82 @@ def _read_asset_bytes(asset):
             pass
 
 
-def _concat_wav(clips):
-    """Concatenate decoded mono audio clips (with a short gap) into one WAV.
+def _ffmpeg_to_wav(data, sample_rate=44100):
+    """Transcode arbitrary audio bytes (webm/opus/mp3/m4a/ogg/…) to 16-bit PCM
+    mono WAV via ffmpeg. Returns wav bytes, or ``None`` if ffmpeg is missing or
+    the decode fails.
 
-    Returns ``(wav_bytes, sample_rate)`` or ``None`` when the optional audio
-    libs (soundfile/numpy) aren't installed or decoding fails — the voice view
-    then degrades to single-speaker cloning."""
-    try:
-        import io as _io
+    Browser voice samples are recorded as webm/opus, which Dia's ``soundfile``
+    (libsndfile) reader can't open ("Format not recognised"), so any audio
+    prompt must be normalized to a real WAV here first. Uses temp files (not a
+    pipe) so ffmpeg writes a proper seekable RIFF header."""
+    import os
+    import shutil
+    import subprocess
+    import tempfile
 
-        import numpy as np
-        import soundfile as sf
-    except Exception:
+    if not data or shutil.which("ffmpeg") is None:
         return None
+    inp = outp = None
     try:
-        target_sr = None
-        parts = []
-        for data in clips:
-            arr, sr = sf.read(_io.BytesIO(data), dtype="float32", always_2d=False)
-            if getattr(arr, "ndim", 1) > 1:
-                arr = arr.mean(axis=1)
-            if target_sr is None:
-                target_sr = sr
-            elif sr != target_sr and len(arr):
-                n = int(len(arr) * target_sr / sr)
-                if n > 0:
-                    arr = np.interp(
-                        np.linspace(0, len(arr) - 1, n), np.arange(len(arr)), arr
-                    ).astype("float32")
-            parts.append(arr)
-            parts.append(np.zeros(int((target_sr or sr) * 0.3), dtype="float32"))
-        combined = np.concatenate(parts) if parts else np.zeros(0, dtype="float32")
-        buf = _io.BytesIO()
-        sf.write(buf, combined, target_sr or 44100, subtype="PCM_16", format="WAV")
-        return buf.getvalue(), int(target_sr or 44100)
-    except Exception:
-        return None
+        with tempfile.NamedTemporaryFile(suffix=".in", delete=False) as fin:
+            fin.write(data)
+            inp = fin.name
+        outp = inp + ".wav"
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", inp,
+             "-ac", "1", "-ar", str(sample_rate), outp],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
+        )
+        if proc.returncode == 0 and os.path.exists(outp) and os.path.getsize(outp) > 44:
+            with open(outp, "rb") as f:
+                return f.read()
+    except Exception as e:
+        logger.warning("ffmpeg transcode failed: %s", e)
+    finally:
+        for p in (inp, outp):
+            if p:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+    return None
+
+
+def _is_wav(data) -> bool:
+    return bool(data) and data[:4] == b"RIFF" and data[8:12] == b"WAVE"
+
+
+def _concat_wavs(wavs, gap_seconds=0.3):
+    """Concatenate uniform PCM WAV clips (mono, same rate — as produced by
+    ``_ffmpeg_to_wav``) into one WAV with a short silence gap between speakers.
+    Pure stdlib (``wave``), no numpy/soundfile. Returns wav bytes or ``None``."""
+    import io as _io
+    import wave
+
+    try:
+        out = _io.BytesIO()
+        writer = None
+        params = None
+        for i, wb in enumerate(wavs):
+            r = wave.open(_io.BytesIO(wb), "rb")
+            try:
+                if writer is None:
+                    params = r.getparams()
+                    writer = wave.open(out, "wb")
+                    writer.setparams(params)
+                writer.writeframes(r.readframes(r.getnframes()))
+            finally:
+                r.close()
+            if i < len(wavs) - 1 and params is not None:
+                gap = int(params.framerate * gap_seconds) * params.sampwidth * params.nchannels
+                writer.writeframes(b"\x00" * gap)
+        if writer is not None:
+            writer.close()
+            return out.getvalue()
+    except Exception as e:
+        logger.warning("wav concat failed: %s", e)
+    return None
 
 
 def _clamp(val, lo, hi, default):
@@ -1510,22 +1595,39 @@ class VoiceGenerationsView(_RateLimitHeadersMixin, APIView):
             seed = -1
 
         # Assemble the cloning prompt: one tagged transcript line per speaker,
-        # and a single audio prompt (the clip, or two clips concatenated).
+        # and a single audio prompt (the clip, or two clips concatenated). Each
+        # clip is transcoded to real WAV first — browser samples are webm/opus,
+        # which Dia's soundfile reader can't open.
         audio_prompt_bytes = None
         prompt_transcript = ""
         prompt_note = None
         if resolved:
             lines = [f"[{k}] {s.transcript.strip()}" for k, s in resolved]
-            clips = [_read_asset_bytes(s.audio) for _, s in resolved]
+            clips = []
+            for _key, s in resolved:
+                raw = _read_asset_bytes(s.audio)
+                wav = _ffmpeg_to_wav(raw)
+                if wav is None and _is_wav(raw):
+                    wav = raw  # already a real WAV (e.g. ffmpeg unavailable)
+                if wav is None:
+                    return Response(
+                        {"error": {"message": f"Could not decode the voice-sample "
+                                   f"audio for {s.speaker_name!r} (format "
+                                   f"{s.audio.content_type or 'unknown'!r}). Re-record "
+                                   f"the sample or upload a WAV/MP3.",
+                                   "type": "audio_decode_failed"}},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                clips.append(wav)
             prompt_transcript = "\n".join(lines)
             if len(clips) == 1:
                 audio_prompt_bytes = clips[0]
             else:
-                concat = _concat_wav(clips)
+                concat = _concat_wavs(clips)
                 if concat is not None:
-                    audio_prompt_bytes = concat[0]
+                    audio_prompt_bytes = concat
                 else:
-                    # No audio libs to merge two voices — clone S1 only.
+                    # Couldn't merge two voices — clone S1 only.
                     audio_prompt_bytes = clips[0]
                     prompt_transcript = lines[0]
                     prompt_note = "multi_voice_clone_unavailable"
@@ -1678,6 +1780,7 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
     def post(self, request):
         body = request.data if isinstance(request.data, dict) else {}
         visibility, collection_name = pop_sharing_params(request)
+        go_async = _pop_async(request)
         prompt = body.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             return Response(
@@ -1756,25 +1859,32 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
         if isinstance(body.get("vocal_language"), str) and body["vocal_language"].strip():
             forward["vocal_language"] = body["vocal_language"].strip()
 
+        stored_payload = {
+            "model": canonical or model_name or "",
+            "prompt": prompt,
+            "lyrics": lyrics,
+            "audio_duration": duration,
+            "inference_steps": steps,
+            "guidance_scale": guidance,
+            "seed": seed,
+            "use_random_seed": randomize,
+            "audio_format": audio_format,
+            # Stored so a retry / "reproduce in playground" is faithful.
+            "bpm": forward.get("bpm"),
+            "key_scale": forward.get("key_scale", ""),
+        }
+        if go_async:
+            return _enqueue_async(
+                request, self.inference_type, stored_payload,
+                visibility, collection_name, model_name=canonical or model_name or "",
+            )
+
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
             model_name=canonical or model_name or "",
             inference_type="MUSIC",
-            payload={
-                "model": canonical or model_name or "",
-                "prompt": prompt,
-                "lyrics": lyrics,
-                "audio_duration": duration,
-                "inference_steps": steps,
-                "guidance_scale": guidance,
-                "seed": seed,
-                "use_random_seed": randomize,
-                "audio_format": audio_format,
-                # Stored so a retry / "reproduce in playground" is faithful.
-                "bpm": forward.get("bpm"),
-                "key_scale": forward.get("key_scale", ""),
-            },
+            payload=stored_payload,
             status="PROCESSING",
             visibility=visibility or "",
         )
@@ -1912,6 +2022,7 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
     def post(self, request):
         body = request.data if isinstance(request.data, dict) else {}
         visibility, collection_name = pop_sharing_params(request)
+        go_async = _pop_async(request)
         prompt = body.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             return Response(
@@ -2013,55 +2124,80 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
         if seed is not None:
             forward["seed"] = seed
 
-        ir = InferenceRequest.objects.create(
-            user=request.user,
-            provider=provider,
-            model_name=canonical or model_name or "",
-            inference_type="VIDEO",
-            payload={
-                # Stored so a retry / "reproduce in playground" is faithful. The
-                # (potentially large) base64 image is NOT stored here — the
-                # persisted INPUT_IMAGE asset is the source of truth for replay.
-                "model": canonical or model_name or "",
-                "prompt": prompt,
-                "negative_prompt": negative_prompt,
-                "has_image": bool(image),
-                "image_strength": image_strength if image else None,
-                "duration": duration,
-                "num_frames": num_frames,
-                "fps": fps,
-                "width": width,
-                "height": height,
-                "num_inference_steps": steps,
-                "guidance_scale": guidance,
-                "enhance_prompt": enhance_prompt,
-                "seed": seed,
-            },
-            status="PROCESSING",
-            visibility=visibility or "",
-        )
-        file_into_collection(request.user, ir, collection_name)
+        stored_payload = {
+            # Stored so a retry / "reproduce in playground" is faithful. The
+            # (potentially large) base64 image is NOT stored here — the
+            # persisted INPUT_IMAGE asset is the source of truth for replay.
+            "model": canonical or model_name or "",
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "has_image": bool(image),
+            "image_strength": image_strength if image else None,
+            "duration": duration,
+            "num_frames": num_frames,
+            "fps": fps,
+            "width": width,
+            "height": height,
+            "num_inference_steps": steps,
+            "guidance_scale": guidance,
+            "enhance_prompt": enhance_prompt,
+            "seed": seed,
+        }
 
-        # Persist the optional first-frame image (public, like outputs) so the
-        # image-to-video run is replayable and its share link unfurls nicely.
-        if image:
+        def _store_first_frame(target):
+            """Persist the optional first-frame image (public, like outputs) so
+            the image-to-video run is replayable and its share link unfurls."""
+            if not image:
+                return
             from django.core.files.base import ContentFile
 
             from .models import MediaAsset
 
             raw_img, img_ct = _decode_image_input(image)
-            if raw_img:
-                try:
-                    src = MediaAsset(
-                        user=request.user, inference_request=ir,
-                        kind=MediaAsset.INPUT_IMAGE,
-                        content_type=img_ct or "image/png", size_bytes=len(raw_img),
-                    )
-                    ext = (img_ct or "image/png").rsplit("/", 1)[-1] or "png"
-                    src.file.save(f"first-frame.{ext}", ContentFile(raw_img), save=False)
-                    src.save()
-                except Exception as e:
-                    logger.warning("video input-image store failed: %s", e)
+            if not raw_img:
+                return
+            try:
+                src = MediaAsset(
+                    user=request.user, inference_request=target,
+                    kind=MediaAsset.INPUT_IMAGE,
+                    content_type=img_ct or "image/png", size_bytes=len(raw_img),
+                )
+                ext = (img_ct or "image/png").rsplit("/", 1)[-1] or "png"
+                src.file.save(f"first-frame.{ext}", ContentFile(raw_img), save=False)
+                src.save()
+            except Exception as e:
+                logger.warning("video input-image store failed: %s", e)
+
+        if go_async:
+            from . import jobs as _jobs
+            from .job_views import accepted
+
+            if not _jobs.async_enabled():
+                return Response(
+                    {"error": {"message": "Async processing is not enabled.",
+                               "type": "async_disabled"}},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            job = _jobs.enqueue_job(
+                request.user, self.inference_type, stored_payload,
+                model_name=canonical or model_name or "",
+                visibility=visibility or "", collection_name=collection_name,
+                idempotency_key=request.headers.get("Idempotency-Key", "") or "",
+            )
+            _store_first_frame(job)  # so image-to-video can run from the queue
+            return accepted(job)
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="VIDEO",
+            payload=stored_payload,
+            status="PROCESSING",
+            visibility=visibility or "",
+        )
+        file_into_collection(request.user, ir, collection_name)
+        _store_first_frame(ir)
 
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
         started = time.monotonic()
@@ -2196,6 +2332,7 @@ class ImageGenerationsView(_ImageProxyBase):
             )
         # Popped before `forward = dict(body)` below so the copy is clean.
         visibility, collection_name = pop_sharing_params(request)
+        go_async = _pop_async(request)
         prompt = body.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             return Response(
@@ -2220,29 +2357,38 @@ class ImageGenerationsView(_ImageProxyBase):
         canonical = _model_slug(provider_model)
         requested_format = body.get("response_format") or "url"
 
+        n_in = body.get("n")
+        if isinstance(n_in, int) and n_in > settings.IMAGE_MAX_N:
+            n_in = settings.IMAGE_MAX_N
+        stored_payload = {
+            "model": canonical or model_name or "",
+            "prompt": prompt,
+            "n": n_in,
+            "size": body.get("size"),
+            "quality": body.get("quality"),
+            "response_format": requested_format,
+        }
+        if go_async:
+            return _enqueue_async(
+                request, self.inference_type, stored_payload,
+                visibility, collection_name, model_name=canonical or model_name or "",
+            )
+
         # Forward a copy: force b64_json (the only thing the server returns and
         # what we need to store), rewrite the model id, clamp n.
         forward = dict(body)
         forward["response_format"] = "b64_json"
         if served_name:
             forward["model"] = served_name
-        n = forward.get("n")
-        if isinstance(n, int) and n > settings.IMAGE_MAX_N:
-            forward["n"] = settings.IMAGE_MAX_N
+        if n_in is not None:
+            forward["n"] = n_in
 
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
             model_name=canonical or model_name or "",
             inference_type="IMAGE",
-            payload={
-                "model": canonical or model_name or "",
-                "prompt": prompt,
-                "n": forward.get("n"),
-                "size": body.get("size"),
-                "quality": body.get("quality"),
-                "response_format": requested_format,
-            },
+            payload=stored_payload,
             status="PROCESSING",
             visibility=visibility or "",
         )

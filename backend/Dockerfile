@@ -30,9 +30,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8001 \
     DJANGO_SETTINGS_MODULE=backend.settings
 
-# libpq5 is the runtime piece psycopg2-binary needs; everything else stays out.
+# libpq5 is the runtime piece psycopg2-binary needs. ffmpeg transcodes
+# browser-recorded voice samples (webm/opus) to WAV before forwarding them to
+# Dia for voice cloning (its soundfile reader can't open webm).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq5 curl \
+    && apt-get install -y --no-install-recommends libpq5 curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user for the app.
