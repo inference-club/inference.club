@@ -485,6 +485,44 @@ def test_access_code_admin_crud(api_client, staff, policy):
     )
 
 
+def test_admin_chosen_code_is_the_login_code(api_client, staff, policy):
+    """The passcode an admin types is what redeems at login (normalized to the
+    same canonical form the login form applies), not a random string."""
+    api_client.force_authenticate(staff)
+    r = api_client.post(
+        "/api/admin/access-codes/",
+        {"code": "max-2026", "label": "for max"},
+        format="json",
+    )
+    assert r.status_code == 201
+    assert r.data["code"] == "club-MAX-2026"
+    assert r.data["label"] == "for max"
+
+    # The friend logs in by typing what the admin chose, in any case/spacing.
+    friend = APIClient()
+    assert (
+        friend.post("/api/auth/passcode/", {"code": "Max-2026"}, format="json")
+        .status_code
+        == 200
+    )
+
+    # Re-using the same code is rejected up front.
+    dup = api_client.post(
+        "/api/admin/access-codes/", {"code": "max-2026"}, format="json"
+    )
+    assert dup.status_code == 400
+
+
+def test_blank_code_falls_back_to_random(api_client, staff, policy):
+    api_client.force_authenticate(staff)
+    r = api_client.post(
+        "/api/admin/access-codes/", {"label": "for max"}, format="json"
+    )
+    assert r.status_code == 201
+    assert r.data["code"].startswith("club-")
+    assert r.data["code"] != "club-"
+
+
 def test_guest_admin_revoke_and_purge(api_client, staff, policy):
     enable_guests(policy)
     guest_client = APIClient()

@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import IsStaff
 
+from .handles import normalize_access_code
 from .models import AccessCode, AccessPolicy, CustomUser
 from .services import create_access_code, revoke_anonymous_user
 
@@ -120,6 +121,19 @@ class AdminAccessCodeListView(APIView):
 
     def post(self, request):
         label = str(request.data.get("label") or "").strip()
+        raw_code = str(request.data.get("code") or "").strip()
+        if raw_code:
+            normalized = normalize_access_code(raw_code)
+            if len(normalized) > 40:
+                return Response(
+                    {"detail": "Passcode is too long (max 40 characters)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if AccessCode.objects.filter(code=normalized).exists():
+                return Response(
+                    {"detail": f'Code "{normalized}" is already in use.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         expires_at = None
         raw_expiry = request.data.get("expires_at")
         if raw_expiry:
@@ -129,7 +143,9 @@ class AdminAccessCodeListView(APIView):
                     {"detail": "expires_at must be an ISO-8601 datetime."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-        code = create_access_code(request.user, label=label, expires_at=expires_at)
+        code = create_access_code(
+            request.user, label=label, code=raw_code or None, expires_at=expires_at
+        )
         return Response(
             AccessCodeSerializer(code).data, status=status.HTTP_201_CREATED
         )

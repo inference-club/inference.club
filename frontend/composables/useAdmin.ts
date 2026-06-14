@@ -221,7 +221,11 @@ export function useAdmin() {
   const listAccessCodes = () =>
     withState(() => api<{ codes: AccessCode[] }>('/access-codes/'))
 
-  const createAccessCode = (payload: { label?: string; expires_at?: string | null }) =>
+  const createAccessCode = (payload: {
+    code?: string
+    label?: string
+    expires_at?: string | null
+  }) =>
     withState(() =>
       api<AccessCode>('/access-codes/', {
         method: 'POST',

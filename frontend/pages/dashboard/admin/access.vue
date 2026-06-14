@@ -78,19 +78,28 @@ const saveDrafts = () => {
 
 // --- passcodes ---------------------------------------------------------------
 
+const newCode = ref('')
 const newLabel = ref('')
 const creating = ref(false)
 
 const onCreateCode = async () => {
+  if (!newCode.value.trim()) {
+    toast.error('Enter a passcode')
+    return
+  }
   creating.value = true
   try {
-    const code = await createAccessCode({ label: newLabel.value.trim() })
+    const code = await createAccessCode({
+      code: newCode.value.trim(),
+      label: newLabel.value.trim(),
+    })
     codes.value = [code, ...codes.value]
+    newCode.value = ''
     newLabel.value = ''
     await copyCode(code)
     toast.success(`Code for ${code.handle} created and copied`)
-  } catch {
-    toast.error('Failed to create code')
+  } catch (e: any) {
+    toast.error(e?.data?.detail || 'Failed to create code')
   } finally {
     creating.value = false
   }
@@ -246,14 +255,19 @@ const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 
         immediately; their content stays (unlisted) unless you purge in Django admin.
       </p>
 
-      <form class="flex items-center gap-2" @submit.prevent="onCreateCode">
-        <Input v-model="newLabel" placeholder='Label, e.g. "for Max"' class="max-w-xs" />
+      <form class="flex flex-wrap items-center gap-2" @submit.prevent="onCreateCode">
+        <Input v-model="newCode" placeholder="Passcode, e.g. max-2026" class="max-w-xs font-mono" />
+        <Input v-model="newLabel" placeholder='Label (optional note), e.g. "for Max"' class="max-w-xs" />
         <Button type="submit" size="sm" :disabled="creating">
           <Loader2 v-if="creating" class="size-4 animate-spin" />
           <Plus v-else class="size-4" />
           Create code
         </Button>
       </form>
+      <p class="text-xs text-muted-foreground">
+        The passcode is the login string you hand out — it's upper-cased and given a
+        <code class="font-mono">club-</code> prefix so it survives being read aloud or retyped.
+      </p>
 
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
