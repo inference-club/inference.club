@@ -92,6 +92,72 @@ export interface WorkflowTemplate {
   step_count: number
 }
 
+// --- saved workflows / authoring (PRD 11) ---
+
+export type StepKind = 'inference' | 'map' | 'transform' | 'collect' | 'gate' | 'prompt'
+
+/** One node in an editable workflow spec. A superset of every kind's fields;
+ * the builder only writes the ones relevant to the chosen kind. */
+export interface StepSpec {
+  id: string
+  kind: StepKind
+  title?: string
+  // inference / map
+  type?: 'chat' | 'image' | 'video' | 'music' | 'tts'
+  model?: string
+  body?: Record<string, unknown>
+  over?: string
+  response_schema?: Record<string, unknown>
+  // prompt (meta-prompting)
+  target?: 'image' | 'video' | 'music' | 'tts' | 'text'
+  input?: unknown
+  instructions?: string
+  count?: number
+  // transform / collect
+  op?: 'passthrough' | 'pluck' | 'split_lines' | 'join' | 'zip'
+  field?: string
+  sep?: string
+  from?: string
+  inputs?: unknown
+  // common
+  depends_on?: string[]
+  extract?: string
+  [k: string]: unknown
+}
+
+export interface WorkflowInputField {
+  name: string
+  label: string
+  type: 'text' | 'textarea' | 'number' | 'select'
+  default?: string | number
+  placeholder?: string
+  required?: boolean
+  min?: number
+  max?: number
+  options?: { value: string; label: string }[]
+}
+
+export interface WorkflowSpec {
+  name?: string
+  steps: StepSpec[]
+  layout?: Record<string, { x: number; y: number }>
+  inputs?: WorkflowInputField[]
+}
+
+export interface SavedWorkflowSummary {
+  id: number
+  name: string
+  description: string
+  step_count: number
+  run_count: number
+  created_on: string
+  modified_on: string
+}
+
+export interface SavedWorkflow extends SavedWorkflowSummary {
+  spec: WorkflowSpec
+}
+
 export interface QueueSummary {
   jobs: Record<string, number>
   active: number
@@ -116,13 +182,14 @@ export function useAsyncJobs() {
   const get = <T>(path: string) =>
     $fetch<T>(`${base}${path}`, { credentials: 'include', headers: { Accept: 'application/json' } })
 
-  const post = <T>(path: string, body?: unknown) =>
+  const send = <T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown) =>
     $fetch<T>(`${base}${path}`, {
-      method: 'POST',
+      method,
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...(csrf() ? { 'X-CSRFToken': csrf() } : {}) },
       body: body ?? {},
     })
+  const post = <T>(path: string, body?: unknown) => send<T>('POST', path, body)
 
   // --- jobs ---
   const listJobs = (opts: { active?: boolean; status?: string; limit?: number } = {}) => {
@@ -154,13 +221,36 @@ export function useAsyncJobs() {
       .then((r) => r.data)
       .catch(() => [] as string[])
 
+  const rerunStep = (runId: number | string, stepId: string) =>
+    post<WorkflowRun>(`/v1/workflows/runs/${runId}/steps/${stepId}/rerun`)
+
+  // --- saved workflows / authoring (PRD 11) ---
+  const listWorkflows = () =>
+    get<{ data: SavedWorkflowSummary[] }>('/v1/workflows').then((r) => r.data)
+  const getWorkflow = (id: number | string) => get<SavedWorkflow>(`/v1/workflows/${id}`)
+  const createWorkflow = (payload: { name: string; description?: string; spec?: WorkflowSpec }) =>
+    post<SavedWorkflow>('/v1/workflows', payload)
+  const updateWorkflow = (
+    id: number | string,
+    payload: { name?: string; description?: string; spec?: WorkflowSpec },
+  ) => send<SavedWorkflow>('PATCH', `/v1/workflows/${id}`, payload)
+  const deleteWorkflow = (id: number | string) => send<unknown>('DELETE', `/v1/workflows/${id}`)
+  const runSavedWorkflow = (id: number | string, inputs?: Record<string, unknown>, name?: string) =>
+    post<WorkflowRun>(`/v1/workflows/${id}/runs`, { inputs, name })
+  const forkTemplate = (key: string, name?: string) =>
+    post<SavedWorkflow>(`/v1/workflows/from-template/${encodeURIComponent(key)}`, name ? { name } : {})
+  const forkRun = (runId: number | string, name?: string) =>
+    post<SavedWorkflow>(`/v1/workflows/from-run/${runId}`, name ? { name } : {})
+
   // --- queue summary ---
   const queueSummary = () => get<QueueSummary>('/api/inference/queue/summary/')
 
   return {
     listJobs, getJob, cancelJob, retryJob,
     listRuns, getRun, startRun, resolveGate, listTemplates, startFromTemplate,
-    fetchSuggestions, queueSummary,
+    fetchSuggestions, queueSummary, rerunStep,
+    listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow,
+    runSavedWorkflow, forkTemplate, forkRun,
   }
 }
 

@@ -7,9 +7,15 @@ from .job_views import (
     JobDetailView,
     JobListView,
     JobRetryView,
+    WorkflowDetailView,
+    WorkflowForkRunView,
+    WorkflowForkTemplateView,
     WorkflowGateView,
+    WorkflowListCreateView,
     WorkflowRunDetailView,
+    WorkflowRunFromSavedView,
     WorkflowRunListCreateView,
+    WorkflowStepRerunView,
     WorkflowSuggestionListView,
     WorkflowTemplateListView,
 )
@@ -76,6 +82,15 @@ urlpatterns = [
     path("workflows/runs/", WorkflowRunListCreateView.as_view()),
     path("workflows/runs/<int:id>", WorkflowRunDetailView.as_view(), name="workflow-run-detail"),
     path("workflows/runs/<int:id>/", WorkflowRunDetailView.as_view()),
+    # Single-step re-run must precede the generic gate <action> path below.
+    path(
+        "workflows/runs/<int:id>/steps/<str:step_id>/rerun",
+        WorkflowStepRerunView.as_view(), name="workflow-step-rerun",
+    ),
+    path(
+        "workflows/runs/<int:id>/steps/<str:step_id>/rerun/",
+        WorkflowStepRerunView.as_view(),
+    ),
     path(
         "workflows/runs/<int:id>/steps/<str:step_id>/<str:action>",
         WorkflowGateView.as_view(), name="workflow-gate",
@@ -84,4 +99,15 @@ urlpatterns = [
         "workflows/runs/<int:id>/steps/<str:step_id>/<str:action>/",
         WorkflowGateView.as_view(),
     ),
+    # --- saved workflows / authoring (PRD 11) ---
+    path("workflows", WorkflowListCreateView.as_view(), name="workflows"),
+    path("workflows/", WorkflowListCreateView.as_view()),
+    path("workflows/from-template/<str:key>", WorkflowForkTemplateView.as_view(), name="workflow-fork-template"),
+    path("workflows/from-template/<str:key>/", WorkflowForkTemplateView.as_view()),
+    path("workflows/from-run/<int:run_id>", WorkflowForkRunView.as_view(), name="workflow-fork-run"),
+    path("workflows/from-run/<int:run_id>/", WorkflowForkRunView.as_view()),
+    path("workflows/<int:id>", WorkflowDetailView.as_view(), name="workflow-detail"),
+    path("workflows/<int:id>/", WorkflowDetailView.as_view()),
+    path("workflows/<int:id>/runs", WorkflowRunFromSavedView.as_view(), name="workflow-run-saved"),
+    path("workflows/<int:id>/runs/", WorkflowRunFromSavedView.as_view()),
 ]

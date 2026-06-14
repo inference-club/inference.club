@@ -4,8 +4,8 @@
  * media thumbnails and step statuses fill in as jobs complete; lets the owner
  * resolve human gates inline.
  */
-import { onMounted } from 'vue'
-import { ArrowLeft, RefreshCw } from 'lucide-vue-next'
+import { onMounted, ref } from 'vue'
+import { ArrowLeft, RefreshCw, GitFork } from 'lucide-vue-next'
 import { useWorkflowRunPoller, useAsyncJobs } from '@/composables/useAsyncJobs'
 import WorkflowGraph from '@/components/workflow/WorkflowGraph.vue'
 
@@ -15,7 +15,7 @@ const route = useRoute()
 const { t } = useI18n()
 const runId = route.params.id as string
 const { run, error, loading, start, refresh } = useWorkflowRunPoller(runId)
-const { resolveGate } = useAsyncJobs()
+const { resolveGate, rerunStep, forkRun } = useAsyncJobs()
 
 onMounted(() => start())
 
@@ -24,6 +24,25 @@ const onGate = async (payload: { stepId: string; action: 'approve' | 'reject' })
     await resolveGate(runId, payload.stepId, payload.action)
   } finally {
     refresh()
+  }
+}
+
+const onRerun = async (stepId: string) => {
+  try {
+    await rerunStep(runId, stepId)
+  } finally {
+    refresh()
+  }
+}
+
+const forking = ref(false)
+const onForkToBuilder = async () => {
+  forking.value = true
+  try {
+    const wf = await forkRun(runId)
+    await navigateTo(`/dashboard/workflows/${wf.id}/edit`)
+  } finally {
+    forking.value = false
   }
 }
 
@@ -39,7 +58,8 @@ const RUN_PILL: Record<string, string> = {
 
 <template>
   <div class="mx-auto w-full max-w-6xl px-3 py-6 sm:px-6">
-    <NuxtLink to="/dashboard/queue"
+    <NuxtLink
+to="/dashboard/queue"
               class="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft class="size-4" /> {{ t('queue.backToQueue') }}
     </NuxtLink>
@@ -59,9 +79,16 @@ const RUN_PILL: Record<string, string> = {
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <span class="rounded-full px-2.5 py-1 text-xs font-medium"
+          <span
+class="rounded-full px-2.5 py-1 text-xs font-medium"
                 :class="RUN_PILL[run.status] || RUN_PILL.PENDING">{{ run.status }}</span>
-          <button class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm hover:bg-muted"
+          <button
+class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm hover:bg-muted disabled:opacity-50"
+                  :disabled="forking" @click="onForkToBuilder">
+            <GitFork class="size-3.5" /> {{ t('workflows.saveAsWorkflow') }}
+          </button>
+          <button
+class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm hover:bg-muted"
                   @click="refresh">
             <RefreshCw class="size-3.5" /> {{ t('queue.refresh') }}
           </button>
@@ -69,7 +96,7 @@ const RUN_PILL: Record<string, string> = {
       </div>
 
       <ClientOnly>
-        <WorkflowGraph :run="run" @gate="onGate" />
+        <WorkflowGraph :run="run" @gate="onGate" @rerun="onRerun" />
         <template #fallback>
           <div class="flex h-[70vh] min-h-[420px] items-center justify-center rounded-lg border bg-muted/20 text-sm text-muted-foreground">
             {{ t('queue.loading') }}

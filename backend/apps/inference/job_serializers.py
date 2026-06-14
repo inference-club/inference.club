@@ -6,7 +6,7 @@ queue page and the DAG viewer need — and just adds the queue/lifecycle fields.
 """
 from rest_framework import serializers
 
-from .models import Batch, InferenceRequest, WorkflowRun, WorkflowStepRun
+from .models import Batch, InferenceRequest, Workflow, WorkflowRun, WorkflowStepRun
 from .serializers import InferenceRequestListSerializer
 
 
@@ -109,6 +109,51 @@ class WorkflowRunListSerializer(serializers.ModelSerializer):
 
     def get_step_count(self, obj):
         return obj.steps.count()
+
+
+class WorkflowSerializer(serializers.ModelSerializer):
+    """A saved, reusable workflow definition (PRD 11). The ``spec`` is the
+    portable DAG the builder edits and the engine runs; ``step_count`` and
+    ``run_count`` are conveniences for the library list."""
+
+    step_count = serializers.SerializerMethodField()
+    run_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Workflow
+        fields = [
+            "id",
+            "name",
+            "description",
+            "spec",
+            "step_count",
+            "run_count",
+            "created_on",
+            "modified_on",
+        ]
+        read_only_fields = ["id", "created_on", "modified_on"]
+
+    def get_step_count(self, obj):
+        steps = (obj.spec or {}).get("steps")
+        return len(steps) if isinstance(steps, list) else 0
+
+    def get_run_count(self, obj):
+        return obj.runs.count()
+
+
+class WorkflowListSerializer(WorkflowSerializer):
+    """Slim library view — omits the full spec for the list grid."""
+
+    class Meta(WorkflowSerializer.Meta):
+        fields = [
+            "id",
+            "name",
+            "description",
+            "step_count",
+            "run_count",
+            "created_on",
+            "modified_on",
+        ]
 
 
 class BatchSerializer(serializers.ModelSerializer):

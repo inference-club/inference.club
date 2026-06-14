@@ -164,6 +164,7 @@
       "moderation": "Moderation",
       "music": "Music",
       "videos": "Videos",
+      "workflows": "Workflows",
       "queue": "Queue & workflows",
       "anonAccess": "Anonymous access"
     }
@@ -192,6 +193,23 @@
     "runHashLabel": "Run #",
     "refresh": "Refresh",
     "awaitingHint": "This run is paused at a human gate — approve or reject a step above to continue."
+  },
+  "workflows": {
+    "title": "Workflows",
+    "subtitle": "Design, save and reuse your own multi-step generation pipelines.",
+    "create": "New workflow",
+    "yours": "Your workflows",
+    "empty": "No saved workflows yet. Create one from scratch, or fork a template below.",
+    "runs": "runs",
+    "run": "Run",
+    "edit": "Edit",
+    "delete": "Delete",
+    "fork": "Use as starting point",
+    "startFrom": "Start from a template",
+    "startFromHint": "Fork a curated workflow into the builder and make it your own.",
+    "backToLibrary": "Back to workflows",
+    "confirmDelete": "Delete this workflow? This can't be undone.",
+    "saveAsWorkflow": "Save as workflow"
   },
   "model3d": {
     "title": "Image to 3D",

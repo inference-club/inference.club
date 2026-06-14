@@ -6,7 +6,7 @@
  * stable, so the viewport (your pan/zoom) is preserved across updates.
  */
 import { computed, markRaw, ref } from 'vue'
-import { VueFlow, useVueFlow, MarkerType, Position } from '@vue-flow/core'
+import { VueFlow, useVueFlow, MarkerType } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -21,10 +21,14 @@ import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
 const props = defineProps<{ run: WorkflowRun }>()
-const emit = defineEmits<{ (e: 'gate', p: { stepId: string; action: 'approve' | 'reject' }): void }>()
+const emit = defineEmits<{
+  (e: 'gate', p: { stepId: string; action: 'approve' | 'reject' }): void
+  (e: 'rerun', stepId: string): void
+}>()
 
 const nodeTypes = { workflow: markRaw(WorkflowNode) }
 const onGate = (stepId: string, action: 'approve' | 'reject') => emit('gate', { stepId, action })
+const onRerun = (stepId: string) => emit('rerun', stepId)
 
 const NODE_W = 248
 const NODE_H = 200
@@ -49,7 +53,7 @@ const graph = computed(() => {
       id: s.step_id,
       type: 'workflow',
       position: { x: n.x - NODE_W / 2, y: n.y - NODE_H / 2 },
-      data: { step: s, onGate },
+      data: { step: s, onGate, onRerun },
     }
   })
   const edges = props.run.edges

@@ -130,6 +130,45 @@ TEMPLATES = [
         ],
     ),
     _t(
+        key="miniature-construction-timelapse",
+        title="Miniature construction timelapse",
+        description="Turn one concept into a cozy tilt-shift scene of tiny workers "
+                    "building it, then animate a smooth time-lapse of the construction.",
+        icon="HardHat",
+        inputs=[
+            {"name": "subject", "label": "What's being built", "type": "text", "required": True,
+             "placeholder": "a gazebo"},
+            {"name": "size", "label": "Frame size (square, px)", "type": "number",
+             "default": 768, "min": 256, "max": 1024},
+            {"name": "seconds", "label": "Clip length (seconds)", "type": "number",
+             "default": 5, "min": 2, "max": 12},
+        ],
+        steps=[
+            {"id": "plan", "kind": "inference", "type": "chat", "title": "Art-direct the scene",
+             "extract": "json",
+             "body": {"messages": [{"role": "user", "content":
+                "You are art-directing a COZY MINIATURE CONSTRUCTION TIME-LAPSE shot as tilt-shift "
+                "faux-miniature photography. The thing being built is: {{inputs.subject}}. Give two "
+                "prompts. `image_prompt`: a vivid one-paragraph FIRST-FRAME prompt of an adorable "
+                "miniature construction site where tiny model workers, mini cranes, scaffolding and "
+                "toy machinery are building {{inputs.subject}} — tilt-shift, shallow depth of field, "
+                "warm cozy light, diorama feel, highly detailed. `video_prompt`: a short motion prompt "
+                "for a smooth time-lapse of the {{inputs.subject}} coming together — workers bustling, "
+                "the structure rising piece by piece, light and shadows shifting through the day. "
+                "Return JSON: {\"image_prompt\":\"...\",\"video_prompt\":\"...\"}." + _JSON_NOTE}]}},
+            {"id": "frame", "kind": "inference", "type": "image", "title": "Render the first frame",
+             "body": {"prompt": "{{steps.plan.output.image_prompt}}, tilt-shift miniature photography, "
+                      "faux-model diorama, shallow depth of field, cozy warm lighting, highly detailed",
+                      "size": "{{inputs.size}}x{{inputs.size}}"}},
+            {"id": "clip", "kind": "inference", "type": "video", "title": "Animate the time-lapse",
+             "body": {"prompt": "{{steps.plan.output.video_prompt}}, smooth construction time-lapse, "
+                      "tilt-shift miniature look",
+                      "image_asset_id": "{{steps.frame.output.asset_id}}",
+                      "width": "{{inputs.size}}", "height": "{{inputs.size}}",
+                      "duration": "{{inputs.seconds}}"}},
+        ],
+    ),
+    _t(
         key="song-and-cover",
         title="Song + cover art",
         description="Write lyrics and a music brief, then generate the track and its cover art together.",
@@ -198,6 +237,35 @@ def get_template(key):
     return _BY_KEY.get(key)
 
 
+def clean_inputs(fields, inputs):
+    """Validate required inputs and coerce number fields against an input
+    ``fields`` schema (the ``{name,label,type,default,required,min,max}`` shape
+    templates and saved workflows both use). Returns (cleaned, error). Shared by
+    curated templates and PRD 11 saved-workflow runs."""
+    cleaned = {}
+    for field in fields or []:
+        name = field.get("name")
+        if not name:
+            continue
+        val = inputs.get(name) if isinstance(inputs, dict) else None
+        if val in (None, "") and field.get("default") is not None:
+            val = field["default"]
+        if val in (None, "") and field.get("required"):
+            return None, f"`{field.get('label') or name}` is required."
+        if field.get("type") == "number" and val not in (None, ""):
+            try:
+                val = int(val)
+            except (TypeError, ValueError):
+                return None, f"`{field.get('label') or name}` must be a number."
+            lo, hi = field.get("min"), field.get("max")
+            if lo is not None:
+                val = max(lo, val)
+            if hi is not None:
+                val = min(hi, val)
+        cleaned[name] = val
+    return cleaned, None
+
+
 def build_spec(key, inputs):
     """Return (spec, name, cleaned_inputs, error). Validates required inputs and
     coerces number fields; the spec + cleaned inputs are ready to hand to
@@ -205,23 +273,7 @@ def build_spec(key, inputs):
     t = _BY_KEY.get(key)
     if t is None:
         return None, None, None, f"Unknown template {key!r}."
-    cleaned = {}
-    for field in t["inputs"]:
-        name = field["name"]
-        val = inputs.get(name) if isinstance(inputs, dict) else None
-        if val in (None, "") and field.get("default") is not None:
-            val = field["default"]
-        if val in (None, "") and field.get("required"):
-            return None, None, None, f"`{field.get('label') or name}` is required."
-        if field.get("type") == "number" and val not in (None, ""):
-            try:
-                val = int(val)
-            except (TypeError, ValueError):
-                return None, None, None, f"`{field.get('label') or name}` must be a number."
-            lo, hi = field.get("min"), field.get("max")
-            if lo is not None:
-                val = max(lo, val)
-            if hi is not None:
-                val = min(hi, val)
-        cleaned[name] = val
+    cleaned, err = clean_inputs(t["inputs"], inputs)
+    if err:
+        return None, None, None, err
     return deepcopy(t["spec"]), t["title"], cleaned, None

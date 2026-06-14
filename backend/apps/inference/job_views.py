@@ -17,10 +17,12 @@ from . import jobs, workflows
 from .job_serializers import (
     BatchSerializer,
     JobSerializer,
+    WorkflowListSerializer,
     WorkflowRunListSerializer,
     WorkflowRunSerializer,
+    WorkflowSerializer,
 )
-from .models import Batch, InferenceRequest, WorkflowRun
+from .models import Batch, InferenceRequest, Workflow, WorkflowRun
 from .throttling import AccountTypeScopedRateThrottle
 
 logger = logging.getLogger("django")
@@ -411,6 +413,238 @@ class WorkflowGateView(APIView):
             )
         edit = request.data.get("edit") if isinstance(request.data, dict) else None
         ok, err = workflows.resolve_gate(run, step_id, action, edit=edit)
+        if not ok:
+            return Response(
+                {"error": {"message": err, "type": "conflict"}},
+                status=status.HTTP_409_CONFLICT,
+            )
+        run.refresh_from_db()
+        return Response(WorkflowRunSerializer(run, context={"request": request}).data)
+
+
+# --- saved workflows (authoring — PRD 11) ------------------------------------
+
+
+class WorkflowListCreateView(APIView):
+    """``GET /v1/workflows`` — the caller's saved workflows (library).
+    ``POST`` — create one from ``{name, description, spec}``. The spec is
+    shape-checked (drafts allowed); full validation happens at run time."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = Workflow.objects.filter(user=request.user).order_by("-modified_on")[:100]
+        return Response(
+            {"data": WorkflowListSerializer(qs, many=True, context={"request": request}).data}
+        )
+
+    def post(self, request):
+        body = request.data if isinstance(request.data, dict) else {}
+        name = (body.get("name") or "").strip()
+        if not name:
+            return Response(
+                {"error": {"message": "`name` is required.", "type": "invalid_request"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        spec = body.get("spec") or {"steps": []}
+        try:
+            workflows.validate_spec_shape(spec)
+        except workflows.WorkflowError as e:
+            return Response(
+                {"error": {"message": str(e), "type": "invalid_spec"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        wf = Workflow.objects.create(
+            user=request.user, name=name[:160],
+            description=(body.get("description") or "")[:2000], spec=spec,
+        )
+        return Response(
+            WorkflowSerializer(wf, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WorkflowDetailView(APIView):
+    """``GET/PUT/PATCH/DELETE /v1/workflows/<id>`` — read, edit, or delete a
+    saved workflow (owner only)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _get(self, request, id):
+        wf = Workflow.objects.filter(id=id, user=request.user).first()
+        if wf is None:
+            return None, Response(
+                {"error": {"message": "No such workflow.", "type": "not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return wf, None
+
+    def get(self, request, id):
+        wf, err = self._get(request, id)
+        if err:
+            return err
+        return Response(WorkflowSerializer(wf, context={"request": request}).data)
+
+    def put(self, request, id):
+        return self._update(request, id)
+
+    def patch(self, request, id):
+        return self._update(request, id)
+
+    def _update(self, request, id):
+        wf, err = self._get(request, id)
+        if err:
+            return err
+        body = request.data if isinstance(request.data, dict) else {}
+        if "name" in body:
+            name = (body.get("name") or "").strip()
+            if not name:
+                return Response(
+                    {"error": {"message": "`name` cannot be empty.", "type": "invalid_request"}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            wf.name = name[:160]
+        if "description" in body:
+            wf.description = (body.get("description") or "")[:2000]
+        if "spec" in body:
+            try:
+                workflows.validate_spec_shape(body.get("spec") or {"steps": []})
+            except workflows.WorkflowError as e:
+                return Response(
+                    {"error": {"message": str(e), "type": "invalid_spec"}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            wf.spec = body.get("spec") or {"steps": []}
+        wf.save()
+        return Response(WorkflowSerializer(wf, context={"request": request}).data)
+
+    def delete(self, request, id):
+        wf, err = self._get(request, id)
+        if err:
+            return err
+        wf.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class WorkflowRunFromSavedView(APIView):
+    """``POST /v1/workflows/<id>/runs`` — launch a saved workflow with ``inputs``
+    (coerced against the spec's embedded input schema, if any)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, id):
+        if not jobs.async_enabled():
+            return Response(
+                {"error": {"message": "Async processing is not enabled.",
+                           "type": "async_disabled"}},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        wf = Workflow.objects.filter(id=id, user=request.user).first()
+        if wf is None:
+            return Response(
+                {"error": {"message": "No such workflow.", "type": "not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        body = request.data if isinstance(request.data, dict) else {}
+        inputs = body.get("inputs") or {}
+        from . import workflow_templates
+        cleaned, err = workflow_templates.clean_inputs(
+            (wf.spec or {}).get("inputs") or [], inputs
+        )
+        if err:
+            return Response(
+                {"error": {"message": err, "type": "invalid_request"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            run = workflows.start_run(
+                request.user, wf.spec, inputs=cleaned,
+                name=body.get("name") or wf.name, workflow=wf,
+            )
+        except workflows.WorkflowError as e:
+            return Response(
+                {"error": {"message": str(e), "type": "invalid_spec"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            WorkflowRunSerializer(run, context={"request": request}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class WorkflowForkTemplateView(APIView):
+    """``POST /v1/workflows/from-template/<key>`` — materialize a curated
+    template into an editable, owned workflow (so templates are starting points,
+    not dead ends). The template's input schema travels with the spec."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, key):
+        from . import workflow_templates
+        tpl = workflow_templates.get_template(key)
+        if tpl is None:
+            return Response(
+                {"error": {"message": f"Unknown template {key!r}.", "type": "not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        from copy import deepcopy
+        spec = deepcopy(tpl["spec"])
+        spec["inputs"] = deepcopy(tpl.get("inputs") or [])
+        body = request.data if isinstance(request.data, dict) else {}
+        wf = Workflow.objects.create(
+            user=request.user,
+            name=(body.get("name") or tpl["title"])[:160],
+            description=tpl.get("description", "")[:2000],
+            spec=spec,
+        )
+        return Response(
+            WorkflowSerializer(wf, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WorkflowForkRunView(APIView):
+    """``POST /v1/workflows/from-run/<run_id>`` — save a past run's spec as a new
+    editable workflow (fork what you ran into something you can tweak)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, run_id):
+        run = WorkflowRun.objects.filter(id=run_id, user=request.user).first()
+        if run is None:
+            return Response(
+                {"error": {"message": "No such run.", "type": "not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        body = request.data if isinstance(request.data, dict) else {}
+        wf = Workflow.objects.create(
+            user=request.user,
+            name=(body.get("name") or run.name or "Forked workflow")[:160],
+            description=(body.get("description") or "")[:2000],
+            spec=run.spec or {"steps": []},
+        )
+        return Response(
+            WorkflowSerializer(wf, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WorkflowStepRerunView(APIView):
+    """``POST /v1/workflows/runs/<id>/steps/<step_id>/rerun`` — re-run one step
+    (and re-flow everything downstream) against the run's existing context."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AccountTypeScopedRateThrottle]
+    throttle_scope = "inference"
+
+    def post(self, request, id, step_id):
+        run = WorkflowRun.objects.filter(id=id, user=request.user).first()
+        if run is None:
+            return Response(
+                {"error": {"message": "No such run.", "type": "not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        ok, err = workflows.rerun_step(run, step_id)
         if not ok:
             return Response(
                 {"error": {"message": err, "type": "conflict"}},

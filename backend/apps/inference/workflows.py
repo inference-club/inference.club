@@ -128,7 +128,7 @@ def validate_spec(spec):
             raise WorkflowError(f"Duplicate step id {sid!r}.")
         ids.add(sid)
         kind = raw.get("kind")
-        if kind not in {"inference", "map", "transform", "collect", "gate"}:
+        if kind not in _STEP_KINDS:
             raise WorkflowError(f"Step {sid!r} has unknown kind {kind!r}.")
         if kind in ("inference", "map") and not _resolve_kind(raw):
             raise WorkflowError(
@@ -150,8 +150,42 @@ def validate_spec(spec):
     return norm
 
 
+_STEP_KINDS = {"inference", "map", "transform", "collect", "gate", "prompt"}
+
+
+def validate_spec_shape(spec):
+    """Permissive check used when *saving* a workflow draft (PRD 11 builder),
+    where a half-built graph is normal. Unlike ``validate_spec`` (which the
+    engine runs at launch and which enforces every per-kind requirement), this
+    only rejects gross structural errors: spec must be an object with a list of
+    steps, and every step needs a unique string ``id`` and a known ``kind``.
+    Returns the spec unchanged. Raises WorkflowError otherwise."""
+    if not isinstance(spec, dict):
+        raise WorkflowError("Workflow spec must be an object.")
+    steps = spec.get("steps", [])
+    if not isinstance(steps, list):
+        raise WorkflowError("`steps` must be a list.")
+    ids = set()
+    for i, raw in enumerate(steps):
+        if not isinstance(raw, dict):
+            raise WorkflowError(f"Step #{i} must be an object.")
+        sid = raw.get("id")
+        if not sid or not isinstance(sid, str):
+            raise WorkflowError(f"Step #{i} needs a string `id`.")
+        if sid in ids:
+            raise WorkflowError(f"Duplicate step id {sid!r}.")
+        ids.add(sid)
+        if raw.get("kind") not in _STEP_KINDS:
+            raise WorkflowError(f"Step {sid!r} has unknown kind {raw.get('kind')!r}.")
+    return spec
+
+
 def _resolve_kind(step):
-    """(inference_type, service_type) for an inference/map step, or None."""
+    """(inference_type, service_type) for an inference/map/prompt step, or None.
+    A ``prompt`` step is always an LLM call (it writes a prompt for a downstream
+    modality), so it routes like chat regardless of its ``target``."""
+    if step.get("kind") == "prompt":
+        return ("LLM", "")
     ep = step.get("endpoint")
     if ep in _ENDPOINT_TYPE:
         return _ENDPOINT_TYPE[ep]
@@ -249,7 +283,7 @@ def _start_step(run, step, context):
         out = context.get("steps", {}).get(src)
         _complete_step(step, out if isinstance(out, list) else [out], context)
         return True
-    if kind in ("inference", "map"):
+    if kind in ("inference", "map", "prompt"):
         _enqueue_step_jobs(run, step, context)
         _set_step(step, WF_RUNNING)
         return True
@@ -257,7 +291,7 @@ def _start_step(run, step, context):
 
 
 def _enqueue_step_jobs(run, step, context):
-    """Create the queued job(s) for an inference/map step."""
+    """Create the queued job(s) for an inference/map/prompt step."""
     from . import jobs
 
     itype, stype = _resolve_kind(step.spec)
@@ -268,7 +302,14 @@ def _enqueue_step_jobs(run, step, context):
         model = jobs.auto_model_for(run.user, stype)
     priority = step.spec.get("priority", 0)
 
+    # A declared JSON response_schema means parse the reply as JSON (persist the
+    # flag so on_job_finished, which reloads the step, sees it).
+    if isinstance(step.spec.get("response_schema"), dict) and step.spec.get("extract") != "json":
+        step.spec["extract"] = "json"
+        step.save(update_fields=["spec", "modified_on"])
+
     def _make(body):
+        body = _maybe_structured(step.spec, body)
         payload = _payload_for(itype, body, model)
         job = jobs.enqueue_job(
             run.user, itype, payload, model_name=str(model),
@@ -276,6 +317,12 @@ def _enqueue_step_jobs(run, step, context):
         )
         _maybe_attach_image(job, body)
         return job
+
+    if step.kind == "prompt":
+        # Meta-prompting: an LLM writes one (or N) prompt(s) for a downstream
+        # modality. Build the chat body from a preset, then enqueue one job.
+        _make(_prompt_body(step, context))
+        return
 
     if step.kind == "inference":
         _make(render(step.spec.get("body", {}), context) or {})
@@ -296,6 +343,96 @@ def _enqueue_step_jobs(run, step, context):
         scope["item"] = item
         scope["index"] = idx
         _make(render(step.spec.get("body", {}), scope) or {})
+
+
+# --- meta-prompting (prompt node) --------------------------------------------
+
+# System presets that turn a rough brief into a polished prompt for one
+# downstream modality. The on-ramp to meta-prompting: a `prompt` step picks a
+# preset by its `target` and emits a prompt (or a list) the next step consumes.
+_PROMPT_PRESETS = {
+    "image": (
+        "You are an expert prompt engineer for text-to-image models. Turn the "
+        "user's brief into a single vivid, concrete image prompt: subject, "
+        "composition, lighting, lens, mood and style. No camera settings jargon "
+        "unless useful, no preamble."
+    ),
+    "video": (
+        "You are an expert prompt engineer for text-to-video models. Turn the "
+        "user's brief into a single prompt describing the scene AND its motion "
+        "(camera movement, subject action, pacing). Keep it concrete and short."
+    ),
+    "music": (
+        "You are an expert music director. Turn the user's brief into a single "
+        "production brief for a music model: genre, mood, instrumentation, tempo "
+        "and structure. No preamble."
+    ),
+    "tts": (
+        "You are a scriptwriter for narration. Turn the user's brief into a "
+        "single clean line of spoken narration — natural, friendly, no stage "
+        "directions, no quotes."
+    ),
+    "text": (
+        "You are an expert prompt engineer. Rewrite the user's brief into a "
+        "single clearer, richer prompt for a language model. No preamble."
+    ),
+}
+
+
+def _prompt_body(step, context):
+    """Build the chat body for a ``prompt`` step. ``target`` selects the preset
+    modality; ``count`` > 1 asks for a JSON list so a downstream map can fan out
+    over ``{{steps.<id>.output.prompts}}``."""
+    spec = step.spec
+    target = (spec.get("target") or "image").lower()
+    preset = _PROMPT_PRESETS.get(target, _PROMPT_PRESETS["image"])
+    brief = render(spec.get("input") or spec.get("brief") or "", context)
+    extra = render(spec.get("instructions") or "", context)
+    try:
+        count = int(spec.get("count") or 1)
+    except (TypeError, ValueError):
+        count = 1
+    count = max(1, min(count, settings.WORKFLOW_MAX_FANOUT))
+
+    system = preset
+    if count > 1:
+        system += (
+            f' Produce exactly {count} distinct options. Return ONLY valid JSON: '
+            '{"prompts":["...", ...]} — no prose, no code fences.'
+        )
+        # extract:json so _job_output parses {"prompts":[...]} into the output.
+        spec["extract"] = "json"
+        step.save(update_fields=["spec", "modified_on"])
+    else:
+        system += " Respond with ONLY the prompt text — no preamble, no quotes."
+
+    user = str(brief)
+    if extra:
+        user += f"\n\nAdditional direction: {extra}"
+    return {"messages": [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]}
+
+
+def _maybe_structured(spec, body):
+    """If an LLM step declares a JSON ``response_schema``, attach an OpenAI-style
+    ``response_format`` (passed through to the provider untouched by the runner).
+    Pure — the caller persists ``extract:json`` on the step so ``_job_output``
+    parses the reply. Capable models honor the schema; for the rest the merged
+    JSON-extract still applies."""
+    schema = spec.get("response_schema")
+    if not isinstance(schema, dict) or not isinstance(body, dict):
+        return body
+    if "messages" not in body and "prompt" not in body:
+        return body  # not a chat/completions body — ignore
+    body = dict(body)
+    body["response_format"] = {
+        "type": "json_schema",
+        "json_schema": {"name": spec.get("schema_name") or "output",
+                        "schema": schema, "strict": True},
+    }
+    return body
 
 
 def _maybe_attach_image(job, body):
@@ -446,7 +583,8 @@ def on_job_finished(job):
     else:
         ordered = sorted(sibling_jobs, key=lambda j: j.id)
         outputs = [_job_output(j) for j in ordered]
-        out = outputs[0] if step.kind == "inference" else outputs
+        # inference/prompt issue one job → unwrap; map fans out → keep the list.
+        out = outputs[0] if step.kind in ("inference", "prompt") else outputs
         ctx = run.context or {"inputs": run.inputs, "steps": {}}
         ctx.setdefault("steps", {})[step.step_id] = {"output": out}
         run.context = ctx
@@ -465,6 +603,8 @@ def _job_output(job):
     if job.inference_type == "LLM":
         text = _llm_text(results)
         out["text"] = text
+        # Alias for prompt/chat steps: read either {{...output.text}} or .prompt.
+        out["prompt"] = text.strip() if isinstance(text, str) else text
         if (job.step_run and (job.step_run.spec or {}).get("extract") == "json"):
             parsed = _try_json(text)
             if isinstance(parsed, dict):
@@ -573,6 +713,78 @@ def resolve_gate(run, step_id, action, edit=None):
         _set_step(step, WF_FAILED, error={"message": "Rejected by reviewer."})
     else:
         return False, "Action must be 'approve' or 'reject'."
+    advance_run(run.id)
+    from . import jobs
+    jobs.kick_dispatch()
+    return True, None
+
+
+def _descendants(steps, root_id):
+    """All step ids reachable from ``root_id`` by following depends_on edges
+    forward (root included). Used to invalidate downstream work on a re-run."""
+    children = {}
+    for s in steps:
+        for dep in s.depends_on or []:
+            children.setdefault(dep, []).append(s.step_id)
+    seen, stack = set(), [root_id]
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        stack.extend(children.get(cur, []))
+    return seen
+
+
+def rerun_step(run, step_id):
+    """Re-run a single step (e.g. re-roll an image) against the run's existing
+    context, then re-flow everything downstream of it. The step and its
+    descendants reset to PENDING; their old jobs are detached (kept in the
+    gallery, not deleted) and fresh ones enqueue. Returns (ok, error)."""
+    from .models import (
+        InferenceRequest, WF_PENDING, WF_RUNNING, WorkflowRun,
+    )
+
+    with transaction.atomic():
+        run = WorkflowRun.objects.select_for_update().filter(id=run.id).first()
+        if run is None:
+            return False, "No such run."
+        steps = list(run.steps.select_for_update().all())
+        target = next((s for s in steps if s.step_id == step_id), None)
+        if target is None:
+            return False, "No such step."
+        if target.kind not in ("inference", "map", "prompt"):
+            return False, "Only inference, map and prompt steps can be re-run."
+        if target.status in (WF_RUNNING,):
+            return False, "Step is still running."
+
+        affected = _descendants(steps, step_id)
+        ctx = run.context or {"inputs": run.inputs, "steps": {}}
+        ctx_steps = ctx.setdefault("steps", {})
+        for s in steps:
+            if s.step_id not in affected:
+                continue
+            # Detach old jobs so generated media survives in the gallery.
+            InferenceRequest.objects.filter(step_run=s).update(step_run=None)
+            s.status = WF_PENDING
+            s.output = None
+            s.error = None
+            s.started_at = None
+            s.finished_at = None
+            # Drop the cached _fanout marker so a map re-resolves its list.
+            if isinstance(s.spec, dict):
+                s.spec.pop("_fanout", None)
+            s.save(update_fields=[
+                "status", "output", "error", "started_at", "finished_at",
+                "spec", "modified_on",
+            ])
+            ctx_steps.pop(s.step_id, None)
+        run.context = ctx
+        run.status = WF_RUNNING
+        run.finished_at = None
+        run.error = None
+        run.save(update_fields=["context", "status", "finished_at", "error", "modified_on"])
+
     advance_run(run.id)
     from . import jobs
     jobs.kick_dispatch()
