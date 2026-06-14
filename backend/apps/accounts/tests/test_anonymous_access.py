@@ -486,8 +486,8 @@ def test_access_code_admin_crud(api_client, staff, policy):
 
 
 def test_admin_chosen_code_is_the_login_code(api_client, staff, policy):
-    """The passcode an admin types is what redeems at login (normalized to the
-    same canonical form the login form applies), not a random string."""
+    """The passcode an admin types is what redeems at login, verbatim — no
+    prefix, no case-folding — not a random string."""
     api_client.force_authenticate(staff)
     r = api_client.post(
         "/api/admin/access-codes/",
@@ -495,15 +495,22 @@ def test_admin_chosen_code_is_the_login_code(api_client, staff, policy):
         format="json",
     )
     assert r.status_code == 201
-    assert r.data["code"] == "club-MAX-2026"
+    assert r.data["code"] == "max-2026"
     assert r.data["label"] == "for max"
 
-    # The friend logs in by typing what the admin chose, in any case/spacing.
+    # The friend logs in by typing exactly what the admin chose.
     friend = APIClient()
     assert (
-        friend.post("/api/auth/passcode/", {"code": "Max-2026"}, format="json")
+        friend.post("/api/auth/passcode/", {"code": "max-2026"}, format="json")
         .status_code
         == 200
+    )
+    # A different-cased variant is a different code and does not redeem.
+    assert (
+        APIClient()
+        .post("/api/auth/passcode/", {"code": "MAX-2026"}, format="json")
+        .status_code
+        == 403
     )
 
     # Re-using the same code is rejected up front.

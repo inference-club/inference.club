@@ -130,10 +130,10 @@ class PasscodeLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         raw = request.data.get("code") if isinstance(request.data, dict) else ""
-        code_value = normalize_access_code(str(raw or ""))
+        typed = str(raw or "").strip()
         access_code = (
             AccessCode.objects.select_related("user")
-            .filter(code__in=_constant_time_candidates(code_value))
+            .filter(code__in=_constant_time_candidates(typed))
             .first()
         )
         if access_code is None or not access_code.is_redeemable():
@@ -146,12 +146,19 @@ class PasscodeLoginView(APIView):
         return Response(UserSerializer(access_code.user).data)
 
 
-def _constant_time_candidates(code_value: str) -> list[str]:
+def _constant_time_candidates(typed: str) -> list[str]:
     """Resolve the typed code against stored codes with constant-time
     comparison (codes are few; a linear scan is cheap and avoids leaking
-    prefix-match timing through the DB index)."""
+    prefix-match timing through the DB index).
+
+    Admin-chosen codes are matched verbatim — what they typed is what
+    redeems. The generated ``club-XXXX`` codes additionally match their
+    normalized (case- and prefix-tolerant) form so they survive being read
+    aloud or retyped.
+    """
+    candidates = {typed, normalize_access_code(typed)}
     return [
         stored
         for stored in AccessCode.objects.values_list("code", flat=True)
-        if secrets.compare_digest(stored, code_value)
+        if any(secrets.compare_digest(stored, c) for c in candidates)
     ]

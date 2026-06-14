@@ -265,8 +265,8 @@ const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 
         </Button>
       </form>
       <p class="text-xs text-muted-foreground">
-        The passcode is the login string you hand out — it's upper-cased and given a
-        <code class="font-mono">club-</code> prefix so it survives being read aloud or retyped.
+        The passcode is the login string you hand out — friends type it exactly as
+        you enter it here.
       </p>
 
       <div class="overflow-x-auto">

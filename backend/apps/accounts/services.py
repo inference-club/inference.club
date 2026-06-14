@@ -3,12 +3,7 @@
 from django.db import transaction
 from django.utils import timezone
 
-from .handles import (
-    dedupe_handle,
-    generate_access_code,
-    generate_unique_handle,
-    normalize_access_code,
-)
+from .handles import dedupe_handle, generate_access_code, generate_unique_handle
 from .models import ANON_EMAIL_DOMAIN, AccessCode, CustomUser
 
 ALIAS_REGENERATE_COOLDOWN_DAYS = 30
@@ -33,11 +28,11 @@ def create_access_code(
 ) -> AccessCode:
     """Mint a passcode together with the persistent account it logs into.
 
-    ``code`` lets the admin choose the login string; it's run through the same
-    normalization the login form applies (so what they type is what redeems).
-    When blank, a random ``club-XXXX-XXXX-XXXX`` code is generated instead.
+    ``code`` lets the admin choose the login string verbatim — what they type
+    is exactly what redeems (no prefix, no case-folding). When blank, a random
+    ``club-XXXX-XXXX-XXXX`` code is generated instead.
     """
-    chosen = normalize_access_code(code) if code and code.strip() else None
+    chosen = code.strip() if code and code.strip() else None
     user = create_anonymous_user(CustomUser.AccountType.PASSCODE)
     return AccessCode.objects.create(
         code=chosen or generate_access_code(),

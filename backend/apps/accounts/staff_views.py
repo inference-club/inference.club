@@ -12,7 +12,6 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import IsStaff
 
-from .handles import normalize_access_code
 from .models import AccessCode, AccessPolicy, CustomUser
 from .services import create_access_code, revoke_anonymous_user
 
@@ -123,15 +122,14 @@ class AdminAccessCodeListView(APIView):
         label = str(request.data.get("label") or "").strip()
         raw_code = str(request.data.get("code") or "").strip()
         if raw_code:
-            normalized = normalize_access_code(raw_code)
-            if len(normalized) > 40:
+            if len(raw_code) > 40:
                 return Response(
                     {"detail": "Passcode is too long (max 40 characters)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            if AccessCode.objects.filter(code=normalized).exists():
+            if AccessCode.objects.filter(code=raw_code).exists():
                 return Response(
-                    {"detail": f'Code "{normalized}" is already in use.'},
+                    {"detail": f'Code "{raw_code}" is already in use.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         expires_at = None
