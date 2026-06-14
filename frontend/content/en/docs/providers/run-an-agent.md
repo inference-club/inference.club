@@ -87,6 +87,63 @@ For inference.club (running in the cloud) to reach your agent, **your agent's `A
 
 For local-only development where both inference.club and the agent run on your laptop, you can use `http://localhost:8002/v1` and skip all of this.
 
+## Advanced: agent manifest
+
+For rigs with multiple services or non-LLM modalities, configure the agent via an `agent.yaml` manifest instead of environment variables. Mount it at `/app/agent.yaml` inside the container (or at the path `AGENT_MANIFEST` points to):
+
+```yaml
+hosts:
+  - id: home-rig
+    services:
+      - name: vllm-qwen            # LLM (type defaults to llm)
+        engine: vllm
+        url: http://localhost:8000/v1
+        models:
+          - hf: Qwen/Qwen3-30B-A3B
+
+      - name: qwen-asr             # speech-to-text
+        type: stt
+        engine: vllm
+        url: http://localhost:8001/v1
+        features: [timestamps]
+        models:
+          - id: Qwen/Qwen3-ASR-1.7B
+
+      - name: dia-voice            # voice cloning
+        type: tts
+        engine: dia
+        url: http://localhost:7860/v1
+        features: [voice-cloning]
+        models:
+          - id: nari-labs/Dia-1.6B
+
+      - name: ltx-video            # text-to-video
+        type: video
+        url: http://localhost:8003/v1
+        models:
+          - id: Lightricks/LTX-Video-2
+
+      - name: ace-step-music       # music generation
+        type: music
+        url: http://localhost:8004/v1
+        models:
+          - id: ACE-Step/ACE-Step-v1-3.5B
+
+      - name: flux-dev             # image generation
+        type: image
+        url: http://localhost:8005/v1
+        models:
+          - id: black-forest-labs/FLUX.1-dev
+```
+
+Each service in the manifest advertises its models separately. inference.club routes requests to the matching service type — a video generation request never lands on an image service even if they share a machine.
+
+`features` is how you opt in to capability-gated endpoints: a `tts` service without `voice-cloning` will only receive plain TTS requests; with `voice-cloning` it also receives voice-generation requests.
+
+## Kubernetes / k3s
+
+See [Running the agent on Kubernetes](/docs/providers/kubernetes-agent) for deploying the agent as a Kubernetes Deployment with a manifest ConfigMap.
+
 ## Updating
 
 ```bash

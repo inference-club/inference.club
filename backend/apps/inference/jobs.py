@@ -44,6 +44,82 @@ def async_enabled() -> bool:
     return bool(getattr(settings, "ASYNC_ENABLED", False))
 
 
+# --- dispatch trigger & heartbeat -------------------------------------------
+# The dispatcher runs on two triggers: a periodic Celery beat tick (a safety
+# net for retry backoff + reaping) AND an immediate "kick" whenever work is
+# enqueued or a job finishes. The kick makes the *worker* self-draining, so the
+# queue moves even if beat isn't running — the most common cause of a workflow
+# appearing to hang.
+
+HEARTBEAT_KEY = "jobs:last_dispatch"
+
+
+def record_dispatch_heartbeat():
+    from django.core.cache import cache
+
+    try:
+        cache.set(HEARTBEAT_KEY, timezone.now().isoformat(), 600)
+    except Exception:
+        pass
+
+
+def last_dispatch_at():
+    from django.core.cache import cache
+
+    try:
+        return cache.get(HEARTBEAT_KEY)
+    except Exception:
+        return None
+
+
+def kick_dispatch():
+    """Ask a worker to run the dispatcher now. No-op when async is disabled or
+    Celery is eager (tests/inline drive dispatch themselves). Never raises —
+    a failed kick just means the next beat tick picks the work up."""
+    if not async_enabled():
+        return
+    if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        return
+    try:
+        from .tasks import dispatch_queued
+        dispatch_queued.delay()
+    except Exception:
+        logger.warning("kick_dispatch failed; relying on the beat tick", exc_info=True)
+
+
+def auto_model_for(user, service_type):
+    """The canonical id of the first model ``user`` can route to for
+    ``service_type`` (own nodes first, then accessible shared services). Lets a
+    workflow step omit an explicit model and stay portable across users.
+    Returns '' when nothing is available."""
+    from .models import ProviderModel
+    from .openai_views import _model_accessible, _model_slug, _online_providers
+    from .serializers import _user_real_github_login
+
+    stype = service_type or "llm"
+    for provider in _online_providers(user):
+        pm = (
+            provider.models.filter(is_active=True, service__service_type=stype)
+            .select_related("provider", "service", "catalog_model")
+            .first()
+        )
+        if pm is not None:
+            return _model_slug(pm)
+    github_login = _user_real_github_login(user)
+    candidates = (
+        ProviderModel.objects.filter(
+            is_active=True, provider__is_active=True,
+            provider__accepting_requests=True, service__service_type=stype,
+        )
+        .exclude(provider__tailnet_hostname="")
+        .select_related("provider", "service", "catalog_model")
+    )
+    for pm in candidates:
+        if _model_accessible(pm, user, github_login) and pm.provider.is_online:
+            return _model_slug(pm)
+    return ""
+
+
 # --- enqueue -----------------------------------------------------------------
 
 
@@ -187,6 +263,7 @@ def dispatch_due_jobs(limit=50):
     claimed job ids (the caller is responsible for actually running them)."""
     from .openai_views import _find_provider_for_model
 
+    record_dispatch_heartbeat()
     now = timezone.now()
     claimed = []
     no_provider_cutoff = now - timezone.timedelta(
@@ -321,6 +398,9 @@ def run_job(ir_id):
         _requeue_or_fail(job, err or "Upstream call failed.", kind="upstream")
 
     _notify_step(job)
+    # A slot just freed (and a workflow may have enqueued downstream jobs) —
+    # nudge the dispatcher so the queue keeps draining without waiting on beat.
+    kick_dispatch()
 
 
 def _is_permanent(job) -> bool:

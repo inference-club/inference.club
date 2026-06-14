@@ -2,7 +2,7 @@
 title: Video generation
 description: POST /v1/videos/generations — text-to-video and image-to-video.
 category: API reference
-order: 8
+order: 9
 ---
 
 # `POST /v1/videos/generations`

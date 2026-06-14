@@ -5,21 +5,21 @@
  */
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
-import { Workflow as WorkflowIcon, Play, Loader2, CheckCircle2, XCircle,
-  Clock, Hand, RotateCcw, Ban } from 'lucide-vue-next'
-import { useAsyncJobs, type AsyncJob, type WorkflowRunSummary } from '@/composables/useAsyncJobs'
+import { Workflow as WorkflowIcon, CheckCircle2, XCircle, AlertTriangle,
+  Clock, Hand, RotateCcw, Ban, Loader2 } from 'lucide-vue-next'
+import { useAsyncJobs, type AsyncJob, type WorkflowRunSummary,
+  type QueueSummary } from '@/composables/useAsyncJobs'
+import TemplateLauncher from '@/components/workflow/TemplateLauncher.vue'
 
 definePageMeta({ layout: 'app' })
 
 const { t } = useI18n()
-const config = useRuntimeConfig()
-const { listJobs, listRuns, queueSummary, startRun, cancelJob, retryJob } = useAsyncJobs()
+const { listJobs, listRuns, queueSummary, cancelJob, retryJob } = useAsyncJobs()
 
 const jobs = ref<AsyncJob[]>([])
 const runs = ref<WorkflowRunSummary[]>([])
-const summary = ref<{ active: number; jobs: Record<string, number> } | null>(null)
+const summary = ref<QueueSummary | null>(null)
 const loading = ref(true)
-const launching = ref(false)
 
 const load = async () => {
   try {
@@ -41,41 +41,6 @@ onMounted(load)
 const { pause, resume } = useIntervalFn(load, 4000, { immediate: false })
 onMounted(() => resume())
 onUnmounted(() => pause())
-
-// --- one-click demo workflow ---
-const firstImageModel = async (): Promise<string> => {
-  try {
-    const res = await $fetch<{ data: { id: string; service_type?: string }[] }>(
-      `${config.public.apiBase}/v1/models`, { credentials: 'include' },
-    )
-    const img = res.data.find((m) => m.service_type === 'image')
-    return img?.id || res.data[0]?.id || 'flux'
-  } catch {
-    return 'flux'
-  }
-}
-
-const runDemo = async () => {
-  launching.value = true
-  try {
-    const model = await firstImageModel()
-    const spec = {
-      name: 'Demo — prompt fan-out',
-      steps: [
-        { id: 'ideas', kind: 'transform', op: 'passthrough', title: 'Scene ideas',
-          input: ['a neon city skyline at night', 'a serene misty forest at dawn',
-                  'a vast cosmic nebula in violet'] },
-        { id: 'images', kind: 'map', type: 'image', model, title: 'Generate images',
-          over: '{{steps.ideas.output}}', body: { prompt: '{{item}}' } },
-        { id: 'review', kind: 'gate', depends_on: ['images'], title: 'Review & approve' },
-      ],
-    }
-    const run = await startRun(spec, {}, spec.name)
-    await navigateTo(`/dashboard/queue/runs/${run.id}`)
-  } finally {
-    launching.value = false
-  }
-}
 
 const STATUS_ICON: Record<string, unknown> = {
   QUEUED: Clock, PROCESSING: Loader2, PROCESSED: CheckCircle2,
@@ -100,19 +65,25 @@ const onRetry = async (id: string | number) => { await retryJob(id).catch(() => 
 
 <template>
   <div class="mx-auto w-full max-w-6xl px-3 py-6 sm:px-6">
-    <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-bold">{{ t('queue.title') }}</h1>
-        <p class="text-sm text-muted-foreground">{{ t('queue.subtitle') }}</p>
-      </div>
-      <button
-        class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-        :disabled="launching" @click="runDemo">
-        <Loader2 v-if="launching" class="size-4 animate-spin" />
-        <Play v-else class="size-4" />
-        {{ t('queue.runDemo') }}
-      </button>
+    <div class="mb-6">
+      <h1 class="text-2xl font-bold">{{ t('queue.title') }}</h1>
+      <p class="text-sm text-muted-foreground">{{ t('queue.subtitle') }}</p>
     </div>
+
+    <!-- stalled-worker warning: active jobs but the dispatcher isn't ticking -->
+    <div v-if="summary && summary.async_enabled && summary.worker_stalled"
+         class="mb-5 flex items-start gap-2 rounded-lg border border-amber-400/60 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+      <AlertTriangle class="mt-0.5 size-4 shrink-0" />
+      <span>{{ t('queue.workerStalled') }}</span>
+    </div>
+    <div v-else-if="summary && !summary.async_enabled"
+         class="mb-5 flex items-start gap-2 rounded-lg border border-amber-400/60 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+      <AlertTriangle class="mt-0.5 size-4 shrink-0" />
+      <span>{{ t('queue.asyncDisabled') }}</span>
+    </div>
+
+    <!-- sample workflow gallery -->
+    <TemplateLauncher />
 
     <!-- summary -->
     <div v-if="summary" class="mb-6 grid grid-cols-3 gap-3 sm:max-w-md">

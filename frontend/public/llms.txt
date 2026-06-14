@@ -1,0 +1,64 @@
+# inference.club
+
+> A community-run inference network. Members run agents on their own hardware that expose local AI model servers. Other members call those models through a single OpenAI-compatible API.
+
+## What it is
+
+inference.club is a peer-to-peer inference network with an OpenAI-compatible API surface. You can:
+- **Use** models that other members (or you) are serving, via standard OpenAI SDKs
+- **Serve** models from your own hardware by running `inference-club-agent` and registering it
+
+## Base URL
+
+```
+https://api.inference.club/v1
+```
+
+Auth: `Authorization: Bearer <api-key>`
+
+## Supported modalities
+
+| Endpoint | Modality |
+|---|---|
+| POST /v1/chat/completions | LLM chat (streaming supported) |
+| POST /v1/completions | Legacy text completions |
+| POST /v1/audio/transcriptions | Speech-to-text (STT/ASR) |
+| POST /v1/audio/speech | Text-to-speech (TTS) |
+| POST /v1/images/generations | Image generation |
+| POST /v1/images/edits | Image editing (multipart) |
+| POST /v1/music/generations | Music generation (ACE-Step) |
+| POST /v1/videos/generations | Video generation (LTX-2) |
+| POST /v1/voice/generations | Voice cloning (Dia, multi-speaker) |
+| POST /v1/3d/generations | 3D mesh generation |
+
+## Model discovery
+
+`GET /v1/models` returns each model's `service_type` (llm/stt/tts/image/music/video/mesh), `input_modalities`, `output_modalities`, `supported_features`, and `context_length` — enough for a client to select the right model for a task without hardcoding names.
+
+## Async jobs
+
+Add `"async": true` to any JSON-bodied request to queue it instead of blocking. Returns 202 with a job id. Poll `GET /v1/jobs/<id>`. Supported: chat/completions, completions, images/generations, videos/generations, music/generations, audio/speech.
+
+## Batches
+
+`POST /v1/batches` accepts up to 256 async requests in one call.
+
+## Workflows
+
+`POST /v1/workflows/runs` runs a DAG of inference steps. Step kinds: inference (one job), map (fan-out), transform (inline data), collect (gather fan-out outputs), gate (human approval pause). Steps template on each other via `{{ steps.<id>.output.<field> }}`. Curated templates available at `GET /v1/workflows/templates`.
+
+## Voice cloning
+
+`POST /v1/voice/generations` takes a `[S1]`/`[S2]`-tagged dialogue script and optional voice sample IDs, then produces cloned speech via Dia. Voice samples live in the user's library (`/api/inference/voice-samples/`).
+
+## Routing
+
+Requests route to the first online provider on the caller's account that serves the requested model and service type. No load balancing. `404 no_provider` when nothing matches; `502 upstream_error` when the provider's local server fails.
+
+## Docs
+
+- Full docs: https://inference.club/docs
+- Quickstart for AI agents: https://inference.club/docs/quickstart-agents
+- API reference: https://inference.club/docs/api/overview
+- Interactive API explorer: https://inference.club/api-reference
+- OpenAPI spec: https://api.inference.club/openapi.json

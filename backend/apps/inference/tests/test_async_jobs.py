@@ -337,6 +337,104 @@ class TestWorkflows:
         )
         assert resp.status_code == 400
 
+    def test_auto_resolves_model_when_step_omits_it(self, user):
+        # A portable template step omits `model`; the engine fills in the
+        # user's available image model at run time.
+        _service_model(user, "image", "flux")
+        spec = {"steps": [
+            {"id": "img", "kind": "inference", "type": "image", "body": {"prompt": "x"}},
+        ]}
+        run = workflows.start_run(user, spec)
+        job = run.steps.get(step_id="img").jobs.first()
+        assert job is not None
+        assert job.model_name  # resolved, not blank
+        with patch("apps.inference.openai_views.requests.post", return_value=_image_resp()):
+            jobs.process_jobs_inline()
+        run.refresh_from_db()
+        assert run.status == "DONE"
+
+    def test_start_run_from_template(self, user):
+        _service_model(user, "image", "flux")
+        resp = _client(user).post(
+            "/v1/workflows/runs",
+            {"template": "image-variations",
+             "inputs": {"subject": "a teapot", "count": 2}}, format="json",
+        )
+        assert resp.status_code == 202, resp.content
+        data = resp.json()
+        # The chat→image fan-out DAG was created from the template.
+        assert {s["step_id"] for s in data["steps"]} == {"prompts", "images"}
+
+    def test_storyboard_conditions_video_on_frames(self, user):
+        # Regression: the clips step must animate each *generated frame*
+        # (image-to-video) at the chosen square size — not blind text-to-video.
+        _service_model(user, "llm", "qwen")
+        _service_model(user, "image", "flux")
+        _service_model(user, "video", "ltx")
+        resp = _client(user).post(
+            "/v1/workflows/runs",
+            {"template": "storyboard-to-video",
+             "inputs": {"concept": "a sprout", "shots": 2, "size": 640}}, format="json",
+        )
+        assert resp.status_code == 202, resp.content
+        run = WorkflowRun.objects.get(id=resp.json()["id"])
+        shots = json.dumps({"shots": [
+            {"image_prompt": "p1", "motion": "m1"},
+            {"image_prompt": "p2", "motion": "m2"}]})
+        chat = _FakeResp({"choices": [{"message": {"role": "assistant", "content": shots}}]})
+
+        def _post(url, **kw):
+            if "chat/completions" in url:
+                return chat
+            if "images/generations" in url:
+                return _image_resp()
+            if "videos/generations" in url:
+                return _FakeResp(b"\x00mp4bytes", content_type="video/mp4")
+            return _FakeResp({})
+
+        with patch("apps.inference.openai_views.requests.post", side_effect=_post):
+            jobs.process_jobs_inline()
+        run.refresh_from_db()
+        assert run.status == "AWAITING"  # paused at the frame-review gate
+        ok, err = workflows.resolve_gate(run, "review", "approve")
+        assert ok, err
+        with patch("apps.inference.openai_views.requests.post", side_effect=_post):
+            jobs.process_jobs_inline()
+        run.refresh_from_db()
+        assert run.status == "DONE"
+
+        clips = list(run.steps.get(step_id="clips").jobs.all())
+        assert len(clips) == 2
+        for v in clips:
+            # Each clip is image-conditioned on its frame, at the square size.
+            assert v.payload.get("has_image") is True
+            assert v.payload.get("width") == 640 and v.payload.get("height") == 640
+            assert v.assets.filter(kind="INPUT_IMAGE").exists()
+
+    def test_template_missing_required_input_400(self, user):
+        resp = _client(user).post(
+            "/v1/workflows/runs",
+            {"template": "illustrated-story", "inputs": {}}, format="json",
+        )
+        assert resp.status_code == 400
+
+    def test_templates_list_endpoint(self, user):
+        resp = _client(user).get("/v1/workflows/templates")
+        assert resp.status_code == 200
+        keys = {t["key"] for t in resp.json()["data"]}
+        assert "illustrated-story" in keys and "song-and-cover" in keys
+        # Each template advertises a renderable input schema.
+        for tpl in resp.json()["data"]:
+            assert isinstance(tpl["inputs"], list)
+
+    def test_queue_summary_reports_dispatcher_health(self, user):
+        _service_model(user, "image", "flux")
+        jobs.enqueue_job(user, "IMAGE", {"model": "flux", "prompt": "x"})
+        resp = _client(user).get("/api/inference/queue/summary/")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "worker_stalled" in body and "async_enabled" in body
+
     def test_run_detail_exposes_dag(self, user):
         _service_model(user, "image", "flux")
         spec = {"steps": [

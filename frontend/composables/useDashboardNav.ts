@@ -39,6 +39,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     titleKey: 'dashboard.groups.media',
     icon: Play,
     items: [
+      { titleKey: 'dashboard.items.gallery', url: '/dashboard/inference/gallery' },
       { titleKey: 'dashboard.items.music', url: '/dashboard/music' },
       { titleKey: 'dashboard.items.videos', url: '/dashboard/watch' },
       { titleKey: 'dashboard.items.queue', url: '/dashboard/queue' },
@@ -57,7 +58,6 @@ export const dashboardNav: DashboardNavGroup[] = [
     items: [
       { titleKey: 'dashboard.items.yourRequests', url: '/dashboard/inference/requests' },
       { titleKey: 'dashboard.items.allRequests', url: '/dashboard/inference/requests/all' },
-      { titleKey: 'dashboard.items.gallery', url: '/dashboard/inference/gallery' },
       { titleKey: 'dashboard.items.starred', url: '/dashboard/inference/starred' },
       { titleKey: 'dashboard.items.bookmarks', url: '/dashboard/inference/bookmarks' },
       { titleKey: 'dashboard.items.collections', url: '/dashboard/inference/collections' },
@@ -84,8 +84,8 @@ export const dashboardNav: DashboardNavGroup[] = [
     titleKey: 'dashboard.groups.documentation',
     icon: BookOpen,
     items: [
-      { titleKey: 'dashboard.items.introduction', url: '/docs/introduction' },
-      { titleKey: 'dashboard.items.getStarted', url: '/docs/get-started' },
+      { titleKey: 'dashboard.items.introduction', url: '/docs' },
+      { titleKey: 'dashboard.items.getStarted', url: '/docs/quickstart' },
       { titleKey: 'dashboard.items.apiReference', url: '/dashboard/api-reference' },
     ],
   },

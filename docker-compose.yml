@@ -177,7 +177,8 @@ services:
   celery-beat:
     image: inferenceclub-backend:dev
     restart: unless-stopped
-    command: ["celery", "-A", "backend", "beat", "-l", "info"]
+    # -s writes the schedule DB to /tmp; the app user can't write the /app cwd.
+    command: ["celery", "-A", "backend", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-localdev-not-for-production}
       DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference

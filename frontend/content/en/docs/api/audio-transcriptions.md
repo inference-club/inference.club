@@ -2,7 +2,7 @@
 title: Audio transcriptions
 description: Speech-to-text (STT/ASR) over the OpenAI-compatible /v1/audio/transcriptions endpoint.
 category: API reference
-order: 4
+order: 5
 ---
 
 # Audio transcriptions

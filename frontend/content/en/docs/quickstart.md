@@ -6,6 +6,8 @@ order: 2
 
 # Quickstart
 
+This guide is for **humans** getting set up. If you're an AI agent or building an automated system, see [Quickstart for AI agents](/docs/quickstart-agents) instead.
+
 This guide assumes you want to **use** the network — call models that other people are hosting. If you want to be a provider too, also see [Run an agent](/docs/providers/run-an-agent).
 
 ## 1. Get an API key

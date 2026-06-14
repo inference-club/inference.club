@@ -7,7 +7,7 @@
 import { onMounted } from 'vue'
 import { ArrowLeft, RefreshCw } from 'lucide-vue-next'
 import { useWorkflowRunPoller, useAsyncJobs } from '@/composables/useAsyncJobs'
-import WorkflowDag from '@/components/workflow/WorkflowDag.vue'
+import WorkflowGraph from '@/components/workflow/WorkflowGraph.vue'
 
 definePageMeta({ layout: 'app' })
 
@@ -68,7 +68,14 @@ const RUN_PILL: Record<string, string> = {
         </div>
       </div>
 
-      <WorkflowDag :run="run" @gate="onGate" />
+      <ClientOnly>
+        <WorkflowGraph :run="run" @gate="onGate" />
+        <template #fallback>
+          <div class="flex h-[70vh] min-h-[420px] items-center justify-center rounded-lg border bg-muted/20 text-sm text-muted-foreground">
+            {{ t('queue.loading') }}
+          </div>
+        </template>
+      </ClientOnly>
 
       <p v-if="run.status === 'AWAITING'" class="mt-3 text-sm text-amber-600 dark:text-amber-400">
         {{ t('queue.awaitingHint') }}

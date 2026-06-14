@@ -7,6 +7,7 @@ owned exactly like a normal InferenceRequest.
 """
 import logging
 
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -89,6 +90,7 @@ def submit_async(request, inference_type, payload, *, visibility="", collection_
         model_name=model_name, visibility=visibility, collection_name=collection_name,
         batch=batch, idempotency_key=idem,
     )
+    jobs.kick_dispatch()
     return accepted(job)
 
 
@@ -153,6 +155,7 @@ class JobRetryView(_OwnedJobMixin, APIView):
                            "type": "conflict"}},
                 status=status.HTTP_409_CONFLICT,
             )
+        jobs.kick_dispatch()
         return accepted(job)
 
 
@@ -233,6 +236,7 @@ class BatchListCreateView(APIView):
                 request.user, itype, ibody,
                 model_name=str(ibody.get("model") or ""), batch=batch,
             )
+        jobs.kick_dispatch()
         batch.refresh_from_db()
         return Response(
             BatchSerializer(batch, context={"request": request}).data,
@@ -299,17 +303,33 @@ class WorkflowRunListCreateView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         body = request.data if isinstance(request.data, dict) else {}
-        spec = body.get("spec")
-        if not isinstance(spec, dict):
-            return Response(
-                {"error": {"message": "`spec` object is required.", "type": "invalid_request"}},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        inputs = body.get("inputs") or {}
+        name = body.get("name") or ""
+
+        # Two ways to start a run: from a curated template (+ inputs), or from
+        # an inline spec (agents / power users).
+        template_key = body.get("template")
+        if template_key:
+            from . import workflow_templates
+            spec, tname, cleaned, err = workflow_templates.build_spec(template_key, inputs)
+            if err:
+                return Response(
+                    {"error": {"message": err, "type": "invalid_request"}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            inputs = cleaned
+            name = name or tname
+        else:
+            spec = body.get("spec")
+            if not isinstance(spec, dict):
+                return Response(
+                    {"error": {"message": "`spec` object or `template` key is required.",
+                               "type": "invalid_request"}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         try:
-            run = workflows.start_run(
-                request.user, spec, inputs=body.get("inputs") or {},
-                name=body.get("name") or "",
-            )
+            run = workflows.start_run(request.user, spec, inputs=inputs, name=name)
         except workflows.WorkflowError as e:
             return Response(
                 {"error": {"message": str(e), "type": "invalid_spec"}},
@@ -319,6 +339,17 @@ class WorkflowRunListCreateView(APIView):
             WorkflowRunSerializer(run, context={"request": request}).data,
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class WorkflowTemplateListView(APIView):
+    """``GET /v1/workflows/templates`` — curated, ready-to-run workflows with
+    their input schemas, for the gallery + dynamic form."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from . import workflow_templates
+        return Response({"data": workflow_templates.list_templates()})
 
 
 class WorkflowRunDetailView(APIView):
@@ -390,10 +421,28 @@ class QueueSummaryView(APIView):
             .values("status")
             .annotate(n=Count("id"))
         )
+        # Dispatcher liveness: when there's active work but the dispatcher
+        # hasn't ticked recently, the queue is stalled (no worker running) —
+        # the frontend warns instead of letting jobs hang silently.
+        last = jobs.last_dispatch_at()
+        worker_stalled = False
+        if active and jobs.async_enabled():
+            if not last:
+                worker_stalled = True
+            else:
+                try:
+                    from datetime import datetime
+                    age = (timezone.now() - datetime.fromisoformat(last)).total_seconds()
+                    worker_stalled = age > 60
+                except Exception:
+                    worker_stalled = False
         return Response(
             {
                 "jobs": counts,
                 "active": active,
                 "runs": {r["status"]: r["n"] for r in runs},
+                "async_enabled": jobs.async_enabled(),
+                "last_dispatch": last,
+                "worker_stalled": worker_stalled,
             }
         )

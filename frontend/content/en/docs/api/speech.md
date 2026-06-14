@@ -2,7 +2,7 @@
 title: Text to speech
 description: Synthesize speech from text over the OpenAI-compatible /v1/audio/speech endpoint.
 category: API reference
-order: 6
+order: 7
 ---
 
 # Text to speech
@@ -33,7 +33,7 @@ Requests route only to services a provider declared as `type: tts`. The response
 curl https://api.inference.club/v1/audio/speech \
   -H "Authorization: Bearer $INFERENCE_CLUB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "model": "magpie-tts-multilingual", "input": "Hello from inference club", "voice": "Magpie-Multilingual.EN-US.Mia" }' \
+  -d '{ "model": "<your-tts-model>", "input": "Hello from inference club", "voice": "en-US-female-1" }' \
   --output speech.wav
 ```
 
@@ -44,8 +44,8 @@ from openai import OpenAI
 
 client = OpenAI(base_url="https://api.inference.club/v1", api_key="<your-api-key>")
 with client.audio.speech.with_streaming_response.create(
-    model="magpie-tts-multilingual",
-    voice="Magpie-Multilingual.EN-US.Mia",
+    model="<your-tts-model>",
+    voice="en-US-female-1",
     input="Hello from inference club",
 ) as response:
     response.stream_to_file("speech.wav")
@@ -69,9 +69,13 @@ GET /v1/audio/voices?model=<model-id>
 
 (`/v1/audio/voices` is an inference.club extension, not part of OpenAI's API.) The in-dashboard [Speech playground](/dashboard/playground/speech) populates a voice dropdown from this.
 
+## Voice cloning
+
+For expressive multi-speaker dialogue with voice cloning, see [`POST /v1/voice/generations`](/docs/api/voice-generations). That endpoint routes to providers running [Dia](https://github.com/nari-labs/dia) and accepts `[S1]`/`[S2]` speaker-tagged scripts with optional voice samples from your library.
+
 ## Notes
 
-- **Formats:** the reference provider (NVIDIA Riva / Magpie) returns WAV natively; we also offer Opus. mp3/aac/flac aren't transcoded — a request for those returns WAV.
+- **Formats:** providers typically return WAV natively; we also accept `opus` as a `response_format`. mp3/aac/flac aren't transcoded — a request for those returns WAV.
 - **Speed** and other OpenAI parameters not supported by the provider are ignored.
 
 ## Errors

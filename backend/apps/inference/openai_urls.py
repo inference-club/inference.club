@@ -10,6 +10,7 @@ from .job_views import (
     WorkflowGateView,
     WorkflowRunDetailView,
     WorkflowRunListCreateView,
+    WorkflowTemplateListView,
 )
 from .openai_views import (
     AudioSpeechView,
@@ -66,6 +67,8 @@ urlpatterns = [
     path("batches/", BatchListCreateView.as_view()),
     path("batches/<int:id>", BatchDetailView.as_view(), name="batch-detail"),
     path("batches/<int:id>/", BatchDetailView.as_view()),
+    path("workflows/templates", WorkflowTemplateListView.as_view(), name="workflow-templates"),
+    path("workflows/templates/", WorkflowTemplateListView.as_view()),
     path("workflows/runs", WorkflowRunListCreateView.as_view(), name="workflow-runs"),
     path("workflows/runs/", WorkflowRunListCreateView.as_view()),
     path("workflows/runs/<int:id>", WorkflowRunDetailView.as_view(), name="workflow-run-detail"),

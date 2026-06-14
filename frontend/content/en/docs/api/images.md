@@ -2,7 +2,7 @@
 title: Image generation
 description: Text-to-image and image edits over the OpenAI-compatible /v1/images endpoints.
 category: API reference
-order: 5
+order: 6
 ---
 
 # Image generation
@@ -92,6 +92,10 @@ Every request is recorded as an inference request with the prompt, the source im
 | `no_provider` | No online image provider serves the model for you | 404 |
 | `upstream_error` | The provider's image server failed | 502 |
 
+## Async generation
+
+Add `"async": true` to the request body to queue the image generation instead of waiting. Returns `202 Accepted` with a job envelope. Poll `GET /v1/jobs/<id>` for status, then read `result_url` when done. See [Async jobs](/docs/api/jobs).
+
 ## Not supported (yet)
 
-`/v1/images/variations`, streaming/progressive previews, and async job polling. Generation is synchronous — the request returns once the image is ready.
+`/v1/images/variations` and streaming/progressive previews.

@@ -53,40 +53,79 @@ When you call `/v1/chat/completions` with `"model": "qwen3-8b"`, inference.club 
 
 A model isn't always a chat model. Each service an agent exposes declares a **type** — what kind of inference it provides — alongside its engine:
 
-- `llm` (default) — text in, text out: `/v1/chat/completions`, `/v1/completions`.
-- `stt` — speech-to-text: audio in, text out: [`/v1/audio/transcriptions`](/docs/api/audio-transcriptions).
-- `image` — image generation: text in, image out: [`/v1/images/generations`](/docs/api/images) and `/v1/images/edits`.
-- `tts` — text-to-speech: text in, audio out: [`/v1/audio/speech`](/docs/api/speech).
+| Type | Endpoints | Notes |
+|---|---|---|
+| `llm` (default) | `/v1/chat/completions`, `/v1/completions` | Text in, text out. |
+| `stt` | `/v1/audio/transcriptions` | Audio in, text out. |
+| `tts` | `/v1/audio/speech`, `/v1/voice/generations` | Text in, audio out. |
+| `image` | `/v1/images/generations`, `/v1/images/edits` | Text (+ optional image) in, image out. |
+| `music` | `/v1/music/generations` | Text + optional lyrics in, audio out. |
+| `video` | `/v1/videos/generations` | Text (+ optional image) in, video out. |
+| `mesh` | `/v1/3d/generations` | Text or image in, 3D mesh out. |
 
-The type is set in the agent's manifest. Omit it and it defaults to `llm`, so existing setups are unaffected:
+The type is set in the agent's manifest. Omit it and it defaults to `llm`:
 
 ```yaml
 hosts:
   - id: rig-01
     services:
-      - name: vllm-qwen          # an LLM service (type defaults to llm)
+      - name: vllm-qwen          # LLM (default type)
         engine: vllm
         url: http://localhost:8000/v1
         models:
           - hf: Qwen/Qwen3-30B-A3B
-      - name: asr-qwen           # a speech-to-text service
+
+      - name: asr-qwen           # speech-to-text
         type: stt
         engine: vllm
         url: http://localhost:8001/v1
-        # Declare per-deployment capabilities. Add `timestamps` only if the
-        # server actually returns word/segment timings (e.g. Qwen3-ASR served
-        # with its ForcedAligner, or a Whisper server). inference.club then
-        # requests verbose_json and shows an interactive transcript; without
-        # it, verbose_json is downgraded to plain text.
-        features: [timestamps]
+        features: [timestamps]   # opt-in for word/segment timings
         models:
           - id: Qwen/Qwen3-ASR-1.7B
+
+      - name: dia-tts            # voice-cloning TTS
+        type: tts
+        engine: dia
+        url: http://localhost:7860/v1
+        features: [voice-cloning]
+        models:
+          - id: nari-labs/Dia-1.6B
 ```
 
-Routing respects the type: a transcription request only ever lands on an `stt` service, and a chat request only on an `llm` service — even if they share a model name.
+Routing respects the type: a transcription request only ever lands on an `stt` service, a chat request only on an `llm` service, and so on — even if two services share a model name.
+
+## Voice cloning
+
+When a `tts` service advertises the `voice-cloning` feature in its manifest, it unlocks the [`/v1/voice/generations`](/docs/api/voice-generations) endpoint. Callers supply a dialogue script using `[S1]`/`[S2]` speaker tags, optionally mapping each speaker to a **voice sample** (a short audio recording uploaded to their library). The engine transcodes the samples, assembles a cloning prompt, and forwards it to the Dia model running on the provider.
+
+Voice samples are stored privately in your account (accessible at **Dashboard → Voice library**) and are never shared across users.
+
+## Async jobs
+
+Every JSON-bodied generation endpoint accepts an optional `"async": true` field. Adding it converts the request from a synchronous call into a queued **job** that returns immediately with a `202 Accepted` and a job envelope:
+
+```json
+{ "id": "42", "object": "inference.job", "status": "QUEUED", ... }
+```
+
+Poll `GET /v1/jobs/42` until `status` is `PROCESSED` or `FAILED`, then read `result_url` or `result` for the output. See the [jobs reference](/docs/api/jobs).
+
+## Batches
+
+A **batch** groups up to 256 async requests into a single submission (`POST /v1/batches`). All items are queued atomically — a malformed item fails the whole batch before anything is created. See the [batches reference](/docs/api/batches).
+
+## Workflows
+
+A **workflow** is a DAG of inference steps. Each step can be one of:
+
+- `inference` — call one model.
+- `map` — fan out over a list (one job per item).
+- `transform` — pure data step (split, pluck, join).
+- `collect` — gather a fan-out's outputs into one list.
+- `gate` — pause and wait for human approval before continuing.
+
+Steps pass data to each other via `{{ steps.<id>.output... }}` templates. The engine resolves the DAG, queues jobs as dependencies complete, and presents the live state as an SVG-rendered graph in **Dashboard → Queue**. See the [workflows reference](/docs/api/workflows).
 
 ## Routing
 
-The MVP rule is simple: **first online provider that serves the requested model wins**. There's no load balancing, no fallback to a second provider on failure, no health-weighted scoring. If the chosen provider's agent doesn't answer or returns an error, the request fails.
-
-This is fine for the MVP because most users have one or two agents. As the network grows we'll layer real routing on top of the same data model.
+The current rule is: **first online provider that serves the requested model (and service type) wins**. There's no load balancing or automatic failover. If the chosen provider's agent doesn't answer or returns an error, the request fails (or, for async jobs, is retried up to the configured limit).

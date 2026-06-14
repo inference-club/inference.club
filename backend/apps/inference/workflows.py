@@ -182,6 +182,10 @@ def start_run(user, spec, inputs=None, name="", workflow=None):
             spec=step, position=pos,
         )
     advance_run(run.id)
+    # Ask a worker to start the now-queued first steps immediately (don't wait
+    # for the periodic beat tick).
+    from . import jobs
+    jobs.kick_dispatch()
     return WorkflowRun.objects.get(id=run.id)
 
 
@@ -258,14 +262,25 @@ def _enqueue_step_jobs(run, step, context):
 
     itype, stype = _resolve_kind(step.spec)
     model = render(step.spec.get("model", ""), context) or ""
-    if step.kind == "inference":
-        body = render(step.spec.get("body", {}), context) or {}
+    # Portable templates omit the model; resolve one the user can actually
+    # route to for this modality at run time.
+    if not model:
+        model = jobs.auto_model_for(run.user, stype)
+    priority = step.spec.get("priority", 0)
+
+    def _make(body):
         payload = _payload_for(itype, body, model)
-        jobs.enqueue_job(
+        job = jobs.enqueue_job(
             run.user, itype, payload, model_name=str(model),
-            step_run=step, priority=step.spec.get("priority", 0),
+            step_run=step, priority=priority,
         )
+        _maybe_attach_image(job, body)
+        return job
+
+    if step.kind == "inference":
+        _make(render(step.spec.get("body", {}), context) or {})
         return
+
     # map: fan out over a resolved list.
     items = render(step.spec.get("over"), context)
     if not isinstance(items, list):
@@ -280,12 +295,53 @@ def _enqueue_step_jobs(run, step, context):
         scope = dict(context)
         scope["item"] = item
         scope["index"] = idx
-        body = render(step.spec.get("body", {}), scope) or {}
-        payload = _payload_for(itype, body, model)
-        jobs.enqueue_job(
-            run.user, itype, payload, model_name=str(model),
-            step_run=step, priority=step.spec.get("priority", 0),
+        _make(render(step.spec.get("body", {}), scope) or {})
+
+
+def _maybe_attach_image(job, body):
+    """Materialize an upstream image into a job's conditioning input.
+
+    A video (or image-edit) step can reference a previous step's produced image
+    by its asset id — e.g. ``"image_asset_id": "{{item.frame.asset_id}}"``. The
+    async executor reads conditioning images from a *stored* INPUT_IMAGE asset
+    (not a URL), so here we copy the referenced asset's bytes onto this job and
+    flip ``has_image`` on, which is exactly what ``_rerun_video`` expects. This
+    is what makes image-to-video (storyboard → clips) work inside a workflow."""
+    if not isinstance(body, dict):
+        return
+    aid = body.get("image_asset_id")
+    if not aid:
+        return
+    from django.core.files.base import ContentFile
+
+    from .models import MediaAsset
+
+    src = MediaAsset.objects.filter(id=aid, user=job.user).first()
+    if src is None or not src.file:
+        return
+    try:
+        with src.file.open("rb") as f:
+            data = f.read()
+    except Exception:
+        logger.warning("workflow: could not read image asset %s for job %s", aid, job.id)
+        return
+    try:
+        asset = MediaAsset(
+            user=job.user, inference_request=job, kind=MediaAsset.INPUT_IMAGE,
+            content_type=src.content_type or "image/png", size_bytes=len(data),
         )
+        ext = (src.content_type or "image/png").rsplit("/", 1)[-1] or "png"
+        asset.file.save(f"frame.{ext}", ContentFile(data), save=False)
+        asset.save()
+    except Exception:
+        logger.warning("workflow: could not attach image to job %s", job.id, exc_info=True)
+        return
+    p = job.payload or {}
+    p["has_image"] = True
+    if p.get("image_strength") is None:
+        p["image_strength"] = body.get("image_strength", 1.0)
+    job.payload = p
+    job.save(update_fields=["payload", "modified_on"])
 
 
 def _payload_for(itype, body, model):
@@ -353,6 +409,14 @@ def _run_transform(spec, context):
         if isinstance(value, list):
             return sep.join(str(v) for v in value)
         return str(value)
+    if op == "zip":
+        # Pair multiple lists element-wise → [[a0,b0],[a1,b1],...] so a map can
+        # iterate over both (e.g. each storyboard shot + its rendered frame),
+        # referenced as {{item.0...}} / {{item.1...}}.
+        lists = [render(x, context) for x in (spec.get("inputs") or [])]
+        lists = [x if isinstance(x, list) else [] for x in lists]
+        n = min((len(x) for x in lists), default=0)
+        return [[col[i] for col in lists] for i in range(n)]
     return value
 
 
@@ -510,6 +574,8 @@ def resolve_gate(run, step_id, action, edit=None):
     else:
         return False, "Action must be 'approve' or 'reject'."
     advance_run(run.id)
+    from . import jobs
+    jobs.kick_dispatch()
     return True, None
 
 

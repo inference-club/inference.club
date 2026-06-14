@@ -2,7 +2,7 @@
 title: Music generation
 description: POST /v1/music/generations — generate a song from a prompt and optional lyrics.
 category: API reference
-order: 7
+order: 8
 ---
 
 # `POST /v1/music/generations`

@@ -170,7 +170,11 @@
   "queue": {
     "title": "Queue & workflows",
     "subtitle": "Queued jobs and the workflows that orchestrate them, updating live.",
-    "runDemo": "Run demo workflow",
+    "templatesTitle": "Sample workflows",
+    "templatesSubtitle": "Pick one, give it a little input, and it generates everything it needs.",
+    "runWorkflow": "Run workflow",
+    "workerStalled": "Jobs are queued but the worker isn't processing them. Make sure the celery-worker and celery-beat services are running.",
+    "asyncDisabled": "Async processing isn't enabled on this server (no Redis broker configured), so workflows can't run.",
     "active": "Active",
     "done": "Done",
     "failed": "Failed",

@@ -12,10 +12,16 @@
 >   `ResourceGroup`; `ProviderService.max_concurrent` + `resource_group`
 >   (migration `0026`).
 > - execution: `apps/inference/jobs.py` (enqueue, `dispatch_due_jobs` with
->   capacity gating, `run_job`, retry/backoff, cancel, reaper) reuses the
->   existing `openai_views._RETRY_RUNNERS` as the request-less executor;
+>   capacity gating, `run_job`, retry/backoff, cancel, reaper, **self-driving
+>   `kick_dispatch`** so the worker drains the queue without depending on beat,
+>   `auto_model_for` for portable steps) reuses the existing
+>   `openai_views._RETRY_RUNNERS` as the request-less executor;
 >   `apps/inference/workflows.py` (spec validate, templating, DAG advance,
->   fan-out, transform/collect, human gate); `backend/celery.py` + beat tick.
+>   fan-out, transform/collect, human gate, run-time model auto-resolution);
+>   `apps/inference/workflow_templates.py` (curated, seed-with-inputs sample
+>   workflows); `backend/celery.py` + beat tick (heartbeat surfaced as
+>   `worker_stalled` in the queue summary). Beat is a safety net (retry backoff
+>   + reaper); the common path is driven by the worker.
 > - API: `async: true` on `/v1/chat/completions|images|videos|music|audio/speech`;
 >   `/v1/jobs[/<id>[/cancel|/retry]]`, `/v1/batches[/<id>]`,
 >   `/v1/workflows/runs[/<id>[/steps/<step>/<action>]]`,

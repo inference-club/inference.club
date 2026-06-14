@@ -71,6 +71,36 @@ export interface WorkflowRunSummary {
   step_count: number
 }
 
+export interface TemplateInput {
+  name: string
+  label: string
+  type: 'text' | 'textarea' | 'number' | 'select'
+  default?: string | number
+  placeholder?: string
+  required?: boolean
+  min?: number
+  max?: number
+  options?: { value: string; label: string }[]
+}
+
+export interface WorkflowTemplate {
+  key: string
+  title: string
+  description: string
+  icon: string
+  inputs: TemplateInput[]
+  step_count: number
+}
+
+export interface QueueSummary {
+  jobs: Record<string, number>
+  active: number
+  runs: Record<string, number>
+  async_enabled: boolean
+  last_dispatch: string | null
+  worker_stalled: boolean
+}
+
 const TERMINAL_RUN: WorkflowStatus[] = ['DONE', 'FAILED', 'CANCELED']
 
 function csrf(): string {
@@ -113,18 +143,19 @@ export function useAsyncJobs() {
   const getRun = (id: number | string) => get<WorkflowRun>(`/v1/workflows/runs/${id}`)
   const startRun = (spec: unknown, inputs?: Record<string, unknown>, name?: string) =>
     post<WorkflowRun>('/v1/workflows/runs', { spec, inputs, name })
+  const listTemplates = () =>
+    get<{ data: WorkflowTemplate[] }>('/v1/workflows/templates').then((r) => r.data)
+  const startFromTemplate = (template: string, inputs: Record<string, unknown>) =>
+    post<WorkflowRun>('/v1/workflows/runs', { template, inputs })
   const resolveGate = (runId: number | string, stepId: string, action: 'approve' | 'reject', edit?: unknown) =>
     post<WorkflowRun>(`/v1/workflows/runs/${runId}/steps/${stepId}/${action}`, edit ? { edit } : {})
 
   // --- queue summary ---
-  const queueSummary = () =>
-    get<{ jobs: Record<string, number>; active: number; runs: Record<string, number> }>(
-      '/api/inference/queue/summary/',
-    )
+  const queueSummary = () => get<QueueSummary>('/api/inference/queue/summary/')
 
   return {
     listJobs, getJob, cancelJob, retryJob,
-    listRuns, getRun, startRun, resolveGate,
+    listRuns, getRun, startRun, resolveGate, listTemplates, startFromTemplate,
     queueSummary,
   }
 }

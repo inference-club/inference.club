@@ -160,7 +160,8 @@ services:
   celery-beat:
     image: __BACKEND_IMAGE__
     restart: unless-stopped
-    command: ["celery", "-A", "backend", "beat", "-l", "info"]
+    # -s writes the schedule DB to /tmp; the app user can't write the /app cwd.
+    command: ["celery", "-A", "backend", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
     env_file:
       - /srv/inference-club/backend.env
     environment:

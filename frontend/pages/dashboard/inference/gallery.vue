@@ -9,6 +9,7 @@ import type { InferenceRequest } from '@/types'
 definePageMeta({ layout: 'app' })
 
 const { listAllInferenceRequests } = useInferenceRequest()
+const { openList } = useImageLightbox()
 
 const PAGE_SIZE = 24
 const requests = ref<InferenceRequest[]>([])
@@ -16,14 +17,11 @@ const count = ref(0)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-// `search` is the live input; `activeSearch` is what's actually queried (only
-// updated on submit) so we don't fire a request on every keystroke.
 const search = ref('')
 const activeSearch = ref('')
 
 const pager = usePagination(computed(() => count.value), PAGE_SIZE)
 
-// One tile per generated image (a request may hold several).
 const tiles = computed(() =>
   requests.value.flatMap((r) =>
     (r.image_urls ?? []).map((url) => ({
@@ -34,6 +32,9 @@ const tiles = computed(() =>
     })),
   ),
 )
+
+// All image URLs on the current page for lightbox navigation.
+const tileUrls = computed(() => tiles.value.map((t) => t.url))
 
 const load = async () => {
   loading.value = true
@@ -62,8 +63,6 @@ const clearSearch = () => {
   submitSearch()
 }
 
-// Both refs may change in the same tick (submit resets the page); the array
-// watcher coalesces that into a single reload.
 watch([pager.currentPage, activeSearch], load)
 onMounted(load)
 </script>
@@ -115,31 +114,44 @@ onMounted(load)
       v-else-if="tiles.length === 0"
       class="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground"
     >
-      <template v-if="activeSearch">No images match “{{ activeSearch }}”.</template>
+      <template v-if="activeSearch">No images match "{{ activeSearch }}".</template>
       <template v-else>No images have been generated on the network yet.</template>
     </div>
 
     <template v-else>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-        <NuxtLink
+        <div
           v-for="(t, i) in tiles"
           :key="`${t.id}-${i}`"
-          :to="`/dashboard/inference/requests/${t.id}`"
-          class="group relative block aspect-square overflow-hidden rounded-lg border bg-muted"
+          class="group relative aspect-square overflow-hidden rounded-lg border bg-muted"
         >
-          <img
-            :src="t.url"
-            loading="lazy"
-            class="size-full object-cover transition-transform duration-300 group-hover:scale-105"
-          />
-          <!-- Prompt overlay along the bottom for readability over any image -->
+          <!-- Image area: click to open lightbox -->
+          <button
+            type="button"
+            class="absolute inset-0 w-full h-full"
+            @click="openList(tileUrls, i)"
+          >
+            <img
+              :src="t.url"
+              loading="lazy"
+              class="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+            />
+          </button>
+
+          <!-- Prompt overlay: visible on hover, click text to go to the request detail page -->
           <div
             v-if="t.prompt"
-            class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent p-2.5 pt-6"
+            class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent p-2.5 pt-6 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
           >
-            <p class="text-xs text-white/95 line-clamp-2 leading-snug">{{ t.prompt }}</p>
+            <NuxtLink
+              :to="`/dashboard/inference/requests/${t.id}`"
+              class="block text-xs text-white/95 line-clamp-2 leading-snug hover:text-white hover:underline"
+              @click.stop
+            >
+              {{ t.prompt }}
+            </NuxtLink>
           </div>
-        </NuxtLink>
+        </div>
       </div>
 
       <PaginationControls
