@@ -149,6 +149,10 @@ export function useAsyncJobs() {
     post<WorkflowRun>('/v1/workflows/runs', { template, inputs })
   const resolveGate = (runId: number | string, stepId: string, action: 'approve' | 'reject', edit?: unknown) =>
     post<WorkflowRun>(`/v1/workflows/runs/${runId}/steps/${stepId}/${action}`, edit ? { edit } : {})
+  const fetchSuggestions = (templateKey: string, n = 5) =>
+    get<{ data: string[] }>(`/v1/workflows/suggestions?template=${encodeURIComponent(templateKey)}&n=${n}`)
+      .then((r) => r.data)
+      .catch(() => [] as string[])
 
   // --- queue summary ---
   const queueSummary = () => get<QueueSummary>('/api/inference/queue/summary/')
@@ -156,7 +160,7 @@ export function useAsyncJobs() {
   return {
     listJobs, getJob, cancelJob, retryJob,
     listRuns, getRun, startRun, resolveGate, listTemplates, startFromTemplate,
-    queueSummary,
+    fetchSuggestions, queueSummary,
   }
 }
 

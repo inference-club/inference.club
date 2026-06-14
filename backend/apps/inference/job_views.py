@@ -352,6 +352,28 @@ class WorkflowTemplateListView(APIView):
         return Response({"data": workflow_templates.list_templates()})
 
 
+class WorkflowSuggestionListView(APIView):
+    """``GET /v1/workflows/suggestions?template=key&n=5`` — random sample of
+    LLM-generated prompt suggestions for a given workflow template key."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import WorkflowPromptSuggestion
+        key = request.query_params.get("template", "")
+        if not key:
+            return Response(
+                {"error": {"message": "`template` query param is required."}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            n = max(1, min(20, int(request.query_params.get("n", 5))))
+        except (TypeError, ValueError):
+            n = 5
+        qs = WorkflowPromptSuggestion.objects.filter(template_key=key).order_by("?")[:n]
+        return Response({"data": [s.text for s in qs]})
+
+
 class WorkflowRunDetailView(APIView):
     """``GET /v1/workflows/runs/<id>`` — the live DAG (steps, edges, media)."""
 

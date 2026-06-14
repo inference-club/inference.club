@@ -21,6 +21,16 @@ export default defineNuxtConfig({
       ],
     },
   },
+  scripts: {
+    registry: {
+      // Google Analytics 4 (gtag.js), loaded site-wide by @nuxt/scripts. The
+      // measurement ID is a public client-side token; default to the prod
+      // property but allow an env override (NUXT_PUBLIC_GTAG_ID) per-environment.
+      googleAnalytics: {
+        id: process.env.NUXT_PUBLIC_GTAG_ID || 'G-SJR3D8KS94',
+      },
+    },
+  },
   runtimeConfig: {
     // Server-only base for SSR data fetches (NUXT_API_BASE_INTERNAL). The
     // browser uses public.apiBase; but during SSR inside a container that

@@ -54,6 +54,7 @@
     "archEyebrow": "架构",
     "archTitleLead": "三个部分。",
     "archTitleMuted": "毫无玄机。",
+    "archSubtitle": "跟随一个请求从你的代码到 GPU 再返回。云端控制平面负责认证、应用你的隐私规则并进行路由——但模型本身运行在你自己拥有的硬件上。",
     "step": "步骤",
     "step1Title": "运营者运行 agent",
     "step1Body": "成员在本地 LLM 服务器旁运行 {agent}。agent 会公布该服务器所托管的全部模型。",

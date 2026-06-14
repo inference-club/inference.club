@@ -30,13 +30,28 @@ const dragOver = ref(false)
 const MAX_MB = 25
 const imageStrength = ref(1)
 
+const pickClosestResolution = (w: number, h: number) => {
+  let best = RESOLUTIONS[0].value
+  let bestDist = Infinity
+  for (const r of RESOLUTIONS) {
+    const [rw, rh] = r.value.split('x').map(Number)
+    const dist = Math.hypot(rw - w, rh - h)
+    if (dist < bestDist) { bestDist = dist; best = r.value }
+  }
+  return best
+}
+
 const setSource = (blob: Blob, name: string) => {
   if (blob.size > MAX_MB * 1024 * 1024) {
     toast.error(`That image is over ${MAX_MB}MB — pick a smaller one.`)
     return
   }
   if (source.value) URL.revokeObjectURL(source.value.url)
-  source.value = { blob, name, url: URL.createObjectURL(blob) }
+  const url = URL.createObjectURL(blob)
+  source.value = { blob, name, url }
+  const img = new Image()
+  img.onload = () => { resolution.value = pickClosestResolution(img.naturalWidth, img.naturalHeight) }
+  img.src = url
 }
 const onFiles = (e: Event) => {
   const f = (e.target as HTMLInputElement).files?.[0]

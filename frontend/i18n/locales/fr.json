@@ -54,6 +54,7 @@
     "archEyebrow": "Architecture",
     "archTitleLead": "Trois éléments.",
     "archTitleMuted": "Rien de magique.",
+    "archSubtitle": "Suivez une requête de votre code jusqu'à un GPU, puis retour. Le plan de contrôle dans le cloud authentifie, applique vos règles de confidentialité et achemine — mais le modèle, lui, tourne sur du matériel qui vous appartient.",
     "step": "étape",
     "step1Title": "Les opérateurs exécutent des agents",
     "step1Body": "Les membres exécutent {agent} à côté de leur serveur LLM local. L'agent annonce les modèles hébergés par le serveur.",

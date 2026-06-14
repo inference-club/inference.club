@@ -313,6 +313,9 @@ const features = [
           <h2 class="text-3xl sm:text-4xl font-bold tracking-tight">
             {{ t('home.archTitleLead') }} <span class="text-muted-foreground font-normal">{{ t('home.archTitleMuted') }}</span>
           </h2>
+          <p class="mt-5 text-muted-foreground max-w-3xl mx-auto leading-relaxed">
+            {{ t('home.archSubtitle') }}
+          </p>
         </div>
 
         <div class="grid md:grid-cols-3 gap-6 relative">
@@ -358,59 +361,15 @@ const features = [
           </div>
         </div>
 
-        <!-- Topology mini-diagram -->
-        <div class="mt-16 mx-auto max-w-3xl">
-          <svg
-            viewBox="0 0 600 220"
-            class="w-full h-auto text-muted-foreground"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.2"
-          >
-            <defs>
-              <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stop-color="rgb(139 92 246)" />
-                <stop offset="50%" stop-color="rgb(217 70 239)" />
-                <stop offset="100%" stop-color="rgb(34 211 238)" />
-              </linearGradient>
-              <filter id="glow"><feGaussianBlur stdDeviation="1.4" /></filter>
-            </defs>
-
-            <!-- left: gpu nodes -->
-            <g>
-              <rect x="20" y="30"  width="120" height="36" rx="8" fill="rgba(139,92,246,0.06)" stroke="rgba(139,92,246,0.5)" />
-              <text x="80" y="53" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="currentColor" stroke="none">brian's 4090</text>
-              <rect x="20" y="92"  width="120" height="36" rx="8" fill="rgba(217,70,239,0.06)" stroke="rgba(217,70,239,0.5)" />
-              <text x="80" y="115" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="currentColor" stroke="none">m3 ultra · 192gb</text>
-              <rect x="20" y="154" width="120" height="36" rx="8" fill="rgba(34,211,238,0.06)" stroke="rgba(34,211,238,0.5)" />
-              <text x="80" y="177" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="currentColor" stroke="none">2× 3090 rig</text>
-            </g>
-
-            <!-- center: tailnet -->
-            <g>
-              <rect x="220" y="80" width="160" height="60" rx="12" fill="rgba(0,0,0,0)" stroke="url(#flow)" stroke-width="1.5" />
-              <text x="300" y="105" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12" fill="currentColor" stroke="none">inference.club</text>
-              <text x="300" y="124" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="currentColor" opacity="0.6" stroke="none">private tailnet</text>
-            </g>
-
-            <!-- right: api + dev -->
-            <g>
-              <rect x="450" y="60" width="130" height="36" rx="8" fill="rgba(0,0,0,0)" stroke="currentColor" />
-              <text x="515" y="83" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="currentColor" stroke="none">api.inference.club</text>
-              <rect x="450" y="124" width="130" height="36" rx="8" fill="rgba(0,0,0,0)" stroke="currentColor" />
-              <text x="515" y="147" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="currentColor" stroke="none">your code</text>
-            </g>
-
-            <!-- lines -->
-            <path d="M140 48 C 180 48, 200 100, 220 110" stroke="url(#flow)" stroke-width="1.4" fill="none" />
-            <path d="M140 110 L 220 110" stroke="url(#flow)" stroke-width="1.4" fill="none" />
-            <path d="M140 172 C 180 172, 200 120, 220 110" stroke="url(#flow)" stroke-width="1.4" fill="none" />
-            <path d="M380 100 C 410 90, 420 80, 450 78" stroke="url(#flow)" stroke-width="1.4" fill="none" />
-            <path d="M515 96 L 515 124" stroke="currentColor" stroke-dasharray="3 3" />
-          </svg>
+        <!-- Detailed conceptual networking + architecture diagram -->
+        <div class="mt-16">
+          <ArchitectureDiagram />
         </div>
       </div>
     </section>
+
+    <!-- inference.club, the whole stack, in one run-on sentence -->
+    <StreamOfConsciousness />
 
     <!-- Why -->
     <section class="px-4 sm:px-6 lg:px-8 py-24">

@@ -1204,3 +1204,22 @@ class WorkflowStepRun(BaseModel):
 
     def __str__(self):
         return f"step {self.step_id!r} of run#{self.run_id} [{self.status}]"
+
+
+class WorkflowPromptSuggestion(models.Model):
+    """LLM-generated high-level prompts for workflow templates.
+
+    Populated by the ``generate_workflow_prompts`` management command, which
+    calls a local chat model once and bulk-inserts the results. The API
+    endpoint samples N rows at random so the gallery always shows fresh ideas.
+    """
+
+    template_key = models.CharField(max_length=64, db_index=True)
+    text = models.TextField()
+    created_on = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.template_key}: {self.text[:60]}"

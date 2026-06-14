@@ -11,7 +11,7 @@ import { BookOpen, Images, Clapperboard, Music, Mic, Workflow as WorkflowIcon,
 import { useAsyncJobs, type WorkflowTemplate } from '@/composables/useAsyncJobs'
 
 const { t } = useI18n()
-const { listTemplates, startFromTemplate } = useAsyncJobs()
+const { listTemplates, startFromTemplate, fetchSuggestions } = useAsyncJobs()
 
 const templates = ref<WorkflowTemplate[]>([])
 const loading = ref(true)
@@ -19,6 +19,8 @@ const active = ref<WorkflowTemplate | null>(null)
 const form = ref<Record<string, string | number>>({})
 const submitting = ref(false)
 const error = ref<string | null>(null)
+const suggestions = ref<string[]>([])
+const loadingSuggestions = ref(false)
 
 const ICONS: Record<string, unknown> = {
   BookOpen, Images, Clapperboard, Music, Mic, Workflow: WorkflowIcon,
@@ -33,12 +35,26 @@ onMounted(async () => {
   }
 })
 
-const open = (tpl: WorkflowTemplate) => {
+// The first text/textarea input in the template — the one suggestions populate.
+const primaryInput = (tpl: WorkflowTemplate) =>
+  tpl.inputs.find((i) => i.type === 'text' || i.type === 'textarea' || !i.type)
+
+const open = async (tpl: WorkflowTemplate) => {
   active.value = tpl
   error.value = null
+  suggestions.value = []
   const f: Record<string, string | number> = {}
   for (const inp of tpl.inputs) f[inp.name] = inp.default ?? ''
   form.value = f
+  // Fetch suggestions async — the form is usable immediately while they load.
+  loadingSuggestions.value = true
+  suggestions.value = await fetchSuggestions(tpl.key, 5)
+  loadingSuggestions.value = false
+}
+
+const applySuggestion = (text: string) => {
+  const inp = primaryInput(active.value!)
+  if (inp) form.value[inp.name] = text
 }
 const close = () => { active.value = null }
 
@@ -97,6 +113,25 @@ const submit = async () => {
           </button>
         </div>
         <p class="mb-4 text-sm text-muted-foreground">{{ active.description }}</p>
+
+        <!-- Prompt suggestions -->
+        <div v-if="loadingSuggestions || suggestions.length" class="mb-3">
+          <p class="mb-1.5 text-xs text-muted-foreground">
+            {{ loadingSuggestions ? 'Loading ideas…' : 'Ideas — click one to use it:' }}
+          </p>
+          <div v-if="loadingSuggestions" class="flex flex-wrap gap-1.5">
+            <span v-for="i in 4" :key="i"
+                  class="h-6 w-28 animate-pulse rounded-full bg-muted" />
+          </div>
+          <div v-else class="flex flex-wrap gap-1.5">
+            <button
+              v-for="s in suggestions" :key="s"
+              type="button"
+              class="rounded-full border px-2.5 py-0.5 text-xs text-muted-foreground hover:border-primary hover:text-foreground transition-colors"
+              @click="applySuggestion(s)"
+            >{{ s }}</button>
+          </div>
+        </div>
 
         <form class="space-y-3" @submit.prevent="submit">
           <div v-for="inp in active.inputs" :key="inp.name">

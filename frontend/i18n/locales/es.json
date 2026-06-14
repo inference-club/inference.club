@@ -54,6 +54,7 @@
     "archEyebrow": "Arquitectura",
     "archTitleLead": "Tres piezas.",
     "archTitleMuted": "Nada de magia.",
+    "archSubtitle": "Sigue una sola petición desde tu código hasta una GPU y de vuelta. El plano de control en la nube autentica, aplica tus reglas de privacidad y enruta, pero el modelo se ejecuta en hardware que es tuyo.",
     "step": "paso",
     "step1Title": "Los operadores ejecutan agentes",
     "step1Body": "Los miembros ejecutan {agent} junto a su servidor LLM local. El agente anuncia los modelos que el servidor esté alojando.",

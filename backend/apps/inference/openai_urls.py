@@ -10,6 +10,7 @@ from .job_views import (
     WorkflowGateView,
     WorkflowRunDetailView,
     WorkflowRunListCreateView,
+    WorkflowSuggestionListView,
     WorkflowTemplateListView,
 )
 from .openai_views import (
@@ -69,6 +70,8 @@ urlpatterns = [
     path("batches/<int:id>/", BatchDetailView.as_view()),
     path("workflows/templates", WorkflowTemplateListView.as_view(), name="workflow-templates"),
     path("workflows/templates/", WorkflowTemplateListView.as_view()),
+    path("workflows/suggestions", WorkflowSuggestionListView.as_view(), name="workflow-suggestions"),
+    path("workflows/suggestions/", WorkflowSuggestionListView.as_view()),
     path("workflows/runs", WorkflowRunListCreateView.as_view(), name="workflow-runs"),
     path("workflows/runs/", WorkflowRunListCreateView.as_view()),
     path("workflows/runs/<int:id>", WorkflowRunDetailView.as_view(), name="workflow-run-detail"),

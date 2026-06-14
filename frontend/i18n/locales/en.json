@@ -55,6 +55,7 @@
     "archEyebrow": "Architecture",
     "archTitleLead": "Three pieces.",
     "archTitleMuted": "Nothing magic.",
+    "archSubtitle": "Follow a single request from your code to a GPU and back. The cloud control plane authenticates, applies your privacy rules, and routes — but the model itself runs on hardware you own.",
     "step": "step",
     "step1Title": "Operators run agents",
     "step1Body": "Members run {agent} next to their local LLM server. The agent advertises whatever models the server is hosting.",
