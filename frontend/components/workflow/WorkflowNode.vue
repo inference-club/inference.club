@@ -60,9 +60,11 @@ const doneCount = computed(() => jobs.value.filter((j) => j.status === 'PROCESSE
 
 interface Thumb { type: 'image' | 'video' | 'audio'; url?: string }
 const thumbOf = (j: AsyncJob): Thumb | null => {
+  // Video first: an image-to-video job carries its conditioning frame as
+  // input_image_url too, but the result we want to show is the video.
+  if (j.video_url) return { type: 'video', url: j.video_url }
   if (j.image_urls?.length) return { type: 'image', url: j.image_urls[0] }
   if (j.input_image_url) return { type: 'image', url: j.input_image_url }
-  if (j.video_url) return { type: 'video', url: j.video_url }
   if (j.output_audio_url) return { type: 'audio', url: j.output_audio_url }
   return null
 }
