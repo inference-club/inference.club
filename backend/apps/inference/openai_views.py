@@ -2615,8 +2615,9 @@ class ComposeView(_RateLimitHeadersMixin, APIView):
     async job. Body: ``{"images": [asset_id…], "audio": [asset_id…]}`` (the
     workflow ``compose`` node passes the upstream steps' outputs, which carry
     the same asset ids). An optional ``captions`` list (strings or section
-    dicts, aligned to the sections) is burned in over each clip. Returns the
-    queued job (202)."""
+    dicts, aligned to the sections) is burned in over each clip, and an optional
+    ``music`` asset is ducked under the narration as a music bed (V4). Returns
+    the queued job (202)."""
 
     permission_classes = [IsAuthenticated]
     throttle_classes = [AccountTypeScopedRateThrottle]
@@ -2649,6 +2650,9 @@ class ComposeView(_RateLimitHeadersMixin, APIView):
         captions = body.get("captions")
         if isinstance(captions, list) and captions:
             payload["captions"] = captions
+        music_ids = workflows._extract_asset_ids(body.get("music"))
+        if music_ids:
+            payload["music"] = music_ids
         return _enqueue_async(
             request, self.inference_type, payload, visibility, collection_name,
         )

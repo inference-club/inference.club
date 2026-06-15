@@ -147,7 +147,7 @@ PHASES = [
             {"id": "hyperframes", "title": "HyperFrames title cards / lower-thirds / animated text / alpha overlays", "status": STATUS_PLANNED},
             {"id": "image-to-video", "title": "Per-section image→video (LTX-2) instead of static slides", "status": STATUS_PLANNED},
             {"id": "frame-interp", "title": "`frame-interp` service + effects/filters", "status": STATUS_PLANNED},
-            {"id": "music-bed", "title": "Music bed (existing MUSIC modality) ducked under narration", "status": STATUS_PLANNED},
+            {"id": "music-bed", "title": "Music bed (existing MUSIC modality) ducked under narration", "status": STATUS_DONE, "note": "DONE (compose side): render.mix_music_bed lays an optional music track under the narration — looped to length, attenuated, and side-chain-ducked by the speech (swells in the gaps). compose accepts an optional `music` asset (ComposeView + RENDER payload); the video records music in metadata + provenance. Kept OFF the default url-to-video template so it doesn't trip preflight while acestep is scaled to 0. Real-ffmpeg test in test_compose.py."},
             {"id": "threed-compositing", "title": "TRELLIS meshes + ThreeJS scenes composited into video (image+video+3D)", "status": STATUS_PLANNED},
             {"id": "blender-export", "title": "Blender export: episode → .blend + Python build script", "status": STATUS_PLANNED},
         ],
@@ -169,6 +169,24 @@ PHASES = [
 
 # Most recent first. Add a line whenever a task changes status.
 PROGRESS_LOG = [
+    {
+        "date": "2026-06-15",
+        "note": (
+            "V4 first slice — music bed: compose can now duck an optional music "
+            "track under the narration (looped, attenuated, side-chain "
+            "compressed by speech) via render.mix_music_bed; exposed as a "
+            "`music` asset on compose/RENDER, recorded in metadata + "
+            "provenance. Left off the default url-to-video template (acestep is "
+            "scaled to 0, so requiring it would trip preflight). Also VERIFIED "
+            "the home k3s cluster serves every modality url-to-video needs and "
+            "the agent advertises them to api.inference.club: firecrawl=scrape, "
+            "nemotron-omni=llm (vLLM), dia=tts, flux2-klein=image (acestep/"
+            "music, magpie-tts, nemotron-asr, trellis2 are scaled to 0). The "
+            "live run is gated only on deploying this branch — compose runs on "
+            "the central worker, which still has the old code. 7 compose tests "
+            "green."
+        ),
+    },
     {
         "date": "2026-06-15",
         "note": (

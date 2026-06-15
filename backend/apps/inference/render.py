@@ -153,16 +153,37 @@ def render_slideshow(image_assets, audio_assets, out_path, captions=None) -> flo
                 f.write(f"file '{c}'\n")
         _run_ffmpeg(["-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", out_path])
 
-        # Total duration via ffprobe (sum of section audio lengths).
-        probe = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "json", out_path],
-            capture_output=True, text=True, timeout=60,
-        )
-        try:
-            return float(json.loads(probe.stdout)["format"]["duration"])
-        except (ValueError, KeyError):
-            return 0.0
+        return _probe_duration(out_path)
+
+
+def _probe_duration(path) -> float:
+    """Container duration in seconds (0.0 if it can't be read)."""
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "json", path],
+        capture_output=True, text=True, timeout=60,
+    )
+    try:
+        return float(json.loads(probe.stdout)["format"]["duration"])
+    except (ValueError, KeyError):
+        return 0.0
+
+
+def mix_music_bed(video_path, music_path, out_path) -> None:
+    """Lay a music bed under a narrated video (PRD 12 V4). The music is looped to
+    the video's length, attenuated, and side-chain-ducked by the narration so it
+    drops under speech and swells in the gaps; the video stream is copied. The
+    output runs as long as the narration (``duration=first``)."""
+    _run_ffmpeg([
+        "-i", video_path, "-stream_loop", "-1", "-i", music_path,
+        "-filter_complex",
+        "[1:a]volume=0.25[bg];"
+        "[bg][0:a]sidechaincompress=threshold=0.02:ratio=6:attack=20:release=400[duck];"
+        "[0:a][duck]amix=inputs=2:duration=first:normalize=0[a]",
+        "-map", "0:v", "-map", "[a]",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-shortest", "-movflags", "+faststart", out_path,
+    ])
 
 
 def run_render_job(ir):
@@ -188,11 +209,22 @@ def run_render_job(ir):
     captions = payload.get("captions")
     captions = captions if isinstance(captions, list) else []
 
+    # Optional music bed (V4): a single track ducked under the narration.
+    music_ids = workflows._extract_asset_ids(payload.get("music"))
+    music = _ordered_assets(music_ids, ir.user)[:1]
+
     started = time.monotonic()
     try:
         with tempfile.TemporaryDirectory() as td:
             out = os.path.join(td, "video.mp4")
             duration = render_slideshow(images, audios, out, captions=captions)
+            if music:
+                mus = os.path.join(td, f"music{_ext_for(music[0].content_type, '.wav')}")
+                _download(music[0], mus)
+                mixed = os.path.join(td, "video_music.mp4")
+                mix_music_bed(out, mus, mixed)
+                out = mixed
+                duration = _probe_duration(out)
             with open(out, "rb") as fh:
                 video = fh.read()
     except subprocess.TimeoutExpired:
@@ -207,12 +239,14 @@ def run_render_job(ir):
         metadata={
             "sections": min(len(images), len(audios)),
             "captions": bool([c for c in captions if _caption_text(c)]),
+            "music": bool(music),
         },
     )
     asset.file.save("video.mp4", ContentFile(video), save=False)
     asset.save()
-    # Provenance: the composed video derives from its section assets (PRD 12).
-    asset.record_derivation([*images, *audios])
+    # Provenance: the composed video derives from its section assets — plus the
+    # music bed when present (PRD 12).
+    asset.record_derivation([*images, *audios, *music])
 
     ir.status = "PROCESSED"
     ir.audio_seconds = duration
@@ -221,6 +255,7 @@ def run_render_job(ir):
         "content_type": "video/mp4",
         "duration": duration,
         "sections": min(len(images), len(audios)),
+        "music": bool(music),
     }
     ir.latency_ms = int((time.monotonic() - started) * 1000)
     ir.save(update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"])

@@ -87,6 +87,24 @@ def test_render_job_produces_a_video_with_provenance(user):
     }
 
 
+def test_render_job_lays_a_music_bed_with_provenance(user):
+    """V4: an optional music track is ducked under the narration; the video
+    records it as metadata + provenance."""
+    imgs, auds = _media(user)
+    music = _asset(user, MediaAsset.OUTPUT_AUDIO, _wav(seconds=1.0), "audio/wav", "bed.wav")
+    ir = InferenceRequest.objects.create(
+        user=user, inference_type="RENDER", status="PROCESSING",
+        payload={"images": [i.id for i in imgs], "audio": [a.id for a in auds],
+                 "music": music.id},
+    )
+    ok, err = render.run_render_job(ir)
+    assert ok, err
+    vid = MediaAsset.objects.get(id=ir.results["video_asset_id"])
+    assert vid.metadata.get("music") is True
+    assert ir.results["music"] is True
+    assert music.id in set(vid.derived_from.values_list("id", flat=True))
+
+
 def test_render_job_accepts_step_output_dicts(user):
     """The workflow passes [{asset_id: N, ...}] lists, not bare ids."""
     imgs, auds = _media(user)
