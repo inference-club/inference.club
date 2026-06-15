@@ -346,11 +346,40 @@ def advance_run(run_id):
                 started = _start_step(run, step, context)
                 if started:
                     progressed = True
+            # Re-check awaiting narration-review gates: when the last segment is
+            # graded good (e.g. after a retake), the gate passes without a human.
+            for step in steps:
+                if (step.status == WF_AWAITING and step.kind == "gate"
+                        and _gate_auto_passes(step, context)):
+                    _complete_step(step, {"auto_approved": True,
+                                          "reason": "all segments ready"}, context)
+                    progressed = True
             # Refresh context view after inline (transform/collect) steps.
             run.context = context
 
         _recompute_run_status(run, steps)
         run.save(update_fields=["context", "status", "finished_at", "error", "modified_on"])
+
+
+def _gate_auto_passes(step, context):
+    """True when a ``review: narration`` gate's referenced Episode has segments
+    and they're all graded good (status ``ready``) — so the gate passes without
+    a human. Other gates never auto-pass. The ``episode`` ref is templated
+    against the run context (e.g. ``{{inputs.episode_id}}`` or a step output)."""
+    spec = step.spec or {}
+    if spec.get("review") != "narration":
+        return False
+    ep_id = render(spec.get("episode"), context)
+    try:
+        ep_id = int(ep_id)
+    except (TypeError, ValueError):
+        return False
+    from .models import Segment
+
+    statuses = list(
+        Segment.objects.filter(episode_id=ep_id).values_list("status", flat=True)
+    )
+    return bool(statuses) and all(s == Segment.STATUS_READY for s in statuses)
 
 
 def _start_step(run, step, context):
@@ -361,7 +390,13 @@ def _start_step(run, step, context):
 
     kind = step.kind
     if kind == "gate":
-        _set_step(step, WF_AWAITING)
+        # A narration-review gate auto-passes once every referenced segment is
+        # graded good (status ready); otherwise it waits for a human (PRD 12 V3).
+        if _gate_auto_passes(step, context):
+            _complete_step(step, {"auto_approved": True,
+                                  "reason": "all segments ready"}, context)
+        else:
+            _set_step(step, WF_AWAITING)
         return True
     if kind == "transform":
         out = _run_transform(step.spec, context)

@@ -371,3 +371,47 @@ def test_episode_from_text_requires_text(user):
     from rest_framework.test import APIClient
     c = APIClient(); c.force_authenticate(user)
     assert c.post("/v1/episodes/from-text", {"text": "   "}, format="json").status_code == 400
+
+
+# --- narration-review gate node (Phase 3) ------------------------------------
+
+
+def test_narration_gate_auto_passes_when_all_segments_ready(user, settings):
+    settings.ASYNC_ENABLED = True
+    from apps.inference import workflows
+    from apps.inference.models import Episode
+    ep = Episode.objects.create(user=user, title="ep")
+    Segment.objects.create(episode=ep, position=0, text="a", status=Segment.STATUS_READY)
+    Segment.objects.create(episode=ep, position=1, text="b", status=Segment.STATUS_READY)
+    spec = {"steps": [{"id": "review", "kind": "gate", "review": "narration", "episode": ep.id}]}
+    run = workflows.start_run(user, spec)
+    run.refresh_from_db()
+    assert run.status == "DONE"                       # no human needed
+    assert run.steps.get(step_id="review").status == "DONE"
+
+
+def test_narration_gate_awaits_when_flagged_then_passes(user, settings):
+    settings.ASYNC_ENABLED = True
+    from apps.inference import workflows
+    from apps.inference.models import Episode
+    ep = Episode.objects.create(user=user, title="ep")
+    Segment.objects.create(episode=ep, position=0, text="a", status=Segment.STATUS_READY)
+    bad = Segment.objects.create(episode=ep, position=1, text="b", status=Segment.STATUS_FLAGGED)
+    spec = {"steps": [{"id": "review", "kind": "gate", "review": "narration", "episode": ep.id}]}
+    run = workflows.start_run(user, spec)
+    run.refresh_from_db()
+    assert run.status == "AWAITING"                   # a flagged segment → waits
+    bad.status = Segment.STATUS_READY
+    bad.save(update_fields=["status"])
+    workflows.advance_run(run.id)                     # re-check: now all good → passes
+    run.refresh_from_db()
+    assert run.status == "DONE"
+    assert run.steps.get(step_id="review").output.get("auto_approved") is True
+
+
+def test_plain_gate_still_awaits_for_a_human(user, settings):
+    settings.ASYNC_ENABLED = True
+    from apps.inference import workflows
+    run = workflows.start_run(user, {"steps": [{"id": "g", "kind": "gate"}]})
+    run.refresh_from_db()
+    assert run.status == "AWAITING"                   # no review spec → human gate
