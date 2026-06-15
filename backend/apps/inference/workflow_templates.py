@@ -181,6 +181,46 @@ TEMPLATES = [
         ],
     ),
     _t(
+        key="image-to-video",
+        title="Image → Video",
+        description="Turn a few words — or nothing at all — into a short video. An "
+                    "AI director embellishes your idea (or invents one) into a first "
+                    "frame, then animates it.",
+        icon="Clapperboard",
+        inputs=[
+            {"name": "subject", "label": "Idea (optional — leave blank for a surprise)",
+             "type": "textarea", "required": False, "default": "",
+             "placeholder": "a paper boat drifting down a rainy gutter at night"},
+            {"name": "size", "label": "Frame size (square, px)", "type": "number",
+             "default": 768, "min": 256, "max": 1024},
+            {"name": "seconds", "label": "Clip length (seconds)", "type": "number",
+             "default": 5, "min": 2, "max": 12},
+        ],
+        steps=[
+            {"id": "plan", "kind": "inference", "type": "chat", "title": "Direct the shot",
+             "extract": "json",
+             "body": {"messages": [{"role": "user", "content":
+                "You are a creative director for a short AI video. The user's idea is: "
+                "\"{{inputs.subject}}\". If that idea is blank or vague, INVENT a vivid, "
+                "original subject of your own. If it's only a few words, keep their "
+                "intent but embellish it with concrete detail and a fitting art style. "
+                "Produce two prompts as JSON.\n\n"
+                "`image_prompt`: one rich first-frame image prompt — subject, "
+                "composition, lighting, lens, mood, and an art style.\n"
+                "`video_prompt`: a short motion prompt — how the scene animates "
+                "(camera movement, subject motion, pacing), consistent with the frame.\n\n"
+                "Return JSON: {\"image_prompt\":\"...\",\"video_prompt\":\"...\"}." + _JSON_NOTE}]}},
+            {"id": "frame", "kind": "inference", "type": "image", "title": "Render the first frame",
+             "body": {"prompt": "{{steps.plan.output.image_prompt}}",
+                      "size": "{{inputs.size}}x{{inputs.size}}"}},
+            {"id": "clip", "kind": "inference", "type": "video", "title": "Animate it",
+             "body": {"prompt": "{{steps.plan.output.video_prompt}}",
+                      "image_asset_id": "{{steps.frame.output.asset_id}}",
+                      "width": "{{inputs.size}}", "height": "{{inputs.size}}",
+                      "duration": "{{inputs.seconds}}"}},
+        ],
+    ),
+    _t(
         key="song-and-cover",
         title="Song + cover art",
         description="Write lyrics and a music brief, then generate the track and its cover art together.",
