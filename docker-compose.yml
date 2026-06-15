@@ -206,6 +206,12 @@ services:
       # SSR (inside this container) can't reach localhost:8101 — that's the
       # frontend itself. Reach the backend by its compose service name instead.
       NUXT_API_BASE_INTERNAL: http://backend:8001
+      # Nuxt listens on :3000 inside the container but the browser loads the app
+      # from the host-published :3100. Tell Vite's HMR client to connect on the
+      # published port; otherwise its WebSocket targets the unpublished :3000,
+      # fails, and retries in a loop (sluggish UI + console ws errors). Must
+      # match the host side of the 3100:3000 port mapping below.
+      NUXT_VITE_HMR_CLIENT_PORT: "3100"
     volumes:
       - ./frontend:/app
       # Named volume shadows the host's frontend/node_modules — the host

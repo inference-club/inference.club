@@ -46,6 +46,19 @@ export default defineNuxtConfig({
     plugins: [
       tailwindcss(),
     ],
+    server: {
+      // In the compose dev container Nuxt listens on :3000 but the browser
+      // loads the app from the host-published :3100. By default Vite tells the
+      // HMR client to connect on the *server's* port (3000), which isn't
+      // published — so the browser's HMR WebSocket fails, retries in a tight
+      // loop (console flooded with ws errors), and Vite falls back to full
+      // page reloads: the app feels sluggish and laggy. Point the HMR client
+      // at the published port instead. Env-gated so bare-metal `yarn dev`
+      // (page + server on the same port) is left on Vite's correct default.
+      hmr: process.env.NUXT_VITE_HMR_CLIENT_PORT
+        ? { clientPort: Number(process.env.NUXT_VITE_HMR_CLIENT_PORT) }
+        : undefined,
+    },
     optimizeDeps: {
       // three example modules imported by the cluster scene + jack logo —
       // pre-bundle them so dev doesn't force-reload mid-navigation when the
