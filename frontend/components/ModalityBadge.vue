@@ -3,7 +3,7 @@
 // glance. The single source of modality color+icon — reuse anywhere a type
 // needs visual identity (cards, detail pages, playground strips).
 import {
-  MessageSquare, Mic, AudioLines, Music, Image as ImageIcon, Box, Clapperboard,
+  MessageSquare, Mic, AudioLines, Music, Image as ImageIcon, Box, Clapperboard, Waves,
 } from 'lucide-vue-next'
 import type { InferenceType } from '@/types'
 
@@ -37,6 +37,10 @@ const META: Record<InferenceType, { icon: unknown; classes: string }> = {
   VIDEO: {
     icon: Clapperboard,
     classes: 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/25',
+  },
+  ENHANCE: {
+    icon: Waves,
+    classes: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/25',
   },
 }
 

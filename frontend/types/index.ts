@@ -1,4 +1,4 @@
-export type InferenceType = 'LLM' | 'STT' | 'IMAGE' | 'VIDEO' | 'TTS' | 'MESH' | 'MUSIC' | 'VOICE'
+export type InferenceType = 'LLM' | 'STT' | 'IMAGE' | 'VIDEO' | 'TTS' | 'MESH' | 'MUSIC' | 'VOICE' | 'ENHANCE'
 
 // Generation stats for an image-to-3D (MESH) request, mirrored from the
 // upstream X-Trellis-Metadata header.

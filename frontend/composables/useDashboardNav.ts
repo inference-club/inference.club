@@ -33,6 +33,7 @@ export const dashboardNav: DashboardNavGroup[] = [
       { titleKey: 'dashboard.items.videoGeneration', url: '/dashboard/playground/videos' },
       { titleKey: 'dashboard.items.textToSpeech', url: '/dashboard/playground/speech' },
       { titleKey: 'dashboard.items.voiceCloning', url: '/dashboard/playground/voice-cloning' },
+      { titleKey: 'dashboard.items.audioEnhance', url: '/dashboard/playground/enhance' },
       { titleKey: 'dashboard.items.musicGeneration', url: '/dashboard/playground/music' },
     ],
   },

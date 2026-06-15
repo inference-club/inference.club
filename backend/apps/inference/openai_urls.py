@@ -29,6 +29,7 @@ from .studio_views import (
     VariantSelectView,
 )
 from .openai_views import (
+    AudioEnhanceView,
     AudioSpeechView,
     AudioTranscriptionsView,
     AudioVoicesView,
@@ -60,6 +61,8 @@ urlpatterns = [
     path("audio/speech/", AudioSpeechView.as_view()),
     path("audio/voices", AudioVoicesView.as_view(), name="audio-voices"),
     path("audio/voices/", AudioVoicesView.as_view()),
+    path("audio/enhance", AudioEnhanceView.as_view(), name="audio-enhance"),
+    path("audio/enhance/", AudioEnhanceView.as_view()),
     path("images/generations", ImageGenerationsView.as_view(), name="images-generations"),
     path("images/generations/", ImageGenerationsView.as_view()),
     path("images/edits", ImageEditsView.as_view(), name="images-edits"),

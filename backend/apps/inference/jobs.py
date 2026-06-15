@@ -27,7 +27,7 @@ logger = logging.getLogger("django")
 JOB_SERVICE_TYPE = {
     "LLM": "", "STT": "stt", "TTS": "tts",
     "IMAGE": "image", "MESH": "mesh", "MUSIC": "music", "VIDEO": "video",
-    "SCRAPE": "scrape", "RENDER": "render",
+    "SCRAPE": "scrape", "RENDER": "render", "ENHANCE": "audio-enhance",
     # VOICE (Dia voice cloning / dialogue) is served by a tts-typed service that
     # advertises voice-cloning, so it shares the tts capacity pool. The workflow
     # `voice` step uses it; the public async API does not (it needs an upload).

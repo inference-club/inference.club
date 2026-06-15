@@ -1269,6 +1269,183 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
         return resp
 
 
+class AudioEnhanceView(_RateLimitHeadersMixin, APIView):
+    """``POST /v1/audio/enhance`` — speech enhancement (NVIDIA Maxine Studio
+    Voice). Audio file IN → cleaned audio file OUT.
+
+    The request is ``multipart/form-data`` (an audio ``file`` + form fields)
+    like ``/v1/audio/transcriptions``; the response is the raw enhanced audio
+    bytes and a stored OUTPUT_AUDIO asset, like ``/v1/audio/speech``. Routes
+    only to ``audio-enhance`` services.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AccountTypeScopedRateThrottle]
+    throttle_scope = "inference"
+    inference_type = "ENHANCE"
+    upstream_path = "/audio/enhance"
+
+    def post(self, request):
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response(
+                {"error": {"message": "`file` is required.", "type": "missing_file"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if upload.size and upload.size > settings.STT_MAX_UPLOAD_BYTES:
+            return Response(
+                {
+                    "error": {
+                        "message": (
+                            f"Audio file too large: {upload.size} bytes (max "
+                            f"{settings.STT_MAX_UPLOAD_BYTES})."
+                        ),
+                        "type": "file_too_large",
+                    }
+                },
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+        ctype = (upload.content_type or "").split(";", 1)[0].strip().lower()
+        if ctype and ctype not in settings.STT_ALLOWED_CONTENT_TYPES:
+            return Response(
+                {
+                    "error": {
+                        "message": f"Unsupported audio content-type: {ctype!r}.",
+                        "type": "unsupported_media_type",
+                    }
+                },
+                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
+
+        visibility, collection_name = pop_sharing_params(request)
+        model_name = request.data.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="audio-enhance"
+        )
+        if provider_model is None:
+            return Response(
+                {
+                    "error": {
+                        "message": (
+                            f"No online audio-enhancement provider serving model "
+                            f"'{model_name}' for this user."
+                        ),
+                        "type": "no_provider",
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        provider = provider_model.provider
+        served_name = provider_model.name
+        canonical = _model_slug(provider_model)
+        requested_format = request.data.get("response_format") or "wav"
+        _, content_type, ext = _riva_encoding(requested_format)
+
+        # Read the upload once: forward the same bytes upstream and persist them.
+        # Bounded by STT_MAX_UPLOAD_BYTES checked above.
+        audio_bytes = upload.read()
+
+        ir = InferenceRequest.objects.create(
+            user=request.user,
+            provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="ENHANCE",
+            payload={
+                "model": canonical or model_name or "",
+                "filename": getattr(upload, "name", "") or "",
+                "content_type": ctype,
+                "size_bytes": len(audio_bytes),
+                "response_format": requested_format,
+            },
+            status="PROCESSING",
+            visibility=visibility or "",
+        )
+        file_into_collection(request.user, ir, collection_name)
+
+        in_asset = None
+        if settings.STT_STORE_INPUT_AUDIO:
+            in_asset = _store_input_audio(request.user, ir, upload, audio_bytes)
+            if in_asset is not None:
+                ir.payload["input_asset_id"] = in_asset.id
+                ir.save(update_fields=["payload", "modified_on"])
+
+        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
+        data_fields = [("model", served_name or canonical or model_name or "")]
+        if requested_format:
+            data_fields.append(("response_format", requested_format))
+        started = time.monotonic()
+        try:
+            upstream = requests.post(
+                endpoint,
+                files={"file": (getattr(upload, "name", "audio"), audio_bytes, ctype or "application/octet-stream")},
+                data=data_fields,
+                timeout=UPSTREAM_TIMEOUT_SECONDS,
+                verify=False,
+                proxies=_tailnet_proxies(),
+            )
+        except requests.RequestException as e:
+            ir.status = "REQUESTED"
+            ir.results = {"error": str(e)}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            logger.error("Upstream audio enhancement failed: %s", e)
+            return Response(
+                {"error": {"message": str(e), "type": "upstream_error"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not upstream.ok:
+            ir.status = "REQUESTED"
+            ir.results = {"upstream_status": upstream.status_code}
+            ir.latency_ms = int((time.monotonic() - started) * 1000)
+            ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+            return Response(
+                upstream.json()
+                if upstream.headers.get("content-type", "").startswith("application/json")
+                else {"error": upstream.text[:500]},
+                status=upstream.status_code,
+            )
+
+        audio = upstream.content
+        out_ct = upstream.headers.get("content-type") or content_type
+        seconds = _wav_seconds(audio)
+
+        from django.core.files.base import ContentFile
+
+        from .models import MediaAsset
+
+        out_asset = None
+        try:
+            out_asset = MediaAsset(
+                user=request.user, inference_request=ir, kind=MediaAsset.OUTPUT_AUDIO,
+                content_type=out_ct, size_bytes=len(audio), duration_seconds=seconds,
+            )
+            out_asset.file.save(f"enhanced.{ext}", ContentFile(audio), save=False)
+            out_asset.save()
+        except Exception as e:
+            logger.warning("output-audio store failed: %s", e)
+
+        ir.status = "PROCESSED"
+        ir.audio_seconds = seconds
+        ir.results = {
+            "audio_asset_id": out_asset.id if out_asset else None,
+            "input_asset_id": in_asset.id if in_asset else None,
+            "content_type": out_ct,
+        }
+        ir.latency_ms = int((time.monotonic() - started) * 1000)
+        ir.save(
+            update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"]
+        )
+        Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+
+        from django.http import HttpResponse
+
+        resp = HttpResponse(audio, content_type=out_ct)
+        resp["Content-Disposition"] = f'inline; filename="enhanced.{ext}"'
+        return resp
+
+
 # --- Voice cloning (Dia) — see docs/prd/09-voice-cloning.md ------------------
 
 _SPEAKER_TAG_RE = re.compile(r"\[S(\d+)\]")
