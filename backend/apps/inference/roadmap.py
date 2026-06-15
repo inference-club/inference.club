@@ -110,7 +110,7 @@ PHASES = [
             {"id": "image-prompt-node", "title": "Per-section image-prompt LLM node", "status": STATUS_PLANNED},
             {"id": "image-series-map", "title": "`image-series`: IMAGE map over sections, timeline-aligned to audio", "status": STATUS_PLANNED},
             {"id": "compose-full", "title": "`compose` upgrade: images + audio + subtitles + timeline → final MP4", "status": STATUS_PLANNED},
-            {"id": "pipeline-template", "title": "Ship 'URL → video' workflow template in the gallery", "status": STATUS_PLANNED},
+            {"id": "pipeline-template", "title": "Ship 'URL → video' workflow template in the gallery", "status": STATUS_DONE, "note": "`url-to-video` template (scrape→dialog→split_sections→tts+image maps→compose w/ derive_from); validates via validate_spec. A test now guards every template. Runs once media providers exist."},
         ],
     },
     {
@@ -169,6 +169,17 @@ PHASES = [
 
 # Most recent first. Add a line whenever a task changes status.
 PROGRESS_LOG = [
+    {
+        "date": "2026-06-14",
+        "note": (
+            "Shipped the `url-to-video` gallery template — the whole hn.fm flow "
+            "as one authorable graph (scrape → 2-host dialog → split_sections → "
+            "TTS + image fan-out → compose, with derive_from provenance). Added "
+            "a guard test that validates every shipped template; Newspaper icon "
+            "registered. 67 tests green. Runs end-to-end once providers serve the "
+            "scrape/speech/compose services."
+        ),
+    },
     {
         "date": "2026-06-14",
         "note": (

@@ -6,7 +6,7 @@
  * from what the user can route to, so templates "just work".
  */
 import { onMounted, ref } from 'vue'
-import { BookOpen, Images, Clapperboard, Music, Mic, HardHat, Workflow as WorkflowIcon,
+import { BookOpen, Images, Clapperboard, Music, Mic, HardHat, Newspaper, Workflow as WorkflowIcon,
   Loader2, X, Sparkles } from 'lucide-vue-next'
 import { useAsyncJobs, type WorkflowTemplate } from '@/composables/useAsyncJobs'
 
@@ -23,7 +23,7 @@ const suggestions = ref<string[]>([])
 const loadingSuggestions = ref(false)
 
 const ICONS: Record<string, unknown> = {
-  BookOpen, Images, Clapperboard, Music, Mic, HardHat, Workflow: WorkflowIcon,
+  BookOpen, Images, Clapperboard, Music, Mic, HardHat, Newspaper, Workflow: WorkflowIcon,
 }
 const iconFor = (name: string) => ICONS[name] || WorkflowIcon
 

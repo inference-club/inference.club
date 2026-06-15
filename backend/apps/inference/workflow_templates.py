@@ -215,6 +215,47 @@ TEMPLATES = [
              "body": {"input": "{{item}}"}},
         ],
     ),
+    _t(
+        key="url-to-video",
+        title="URL → narrated video",
+        description="Scrape an article, turn it into a two-host dialog, voice and "
+                    "illustrate each section, then compose a narrated video. "
+                    "(Needs providers for the scrape, speech and video-compose "
+                    "services — see PRD 12.)",
+        icon="Newspaper",
+        inputs=[
+            {"name": "url", "label": "Article URL", "type": "text", "required": True,
+             "placeholder": "https://example.com/an-interesting-post"},
+            {"name": "style", "label": "Illustration style", "type": "text",
+             "default": "clean editorial illustration, soft light"},
+        ],
+        steps=[
+            {"id": "fetch", "kind": "inference", "type": "scrape", "title": "Scrape the article",
+             "body": {"url": "{{inputs.url}}"}},
+            {"id": "script", "kind": "inference", "type": "chat", "title": "Write a 2-host dialog",
+             "body": {"messages": [{"role": "user", "content":
+                "Turn this article into a lively two-host podcast dialog. Use exactly "
+                "two speakers, tagging each line [S1] or [S2], one line per turn, no "
+                "prose around it.\n\nARTICLE:\n{{steps.fetch.output.text}}"}]}},
+            {"id": "sections", "kind": "transform", "op": "split_sections", "title": "Group into sections",
+             "input": "{{steps.script.output.text}}", "size": 2},
+            {"id": "speech", "kind": "map", "type": "tts", "title": "Voice each section",
+             "over": "{{steps.sections.output}}",
+             "body": {"input": "{{item.text}}"}},
+            {"id": "art", "kind": "map", "type": "image", "title": "Illustrate each section",
+             "over": "{{steps.sections.output}}",
+             "body": {"prompt": "{{inputs.style}} — {{item.text}}"}},
+            {"id": "review", "kind": "gate", "title": "Review before composing",
+             "depends_on": ["speech", "art"]},
+            {"id": "video", "kind": "inference", "type": "compose", "title": "Compose the video",
+             "depends_on": ["review"],
+             # Provenance: the finished video traces back to every section's
+             # audio and image (PRD 12 §5.1).
+             "derive_from": ["{{steps.speech.output}}", "{{steps.art.output}}"],
+             "body": {"audio": "{{steps.speech.output}}",
+                      "images": "{{steps.art.output}}"}},
+        ],
+    ),
 ]
 
 _BY_KEY = {t["key"]: t for t in TEMPLATES}

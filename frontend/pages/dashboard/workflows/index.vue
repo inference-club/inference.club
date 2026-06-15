@@ -6,7 +6,7 @@
  */
 import { onMounted, ref } from 'vue'
 import { Workflow as WorkflowIcon, Plus, Play, Pencil, Trash2, GitFork,
-  BookOpen, Images, Clapperboard, Music, Mic, HardHat, Loader2 } from 'lucide-vue-next'
+  BookOpen, Images, Clapperboard, Music, Mic, HardHat, Newspaper, Loader2 } from 'lucide-vue-next'
 import { useAsyncJobs, type SavedWorkflowSummary, type WorkflowTemplate } from '@/composables/useAsyncJobs'
 
 definePageMeta({ layout: 'app' })
@@ -19,7 +19,7 @@ const templates = ref<WorkflowTemplate[]>([])
 const loading = ref(true)
 const busy = ref<number | string | null>(null)
 
-const ICONS: Record<string, unknown> = { BookOpen, Images, Clapperboard, Music, Mic, HardHat, Workflow: WorkflowIcon }
+const ICONS: Record<string, unknown> = { BookOpen, Images, Clapperboard, Music, Mic, HardHat, Newspaper, Workflow: WorkflowIcon }
 const iconFor = (n: string) => ICONS[n] || WorkflowIcon
 
 const load = async () => {
