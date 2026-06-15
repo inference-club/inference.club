@@ -220,6 +220,21 @@ All extend the PRD 10/11 spec contract (additive `kind`s, same templating):
 > accepts them, and they route through the same proxy as every other modality
 > (`project_model_capabilities` contract). No special-casing in Django.
 
+**`scrape` is "just another inference service" — a high-level one.** Firecrawl
+turns a URL into markdown *using an LLM under the hood*, but inference.club
+treats it identically to any modality: a request with `{"url": …}` in, an
+`OUTPUT_DOC` asset (markdown + title in `metadata`) out, routed by
+`service_type: scrape`. The interesting part is **where its underlying LLM
+lives**, and that's the agent's concern, not ours: the agent's `scrape` service
+runs Firecrawl pointed at a configurable LLM backend — **defaulting to the local
+cluster LLM**, addressed the k8s-native way (a `FIRECRAWL_LLM_BASE_URL` /
+service-URL env var), and optionally pointed back at inference.club itself
+(base URL + API key) when no local model is desired. So the same node works
+whether the scrape's reasoning happens on a cluster pod or on inference.club —
+the agent picks; the workflow graph and the proxy don't change. The same
+pattern generalizes to any future "high-level API that calls inference under
+the hood."
+
 ### 5.3 The Episode (Track A's unit of work)
 
 hn.fm's "run + segments" becomes an **`Episode`**: a named container that owns an

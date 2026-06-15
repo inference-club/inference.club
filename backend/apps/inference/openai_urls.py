@@ -20,6 +20,14 @@ from .job_views import (
     WorkflowSuggestionListView,
     WorkflowTemplateListView,
 )
+from .studio_views import (
+    EpisodeDetailView,
+    EpisodeListCreateView,
+    SegmentDetailView,
+    SegmentListCreateView,
+    SegmentReorderView,
+    VariantSelectView,
+)
 from .openai_views import (
     AudioSpeechView,
     AudioTranscriptionsView,
@@ -65,6 +73,20 @@ urlpatterns = [
     # --- media assets + provenance (PRD 12) ---
     path("assets/<int:id>", MediaAssetDetailView.as_view(), name="asset-detail"),
     path("assets/<int:id>/", MediaAssetDetailView.as_view()),
+    # --- narration studio (PRD 12 §5.4) ---
+    path("episodes", EpisodeListCreateView.as_view(), name="episodes"),
+    path("episodes/", EpisodeListCreateView.as_view()),
+    path("episodes/<int:id>", EpisodeDetailView.as_view(), name="episode-detail"),
+    path("episodes/<int:id>/", EpisodeDetailView.as_view()),
+    # Reorder must precede the generic segments collection route.
+    path("episodes/<int:id>/segments/reorder", SegmentReorderView.as_view(), name="segment-reorder"),
+    path("episodes/<int:id>/segments/reorder/", SegmentReorderView.as_view()),
+    path("episodes/<int:id>/segments", SegmentListCreateView.as_view(), name="segments"),
+    path("episodes/<int:id>/segments/", SegmentListCreateView.as_view()),
+    path("segments/<int:id>", SegmentDetailView.as_view(), name="segment-detail"),
+    path("segments/<int:id>/", SegmentDetailView.as_view()),
+    path("segments/<int:id>/variants/<int:vid>/select", VariantSelectView.as_view(), name="variant-select"),
+    path("segments/<int:id>/variants/<int:vid>/select/", VariantSelectView.as_view()),
     # --- async jobs / batches / workflows (PRD 10) ---
     path("jobs", JobListView.as_view(), name="jobs"),
     path("jobs/", JobListView.as_view()),

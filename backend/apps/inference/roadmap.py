@@ -121,8 +121,8 @@ PHASES = [
         "status": STATUS_PLANNED,
         "gate": "A user hand-builds & polishes an episode in the Studio and renders it.",
         "tasks": [
-            {"id": "episode-models", "title": "Episode / Segment / Variant / ImageSeries / ImageFrame models + migrations", "status": STATUS_PLANNED},
-            {"id": "episode-api", "title": "Episode/Segment CRUD + reorder API + serializers + composable", "status": STATUS_PLANNED},
+            {"id": "episode-models", "title": "Episode / Segment / Variant / ImageSeries / ImageFrame models + migrations", "status": STATUS_IN_PROGRESS, "note": "Episode/Segment/Variant shipped (migration 0030): takes/variants, selected_variant, per-segment voice override, words, separate cleaned_audio. ImageSeries/ImageFrame come with the dynamic-image-series task."},
+            {"id": "episode-api", "title": "Episode/Segment CRUD + reorder API + serializers + composable", "status": STATUS_IN_PROGRESS, "note": "/v1/episodes + /v1/segments CRUD, reorder, edit-undo stash, variant select (studio_views/studio_serializers); 10 tests green. Frontend composable + studio shell pending."},
             {"id": "studio-shell", "title": "/dashboard/studio shell: segment list, reorder, inline edit, status", "status": STATUS_PLANNED},
             {"id": "timeline-waveform", "title": "Waveform timeline + word-level highlight + seek (from transcribe)", "status": STATUS_PLANNED},
             {"id": "retakes", "title": "Retakes/variants: regenerate, A/B player, select active, auto-fallback", "status": STATUS_PLANNED},
@@ -169,6 +169,17 @@ PHASES = [
 
 # Most recent first. Add a line whenever a task changes status.
 PROGRESS_LOG = [
+    {
+        "date": "2026-06-15",
+        "note": (
+            "V3 Narration Studio spine: Episode/Segment/Variant models "
+            "(migration 0030) + owner-scoped CRUD API (/v1/episodes, /v1/segments, "
+            "reorder, edit-undo stash, variant select). Clarified that `scrape` is "
+            "an inference service — Firecrawl calls an LLM under the hood, default "
+            "the local cluster vLLM via a service-URL env var. 10 studio tests "
+            "green."
+        ),
+    },
     {
         "date": "2026-06-14",
         "note": (

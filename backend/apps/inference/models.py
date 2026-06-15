@@ -1265,3 +1265,123 @@ class WorkflowPromptSuggestion(models.Model):
 
     def __str__(self):
         return f"{self.template_key}: {self.text[:60]}"
+
+
+# --- Narration Studio (PRD 12 §5.3/§5.4) -------------------------------------
+
+
+class Episode(BaseModel):
+    """A narration project: an ordered list of ``Segment``s a user voices,
+    reviews and polishes in the Studio. Born either from a media-pipeline
+    ``WorkflowRun`` (Track A) or created by hand (Track B) — same model, two
+    front doors."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="episodes"
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default="")
+    # The run that seeded this episode, if any (Track A).
+    workflow_run = models.ForeignKey(
+        WorkflowRun, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="episodes",
+    )
+
+    class Meta:
+        ordering = ["-modified_on"]
+
+    def __str__(self):
+        return f"episode {self.title!r} (u{self.user_id})"
+
+
+class Segment(BaseModel):
+    """One narration unit in an Episode — the text to speak plus its takes
+    (``Variant``s). The active take is ``selected_variant``; regenerating adds a
+    new Variant (non-destructive retakes, à la inference-club-studio)."""
+
+    STATUS_PENDING = "pending"
+    STATUS_GENERATING = "generating"
+    STATUS_READY = "ready"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = (
+        (STATUS_PENDING, "Pending"),
+        (STATUS_GENERATING, "Generating"),
+        (STATUS_READY, "Ready"),
+        (STATUS_ERROR, "Error"),
+    )
+
+    episode = models.ForeignKey(
+        Episode, on_delete=models.CASCADE, related_name="segments"
+    )
+    position = models.PositiveIntegerField(default=0)
+    text = models.TextField()
+    # Pre-edit text, so an edit can be undone (the Studio shows this).
+    original_text = models.TextField(blank=True, default="")
+    status = models.CharField(
+        max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING
+    )
+    # The take currently used for playback/export.
+    selected_variant = models.ForeignKey(
+        "Variant", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    # Per-segment Dia voice override (PRD 09); blank = the episode/account default.
+    voice_sample = models.ForeignKey(
+        VoiceSample, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"segment #{self.position} of episode#{self.episode_id}"
+
+
+class Variant(BaseModel):
+    """One take of a ``Segment`` — a generated audio clip plus its provenance
+    (the job that made it), word timestamps, and an optional StudioVoice-cleaned
+    copy kept *separate* from the original so cleaning is never destructive."""
+
+    CLEAN_NOT = "not_cleaned"
+    CLEAN_DONE = "cleaned"
+    CLEAN_UNAVAILABLE = "unavailable"
+    CLEAN_ERROR = "error"
+    CLEAN_CHOICES = (
+        (CLEAN_NOT, "Not cleaned"),
+        (CLEAN_DONE, "Cleaned"),
+        (CLEAN_UNAVAILABLE, "Unavailable"),
+        (CLEAN_ERROR, "Error"),
+    )
+
+    segment = models.ForeignKey(
+        Segment, on_delete=models.CASCADE, related_name="variants"
+    )
+    # The text actually voiced for this take (may differ once the segment is
+    # edited and regenerated).
+    text = models.TextField(blank=True, default="")
+    audio = models.ForeignKey(
+        MediaAsset, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    inference_request = models.ForeignKey(
+        InferenceRequest, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    duration_seconds = models.FloatField(null=True, blank=True)
+    # Word-level timestamps from a transcribe pass: [{word, start_ms, ...}].
+    words = models.JSONField(default=list, blank=True)
+    # StudioVoice-cleaned audio (kept beside the original).
+    cleaned_audio = models.ForeignKey(
+        MediaAsset, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    clean_status = models.CharField(
+        max_length=12, choices=CLEAN_CHOICES, default=CLEAN_NOT
+    )
+
+    class Meta:
+        ordering = ["-created_on"]
+
+    def __str__(self):
+        return f"variant {self.pk} of segment#{self.segment_id}"
