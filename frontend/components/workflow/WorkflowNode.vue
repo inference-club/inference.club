@@ -4,10 +4,10 @@
  * step at a glance: modality, kind, status, the model used, live media
  * thumbnails, per-job progress, timing, and gate controls / errors.
  */
-import { computed } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { CheckCircle2, Circle, Clock, Loader2, XCircle, Music, FileText,
-  GitFork, Hand, Wrench, Layers, Sparkles, RotateCcw } from 'lucide-vue-next'
+  GitFork, Hand, Wrench, Layers, Sparkles, RotateCcw, Play, Download, X } from 'lucide-vue-next'
 import { modalityHex } from '@/composables/useClusterState'
 import type { WorkflowStep, AsyncJob } from '@/composables/useAsyncJobs'
 
@@ -65,6 +65,23 @@ const thumbOf = (j: AsyncJob): Thumb | null => {
   return null
 }
 const thumbs = computed(() => jobs.value.map(thumbOf).filter((t): t is Thumb => !!t))
+
+// Click a thumbnail to open the full media (image/video/audio) in a lightbox
+// with playback controls + a download link — teleported to <body> so it
+// escapes the Vue Flow transformed canvas.
+const lightbox = ref<Thumb | null>(null)
+const canOpen = (th: Thumb) => !!th.url && th.type !== 'text'
+const openThumb = (th: Thumb) => { if (canOpen(th)) lightbox.value = th }
+const closeLightbox = () => { lightbox.value = null }
+const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeLightbox() }
+watch(lightbox, (v) => {
+  if (typeof document === 'undefined') return
+  if (v) document.addEventListener('keydown', onKey)
+  else document.removeEventListener('keydown', onKey)
+})
+onBeforeUnmount(() => {
+  if (typeof document !== 'undefined') document.removeEventListener('keydown', onKey)
+})
 
 const duration = computed(() => {
   const s = step.value.started_at, f = step.value.finished_at
@@ -138,15 +155,23 @@ v-if="modality" class="rounded px-1.5 py-0.5 font-medium uppercase text-white"
 
     <!-- body: media / detail -->
     <div class="px-3 py-2">
-      <div v-if="thumbs.length" class="flex gap-1.5 overflow-x-auto">
-        <div
-v-for="(th, i) in thumbs.slice(0, 6)" :key="i"
-             class="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border bg-muted">
+      <div v-if="thumbs.length" class="flex gap-1.5 overflow-x-auto nowheel">
+        <button
+v-for="(th, i) in thumbs.slice(0, 6)" :key="i" type="button"
+                class="nodrag relative h-14 w-14 shrink-0 overflow-hidden rounded-md border bg-muted"
+                :class="canOpen(th) ? 'cursor-pointer hover:ring-2 hover:ring-sky-400' : 'cursor-default'"
+                :title="canOpen(th) ? 'Click to view' : undefined"
+                @click.stop="openThumb(th)" @mousedown.stop>
           <img v-if="th.type === 'image' && th.url" :src="th.url" class="h-full w-full object-cover" loading="lazy" alt="" >
-          <video v-else-if="th.type === 'video' && th.url" :src="th.url" class="h-full w-full object-cover" muted playsinline preload="metadata" />
+          <template v-else-if="th.type === 'video' && th.url">
+            <video :src="th.url" class="h-full w-full object-cover" muted playsinline preload="metadata" />
+            <span class="absolute inset-0 flex items-center justify-center bg-black/25">
+              <Play class="size-5 fill-white text-white drop-shadow" />
+            </span>
+          </template>
           <div v-else-if="th.type === 'audio'" class="flex h-full items-center justify-center"><Music class="size-5 text-fuchsia-500" /></div>
           <div v-else class="flex h-full items-center justify-center"><FileText class="size-4 text-sky-500" /></div>
-        </div>
+        </button>
         <span v-if="thumbs.length > 6" class="self-center text-xs text-muted-foreground">+{{ thumbs.length - 6 }}</span>
       </div>
 
@@ -170,4 +195,37 @@ v-else-if="step.status === 'RUNNING'"
       <p v-else class="line-clamp-2 text-xs text-muted-foreground">{{ detail }}</p>
     </div>
   </div>
+
+  <!-- Full-media lightbox: video/audio play with controls; everything is
+       downloadable. Teleported to body so it sits above the canvas. -->
+  <Teleport to="body">
+    <div
+v-if="lightbox"
+         class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+         @click.self="closeLightbox" @mousedown.stop>
+      <div class="relative max-h-[90vh] max-w-[90vw]">
+        <img
+v-if="lightbox.type === 'image'" :src="lightbox.url"
+             class="max-h-[90vh] max-w-[90vw] rounded-lg object-contain" alt="" >
+        <video
+v-else-if="lightbox.type === 'video'" :src="lightbox.url"
+               class="max-h-[85vh] max-w-[90vw] rounded-lg bg-black" controls autoplay playsinline />
+        <audio v-else-if="lightbox.type === 'audio'" :src="lightbox.url" class="w-[80vw] max-w-md" controls autoplay />
+        <div class="absolute -right-3 -top-3 flex gap-2">
+          <a
+:href="lightbox.url" target="_blank" rel="noopener" download
+             class="rounded-full bg-white/90 p-2 text-black shadow hover:bg-white"
+             title="Open / download" @click.stop>
+            <Download class="size-4" />
+          </a>
+          <button
+type="button" title="Close (Esc)"
+                  class="rounded-full bg-white/90 p-2 text-black shadow hover:bg-white"
+                  @click="closeLightbox">
+            <X class="size-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
