@@ -39,3 +39,20 @@ def dispatch_queued(limit=50):
 def reap_stuck_jobs():
     from . import jobs
     return jobs.reap_stuck_jobs()
+
+
+@shared_task(name="apps.inference.tasks.process_segment")
+def process_segment(segment_id):
+    """Run the narration pipeline (clean → ASR → trim → grade) on one segment's
+    selected take, off the request path (PRD 12 V3)."""
+    from . import narration
+    from .models import Segment
+
+    seg = Segment.objects.filter(id=segment_id).select_related("episode").first()
+    if seg is not None:
+        try:
+            narration.process_segment(seg)
+        except Exception:
+            logger.exception("process_segment task failed for segment %s", segment_id)
+            seg.status = Segment.STATUS_ERROR
+            seg.save(update_fields=["status", "modified_on"])

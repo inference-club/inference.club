@@ -134,3 +134,126 @@ def test_grade_transcription_falls_back_without_llm(user):
     assert res["method"] == "similarity" and res["score"] == pytest.approx(10.0)
     guard = narration.grade_transcription(user, "", "x")
     assert guard["method"] == "guard" and guard["should_regenerate"] is True
+
+
+# --- per-segment orchestrator + endpoint -------------------------------------
+
+import json as _json
+from unittest.mock import patch
+from apps.inference.models import (Episode, Provider, ProviderModel,
+                                   ProviderService, Segment, Variant, link_catalog_model)
+
+
+class _FakeResp:
+    def __init__(self, content=b"", status=200, content_type="application/json"):
+        self.content = content if isinstance(content, bytes) else _json.dumps(content).encode()
+        self.status_code = status
+        self.ok = 200 <= status < 300
+        self.headers = {"content-type": content_type}
+        self.text = self.content.decode(errors="replace")
+
+    def json(self):
+        return _json.loads(self.content)
+
+
+def _service_model(u, service_type, model_name):
+    p = Provider.objects.create(
+        user=u, name=f"n-{service_type}", tailnet_hostname=f"h-{service_type}",
+        is_active=True, accepting_requests=True, last_seen_at=timezone.now(),
+    )
+    svc = ProviderService.objects.create(
+        provider=p, name=f"{service_type}-svc", engine="other",
+        service_type=service_type, access_policy=ProviderService.ACCESS_AUTHENTICATED,
+    )
+    pm = ProviderModel(provider=p, name=model_name, service=svc)
+    link_catalog_model(pm)
+    pm.save()
+    return p
+
+
+from django.utils import timezone  # noqa: E402  (used by _service_model)
+
+
+def _segment_with_audio(user, text):
+    ep = Episode.objects.create(user=user, title="ep")
+    seg = Segment.objects.create(episode=ep, position=0, text=text)
+    audio = _audio_asset(user, _wav([(0.4, 0), (0.6, 440), (0.4, 0)]))  # 1.4s, speech 0.4–1.0
+    v = Variant.objects.create(segment=seg, text=text, audio=audio, duration_seconds=1.4)
+    seg.selected_variant = v
+    seg.save(update_fields=["selected_variant"])
+    return seg, v, audio
+
+
+def test_process_segment_runs_full_pipeline(user):
+    _service_model(user, "audio-enhance", "maxine-studio-voice")
+    _service_model(user, "stt", "qwen3-asr")
+    text = "the quick brown fox jumps"
+    seg, variant, original = _segment_with_audio(user, text)
+    cleaned_wav = _wav([(0.4, 0), (0.6, 330), (0.4, 0)])
+    words = [{"word": w, "start": round(0.4 + i * 0.1, 3), "end": round(0.5 + i * 0.1, 3)}
+             for i, w in enumerate(text.split())]
+
+    def _post(url, **kw):
+        if "audio/enhance" in url:
+            return _FakeResp(cleaned_wav, content_type="audio/wav")
+        if "audio/transcriptions" in url:
+            return _FakeResp({"text": text, "words": words})
+        return _FakeResp({})
+
+    with patch("apps.inference.openai_views.requests.post", side_effect=_post):
+        res = narration.process_segment(seg)
+    assert res["ok"], res
+    seg.refresh_from_db()
+    variant.refresh_from_db()
+    assert variant.clean_status == Variant.CLEAN_DONE
+    assert variant.cleaned_audio_id and variant.cleaned_audio_id != original.id  # trimmed copy
+    assert variant.cleaned_audio.duration_seconds < 1.4                          # silence trimmed
+    assert variant.words and variant.transcript == text
+    assert variant.grade["method"] == "similarity" and variant.grade["score"] > 8.0
+    assert seg.status == Segment.STATUS_READY
+
+
+def test_process_segment_flags_a_bad_transcription(user):
+    _service_model(user, "stt", "qwen3-asr")  # no enhance → clean unavailable, still runs
+    seg, variant, _ = _segment_with_audio(user, "the lighthouse keeper waved")
+    words = [{"word": "totally", "start": 0.4, "end": 0.7},
+             {"word": "wrong", "start": 0.7, "end": 1.0}]
+
+    def _post(url, **kw):
+        if "audio/transcriptions" in url:
+            return _FakeResp({"text": "totally wrong", "words": words})
+        return _FakeResp({})
+
+    with patch("apps.inference.openai_views.requests.post", side_effect=_post):
+        narration.process_segment(seg)
+    seg.refresh_from_db()
+    assert seg.status == Segment.STATUS_FLAGGED       # grade said regenerate
+    assert variant.refresh_from_db() or seg.selected_variant.grade["should_regenerate"]
+
+
+def test_process_endpoint_runs_inline_and_returns_202(user, settings):
+    settings.ASYNC_ENABLED = False  # inline path
+    _service_model(user, "stt", "qwen3-asr")
+    text = "hello there friend"
+    seg, _, _ = _segment_with_audio(user, text)
+    words = [{"word": w, "start": 0.4 + i * 0.1, "end": 0.5 + i * 0.1} for i, w in enumerate(text.split())]
+
+    def _post(url, **kw):
+        if "audio/transcriptions" in url:
+            return _FakeResp({"text": text, "words": words})
+        return _FakeResp({})
+
+    from rest_framework.test import APIClient
+    c = APIClient(); c.force_authenticate(user)
+    with patch("apps.inference.openai_views.requests.post", side_effect=_post):
+        r = c.post(f"/v1/segments/{seg.id}/process", {}, format="json")
+    assert r.status_code == 202, r.content
+    assert r.json()["status"] == Segment.STATUS_READY
+
+
+def test_process_endpoint_409_without_audio(user):
+    from rest_framework.test import APIClient
+    ep = Episode.objects.create(user=user, title="ep")
+    seg = Segment.objects.create(episode=ep, position=0, text="no take yet")
+    c = APIClient(); c.force_authenticate(user)
+    assert c.post(f"/v1/segments/{seg.id}/process", {}, format="json").status_code == 409

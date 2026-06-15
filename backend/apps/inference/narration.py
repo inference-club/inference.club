@@ -122,12 +122,67 @@ def _probe_duration(path) -> float:
         return 0.0
 
 
-def run_trim_job(ir):
-    """TRIM job runner (central, no provider). Payload: ``{audio_asset_id, words,
-    [pad, gap_threshold, max_gap]}``. Trims silence/pauses and stores the result
-    as a new OUTPUT_AUDIO (original untouched). Returns ``(ok, error)``."""
+def remap_words(words, intervals):
+    """Shift word timestamps onto the trimmed timeline. A word fully inside a
+    kept interval moves to its new position (kept-length before it + offset into
+    its interval); words that fell in a removed gap are dropped."""
+    spans, cum = [], 0.0
+    for a, b in intervals:
+        spans.append((a, b, cum))
+        cum += (b - a)
+    out = []
+    for w in words:
+        for a, b, off in spans:
+            if w["start"] >= a - 1e-6 and w["end"] <= b + 1e-6:
+                out.append({"word": w["word"],
+                            "start": round(off + (w["start"] - a), 3),
+                            "end": round(off + (w["end"] - a), 3)})
+                break
+    return out
+
+
+def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHOLD,
+               max_gap=TRIM_MAX_GAP, inference_request=None):
+    """Trim silence/pauses from ``src`` (a MediaAsset) using ``words``; store the
+    result as a new OUTPUT_AUDIO (original untouched) and return
+    ``(asset, remapped_words, src_duration, out_duration)``. If there are no
+    words to trim on, returns the source unchanged."""
     from django.core.files.base import ContentFile
 
+    from .models import MediaAsset
+
+    words = normalize_words(words)
+    with tempfile.TemporaryDirectory() as td:
+        ext = (src.content_type or "audio/wav").rsplit("/", 1)[-1] or "wav"
+        in_path = os.path.join(td, f"in.{ext}")
+        with src.file.open("rb") as f, open(in_path, "wb") as dst:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                dst.write(chunk)
+        src_dur = _probe_duration(in_path)
+        intervals = plan_trim_intervals(words, src_dur, pad=pad,
+                                        gap_threshold=gap_threshold, max_gap=max_gap)
+        if not intervals:
+            return src, words, src_dur, src_dur  # nothing to trim on
+        out_path = os.path.join(td, "trimmed.wav")
+        trim_audio(in_path, out_path, intervals)
+        out_dur = _probe_duration(out_path)
+        with open(out_path, "rb") as fh:
+            audio = fh.read()
+
+    asset = MediaAsset(
+        user=user, inference_request=inference_request, kind=MediaAsset.OUTPUT_AUDIO,
+        content_type="audio/wav", size_bytes=len(audio), duration_seconds=out_dur,
+        metadata={"trimmed_from": src.id, "saved_seconds": round(src_dur - out_dur, 3)},
+    )
+    asset.file.save("trimmed.wav", ContentFile(audio), save=False)
+    asset.save()
+    asset.record_derivation([src])
+    return asset, remap_words(words, intervals), src_dur, out_dur
+
+
+def run_trim_job(ir):
+    """TRIM job runner (central, no provider). Payload: ``{audio_asset_id, words,
+    [pad, gap_threshold, max_gap]}``. Returns ``(ok, error)``."""
     from .models import MediaAsset
 
     payload = ir.payload or {}
@@ -135,59 +190,32 @@ def run_trim_job(ir):
     src = MediaAsset.objects.filter(id=aid, user=ir.user).first() if aid else None
     if src is None or not src.file:
         return _fail(ir, "trim could not load the source audio asset.")
-    words = normalize_words(payload.get("words"))
+
+    def _f(key, default):
+        try:
+            return float(payload[key])
+        except (KeyError, TypeError, ValueError):
+            return default
 
     started = time.monotonic()
     try:
-        with tempfile.TemporaryDirectory() as td:
-            ext = (src.content_type or "audio/wav").rsplit("/", 1)[-1] or "wav"
-            in_path = os.path.join(td, f"in.{ext}")
-            with src.file.open("rb") as f, open(in_path, "wb") as dst:
-                for chunk in iter(lambda: f.read(1 << 20), b""):
-                    dst.write(chunk)
-            duration = _probe_duration(in_path)
-
-            def _f(key, default):
-                try:
-                    return float(payload[key])
-                except (KeyError, TypeError, ValueError):
-                    return default
-
-            intervals = plan_trim_intervals(
-                words, duration, pad=_f("pad", TRIM_PAD),
-                gap_threshold=_f("gap_threshold", TRIM_GAP_THRESHOLD),
-                max_gap=_f("max_gap", TRIM_MAX_GAP),
-            )
-            out_path = os.path.join(td, "trimmed.wav")
-            if intervals:
-                trim_audio(in_path, out_path, intervals)
-            else:
-                # No word timestamps → nothing to trim on; pass the audio through.
-                out_path = in_path
-            out_dur = _probe_duration(out_path)
-            with open(out_path, "rb") as fh:
-                audio = fh.read()
+        asset, words_out, src_dur, out_dur = trim_asset(
+            ir.user, src, payload.get("words"), pad=_f("pad", TRIM_PAD),
+            gap_threshold=_f("gap_threshold", TRIM_GAP_THRESHOLD),
+            max_gap=_f("max_gap", TRIM_MAX_GAP), inference_request=ir,
+        )
     except subprocess.TimeoutExpired:
         return _fail(ir, "trim timed out.")
     except Exception as e:
         logger.exception("trim job %s failed", ir.id)
         return _fail(ir, f"trim failed: {e}")
 
-    asset = MediaAsset(
-        user=ir.user, inference_request=ir, kind=MediaAsset.OUTPUT_AUDIO,
-        content_type="audio/wav", size_bytes=len(audio), duration_seconds=out_dur,
-        metadata={"trimmed_from": src.id, "saved_seconds": round(duration - out_dur, 3)},
-    )
-    asset.file.save("trimmed.wav", ContentFile(audio), save=False)
-    asset.save()
-    asset.record_derivation([src])
-
     ir.status = "PROCESSED"
     ir.audio_seconds = out_dur
     ir.results = {
         "audio_asset_id": asset.id, "content_type": "audio/wav",
-        "duration": out_dur, "source_duration": duration,
-        "source_asset_id": src.id,
+        "duration": out_dur, "source_duration": src_dur,
+        "source_asset_id": src.id, "words": words_out,
     }
     ir.latency_ms = int((time.monotonic() - started) * 1000)
     ir.save(update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"])
@@ -308,3 +336,132 @@ def _parse_quality_json(content: str):
         "reason": str(data.get("reason") or "")[:200],
         "method": "llm",
     }
+
+
+# --- ASR helper + per-segment orchestrator -----------------------------------
+
+
+def _synthesize_words(text: str, duration: float) -> list[dict]:
+    """Uniformly distribute words across ``duration`` when the ASR engine returns
+    text but no timestamps (e.g. Qwen3-ASR). Better than nothing for the editor."""
+    toks = (text or "").split()
+    if not toks or not duration or duration <= 0:
+        return []
+    slice_s = duration / len(toks)
+    return [{"word": t, "start": round(i * slice_s, 3), "end": round((i + 1) * slice_s, 3)}
+            for i, t in enumerate(toks)]
+
+
+def transcribe_asset(user, audio_asset):
+    """ASR an audio MediaAsset → ``(text, words)`` with word timestamps. Forwards
+    to the user's STT provider (verbose_json); synthesizes uniform timestamps if
+    the engine returns only text. Returns ``("", [])`` if no STT is reachable."""
+    import requests
+
+    from . import jobs
+    from .openai_views import (UPSTREAM_TIMEOUT_SECONDS, _find_provider_for_model,
+                               _retry_endpoint, _tailnet_proxies)
+
+    model = jobs.auto_model_for(user, "stt")
+    pm = _find_provider_for_model(user, model, service_type="stt") if model else None
+    if pm is None or not audio_asset or not audio_asset.file:
+        return "", []
+    try:
+        with audio_asset.file.open("rb") as f:
+            data = f.read()
+    except Exception:
+        return "", []
+    ct = audio_asset.content_type or "audio/wav"
+    ext = ct.rsplit("/", 1)[-1] or "wav"
+    try:
+        r = requests.post(
+            _retry_endpoint(pm.provider, "/audio/transcriptions"),
+            files={"file": (f"audio.{ext}", data, ct)},
+            data=[("model", pm.name or model), ("response_format", "verbose_json")],
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException:
+        logger.warning("transcribe_asset: STT request failed", exc_info=True)
+        return "", []
+    if not r.ok:
+        return "", []
+    try:
+        payload = r.json()
+    except ValueError:
+        return r.text or "", []
+    text = (payload.get("text") or "").strip()
+    words = normalize_words(payload.get("words"))
+    if not words and text:
+        words = _synthesize_words(text, audio_asset.duration_seconds or 0)
+    return text, words
+
+
+def process_segment(segment):
+    """Run the per-segment narration pipeline on the segment's selected take:
+    clean (StudioVoice) → ASR (word timestamps) → trim (silence/pauses) → grade
+    (ASR vs intended text). Updates the Variant (cleaned_audio/words/transcript/
+    grade) and the Segment status (ready vs flagged). Returns a summary dict.
+
+    Non-destructive: the original ``Variant.audio`` is untouched; each stage
+    degrades gracefully if its provider is unavailable."""
+    from .models import InferenceRequest, MediaAsset, Segment, Variant
+    from . import jobs
+    from .openai_views import _find_provider_for_model, _rerun_enhance
+
+    variant = segment.selected_variant
+    if variant is None or variant.audio_id is None:
+        return {"ok": False, "error": "Segment has no audio take to process."}
+    user = segment.episode.user
+    segment.status = Segment.STATUS_GENERATING
+    segment.save(update_fields=["status", "modified_on"])
+
+    base = variant.audio
+
+    # 1) Clean (StudioVoice). Reuses the ENHANCE runner (reads by asset id).
+    cleaned = base
+    enh_model = jobs.auto_model_for(user, "audio-enhance")
+    pm = _find_provider_for_model(user, enh_model, service_type="audio-enhance") if enh_model else None
+    if pm is not None:
+        ir = InferenceRequest.objects.create(
+            user=user, provider=pm.provider, inference_type="ENHANCE",
+            status="PROCESSING", model_name=enh_model,
+            payload={"audio_asset_id": base.id, "model": enh_model},
+        )
+        ok, _err = _rerun_enhance(ir, pm)
+        cid = (ir.results or {}).get("audio_asset_id") if ok else None
+        if cid:
+            cleaned = MediaAsset.objects.get(id=cid)
+            variant.clean_status = Variant.CLEAN_DONE
+        else:
+            variant.clean_status = Variant.CLEAN_ERROR
+    else:
+        variant.clean_status = Variant.CLEAN_UNAVAILABLE
+
+    # 2) ASR the cleaned audio for word timestamps + transcript.
+    text, words = transcribe_asset(user, cleaned)
+
+    # 3) Trim silence + long pauses (central FFmpeg), remapping words.
+    try:
+        final, words_out, _src_dur, out_dur = trim_asset(user, cleaned, words)
+    except Exception:
+        logger.exception("process_segment: trim failed for segment %s", segment.id)
+        final, words_out, out_dur = cleaned, words, cleaned.duration_seconds
+
+    variant.cleaned_audio = final
+    variant.words = words_out
+    variant.duration_seconds = out_dur
+    variant.transcript = text
+
+    # 4) Grade the transcript against the intended text.
+    grade = grade_transcription(user, variant.text or segment.text, text)
+    variant.grade = grade
+    variant.save(update_fields=[
+        "cleaned_audio", "words", "duration_seconds", "transcript", "grade",
+        "clean_status", "modified_on",
+    ])
+
+    segment.status = (Segment.STATUS_FLAGGED if grade.get("should_regenerate")
+                      else Segment.STATUS_READY)
+    segment.save(update_fields=["status", "modified_on"])
+    return {"ok": True, "status": segment.status, "grade": grade,
+            "duration": out_dur, "audio_asset_id": final.id if final else None}

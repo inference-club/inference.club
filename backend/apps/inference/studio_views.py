@@ -186,3 +186,39 @@ class VariantSelectView(APIView):
         seg.status = Segment.STATUS_READY
         seg.save(update_fields=["selected_variant", "status", "modified_on"])
         return Response(SegmentSerializer(seg, context={"request": request}).data)
+
+
+class SegmentProcessView(APIView):
+    """POST /v1/segments/<id>/process — run the narration pipeline (clean → ASR →
+    trim → grade) on the segment's selected take. Runs off the request path when
+    a Celery worker is available; otherwise inline. Returns the segment (202)."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id):
+        from django.conf import settings
+
+        from . import jobs, narration
+        from .tasks import process_segment as process_segment_task
+
+        seg = get_object_or_404(
+            Segment.objects.filter(episode__user=request.user)
+            .select_related("episode", "selected_variant"),
+            id=id,
+        )
+        if seg.selected_variant_id is None or seg.selected_variant.audio_id is None:
+            return Response(
+                {"detail": "Segment has no audio take to process. Generate one first."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if jobs.async_enabled() and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            seg.status = Segment.STATUS_GENERATING
+            seg.save(update_fields=["status", "modified_on"])
+            process_segment_task.delay(seg.id)
+        else:
+            narration.process_segment(seg)
+            seg.refresh_from_db()
+        return Response(
+            SegmentSerializer(seg, context={"request": request}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )

@@ -20,6 +20,7 @@ class VariantSerializer(serializers.ModelSerializer):
         fields = [
             "id", "text", "duration_seconds", "words",
             "audio_url", "cleaned_audio_url", "clean_status",
+            "transcript", "grade",
             "inference_request_id", "created_on",
         ]
 

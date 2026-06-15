@@ -1302,11 +1302,13 @@ class Segment(BaseModel):
     STATUS_PENDING = "pending"
     STATUS_GENERATING = "generating"
     STATUS_READY = "ready"
+    STATUS_FLAGGED = "flagged"   # audio produced, but grading flagged the take
     STATUS_ERROR = "error"
     STATUS_CHOICES = (
         (STATUS_PENDING, "Pending"),
         (STATUS_GENERATING, "Generating"),
         (STATUS_READY, "Ready"),
+        (STATUS_FLAGGED, "Flagged"),
         (STATUS_ERROR, "Error"),
     )
 
@@ -1369,9 +1371,10 @@ class Variant(BaseModel):
         related_name="+",
     )
     duration_seconds = models.FloatField(null=True, blank=True)
-    # Word-level timestamps from a transcribe pass: [{word, start_ms, ...}].
+    # Word-level timestamps aligned to the processed audio: [{word, start, end}].
     words = models.JSONField(default=list, blank=True)
-    # StudioVoice-cleaned audio (kept beside the original).
+    # The processed audio (StudioVoice-cleaned + silence/pause-trimmed), kept
+    # beside the untouched original (``audio``) so cleaning is never destructive.
     cleaned_audio = models.ForeignKey(
         MediaAsset, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="+",
@@ -1379,6 +1382,11 @@ class Variant(BaseModel):
     clean_status = models.CharField(
         max_length=12, choices=CLEAN_CHOICES, default=CLEAN_NOT
     )
+    # The ASR transcript of the processed audio (for the quality grade + editor).
+    transcript = models.TextField(blank=True, default="")
+    # Quality grade comparing the transcript to the intended text:
+    # {score, should_regenerate, reason, method}. See narration.grade_transcription.
+    grade = models.JSONField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_on"]
