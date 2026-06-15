@@ -121,7 +121,13 @@ Return ONLY valid JSON: an object with 'description' (one sentence on what the i
     const body = {
       model,
       messages: [
-        { role: 'system', content: VIDEO_PROMPT_SYSTEM(count, duration) },
+        // "detailed thinking off" disables the Nemotron reasoning trace — without
+        // it, the reasoning model spends the whole token budget thinking and never
+        // emits the JSON (content comes back null). Harmless to non-Nemotron models.
+        {
+          role: 'system',
+          content: `detailed thinking off\n${VIDEO_PROMPT_SYSTEM(count, duration)}`,
+        },
         {
           role: 'user',
           content: [
@@ -130,6 +136,9 @@ Return ONLY valid JSON: an object with 'description' (one sentence on what the i
           ],
         },
       ],
+      // Each LTX prompt is a long, detailed paragraph; give the N-prompt JSON room
+      // so it isn't truncated mid-string (finish_reason: length).
+      max_tokens: Math.min(8000, 1500 + count * 1200),
       response_format: {
         type: 'json_schema',
         json_schema: {
