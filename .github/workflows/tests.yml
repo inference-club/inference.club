@@ -36,6 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The media-pipeline tests (RENDER/compose, TRIM/narration, url→video)
+      # shell out to ffmpeg/ffprobe exactly like the worker does in prod, so the
+      # runner needs them on PATH or those tests fail with "No such file".
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       # Pin to the same Poetry the Docker build uses, so the lockfile resolves
       # identically.
       - name: Install Poetry
