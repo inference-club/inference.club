@@ -137,6 +137,7 @@
       "images": "이미지",
       "imageTo3d": "이미지를 3D로",
       "videoGeneration": "동영상 생성",
+      "imageToVideo": "이미지 → 동영상",
       "textToSpeech": "텍스트 음성 변환",
       "voiceCloning": "음성 복제",
       "audioEnhance": "오디오 향상",

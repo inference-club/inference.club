@@ -138,6 +138,7 @@
       "images": "Images",
       "imageTo3d": "Image to 3D",
       "videoGeneration": "Video generation",
+      "imageToVideo": "Image → Video",
       "textToSpeech": "Text to speech",
       "voiceCloning": "Voice cloning",
       "audioEnhance": "Audio enhancement",

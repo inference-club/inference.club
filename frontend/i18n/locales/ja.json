@@ -137,6 +137,7 @@
       "images": "画像",
       "imageTo3d": "画像から3D",
       "videoGeneration": "動画生成",
+      "imageToVideo": "画像 → 動画",
       "textToSpeech": "テキスト読み上げ",
       "voiceCloning": "ボイスクローン",
       "audioEnhance": "音声強調",
