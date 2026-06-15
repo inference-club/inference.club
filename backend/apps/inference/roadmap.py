@@ -172,6 +172,23 @@ PROGRESS_LOG = [
     {
         "date": "2026-06-15",
         "note": (
+            "Narration Editor BACKEND complete (V3 phases 1b/regenerate/2/3): "
+            "(1b) narration.process_segment orchestrates clean→ASR(words)→trim→"
+            "grade on a take, writing cleaned_audio/words/transcript/grade onto "
+            "the Variant + ready/flagged status; POST /v1/segments/<id>/process. "
+            "(regenerate) generate_take (Dia, honors voice_sample clone) → new "
+            "Variant → pipeline; POST /v1/segments/<id>/regenerate. (2) "
+            "split_into_segments DP chunker + POST /v1/episodes/from-text + a "
+            "`chunk` workflow op. (3) a `review: narration` workflow gate that "
+            "auto-passes when all an episode's segments are graded good, else "
+            "waits for a human (re-checked on advance). New Variant.transcript/"
+            "grade + Segment 'flagged' (mig 0031). ~21 narration tests green. "
+            "REMAINING: the /dashboard/studio editor PAGE (phase 4, frontend)."
+        ),
+    },
+    {
+        "date": "2026-06-15",
+        "note": (
             "Narration Studio pipeline primitives (V3, phase 1a): new "
             "narration.py with (1) normalize_words — canonicalizes ASR word "
             "lists to [{word,start,end}]; (2) a central FFmpeg TRIM modality "
