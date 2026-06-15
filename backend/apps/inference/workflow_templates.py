@@ -252,8 +252,11 @@ TEMPLATES = [
              # Provenance: the finished video traces back to every section's
              # audio and image (PRD 12 §5.1).
              "derive_from": ["{{steps.speech.output}}", "{{steps.art.output}}"],
+             # captions: each section's dialog text, burned in over its clip,
+             # aligned to the same section order as audio/images (PRD 12).
              "body": {"audio": "{{steps.speech.output}}",
-                      "images": "{{steps.art.output}}"}},
+                      "images": "{{steps.art.output}}",
+                      "captions": "{{steps.sections.output}}"}},
         ],
     ),
 ]

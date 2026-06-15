@@ -2614,7 +2614,9 @@ class ComposeView(_RateLimitHeadersMixin, APIView):
     worker with FFmpeg — *not* on a provider cluster — so it always runs as an
     async job. Body: ``{"images": [asset_id…], "audio": [asset_id…]}`` (the
     workflow ``compose`` node passes the upstream steps' outputs, which carry
-    the same asset ids). Returns the queued job (202)."""
+    the same asset ids). An optional ``captions`` list (strings or section
+    dicts, aligned to the sections) is burned in over each clip. Returns the
+    queued job (202)."""
 
     permission_classes = [IsAuthenticated]
     throttle_classes = [AccountTypeScopedRateThrottle]
@@ -2644,6 +2646,9 @@ class ComposeView(_RateLimitHeadersMixin, APIView):
             )
 
         payload = {"images": image_ids, "audio": audio_ids}
+        captions = body.get("captions")
+        if isinstance(captions, list) and captions:
+            payload["captions"] = captions
         return _enqueue_async(
             request, self.inference_type, payload, visibility, collection_name,
         )

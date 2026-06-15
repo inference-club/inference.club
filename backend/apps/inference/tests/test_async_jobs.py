@@ -354,6 +354,9 @@ class TestWorkflows:
         assert run.status == "DONE"
 
     def test_start_run_from_template(self, user):
+        # image-variations chains chat → image, so the user needs a provider for
+        # both modalities or preflight (PRD 12 graceful-fail) rejects the run.
+        _service_model(user, "llm", "qwen")
         _service_model(user, "image", "flux")
         resp = _client(user).post(
             "/v1/workflows/runs",
@@ -448,3 +451,123 @@ class TestWorkflows:
         data = resp.json()
         assert {s["step_id"] for s in data["steps"]} == {"img", "review"}
         assert {"from": "img", "to": "review"} in data["edges"]
+
+
+# --- URL → video, full graph (PRD 12) ----------------------------------------
+
+
+def _real_png_b64():
+    """Base64 of a real, properly-sized PNG. A 1x1 PNG (like _image_resp) makes
+    the compose ffmpeg pass hang, so the end-to-end test needs a real image —
+    exactly what the IMAGE modality produces in practice."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (96, 96), (30, 90, 150)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _wav_bytes(seconds=0.3, rate=8000):
+    import io
+    import wave
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"\x00\x00" * int(rate * seconds))
+    return buf.getvalue()
+
+
+class TestUrlToVideoEndToEnd:
+    """The whole hn.fm flow as one inference.club workflow: scrape → dialog →
+    split → tts + image fan-out → (gate) → compose. Upstream providers are
+    mocked; compose runs real FFmpeg centrally; the result is a captioned MP4
+    that traces back to its section assets (PRD 12)."""
+
+    def _post_factory(self, img_b64, wav, dialog):
+        def _post(url, **kw):
+            if "/scrape" in url:
+                return _FakeResp(
+                    b"# Lighthouses\n\nThey guide ships home.",
+                    content_type="text/markdown",
+                    headers={"X-Scrape-Title": "Lighthouses"},
+                )
+            if "chat/completions" in url:
+                return _FakeResp(
+                    {"choices": [{"message": {"role": "assistant", "content": dialog}}]}
+                )
+            if "audio/synthesize" in url:
+                return _FakeResp(wav, content_type="audio/wav")
+            if "images/generations" in url:
+                return _FakeResp({"created": 1, "data": [{"b64_json": img_b64}]})
+            return _FakeResp({})
+        return _post
+
+    def test_url_to_video_renders_a_captioned_mp4_with_provenance(self, user):
+        from apps.inference.models import MediaAsset
+
+        # A provider for every modality the template needs (compose/RENDER is
+        # central and needs none).
+        _service_model(user, "scrape", "firecrawl")
+        _service_model(user, "llm", "qwen")
+        _service_model(user, "tts", "dia")
+        _service_model(user, "image", "flux")
+
+        dialog = ("[S1] Welcome to the show.\n[S2] Today: lighthouses.\n"
+                  "[S1] They guide ships home.\n[S2] A beacon in the dark.")
+        _post = self._post_factory(_real_png_b64(), _wav_bytes(), dialog)
+
+        resp = _client(user).post(
+            "/v1/workflows/runs",
+            {"template": "url-to-video", "inputs": {"url": "https://example.com/x"}},
+            format="json",
+        )
+        assert resp.status_code == 202, resp.content
+        run = WorkflowRun.objects.get(id=resp.json()["id"])
+
+        with patch("apps.inference.openai_views.requests.post", side_effect=_post):
+            jobs.process_jobs_inline()
+        run.refresh_from_db()
+        assert run.status == "AWAITING"  # paused at the review gate
+
+        ok, err = workflows.resolve_gate(run, "review", "approve")
+        assert ok, err
+        with patch("apps.inference.openai_views.requests.post", side_effect=_post):
+            jobs.process_jobs_inline()
+        run.refresh_from_db()
+        assert run.status == "DONE", run.steps.filter(status="FAILED").values("step_id", "error")
+
+        # Two sections (4 dialog lines / 2) → two narrated, illustrated clips.
+        assert run.steps.get(step_id="speech").jobs.count() == 2
+        assert run.steps.get(step_id="art").jobs.count() == 2
+
+        # The compose step produced one real MP4, captioned, tracing back to
+        # every section's audio + image.
+        vid_job = run.steps.get(step_id="video").jobs.get()
+        vid = vid_job.assets.get(kind=MediaAsset.OUTPUT_VIDEO)
+        assert vid.size_bytes > 0 and vid.duration_seconds and vid.duration_seconds > 0
+        assert vid.metadata.get("captions") is True
+        assert vid.metadata.get("sections") == 2
+        assert vid.derived_from.filter(kind=MediaAsset.OUTPUT_AUDIO).count() == 2
+        assert vid.derived_from.filter(kind=MediaAsset.OUTPUT_IMAGE).count() == 2
+
+    def test_url_to_video_fails_fast_without_providers(self, user):
+        # No providers online → preflight rejects the run up front (409), before
+        # any job runs, and names every missing service (PRD 12 graceful-fail).
+        resp = _client(user).post(
+            "/v1/workflows/runs",
+            {"template": "url-to-video", "inputs": {"url": "https://example.com/x"}},
+            format="json",
+        )
+        assert resp.status_code == 409, resp.content
+        err = resp.json()["error"]
+        assert err["type"] == "services_unavailable"
+        assert set(err["missing"]) == {
+            "web scraping", "chat / LLM", "text-to-speech", "image generation",
+        }
+        assert WorkflowRun.objects.count() == 0

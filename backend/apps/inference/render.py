@@ -28,6 +28,51 @@ _VF = (
     "pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p,fps=30"
 )
 
+# Subtitle style for burned-in captions (PRD 12, compose-full): bottom-centered
+# white text with an outline + translucent box so it stays legible over any
+# illustration. PlayRes matches the 720p canvas.
+_BURN_ASS_HEADER = (
+    "[Script Info]\n"
+    "ScriptType: v4.00+\n"
+    "PlayResX: 1280\n"
+    "PlayResY: 720\n\n"
+    "[V4+ Styles]\n"
+    "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, "
+    "BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, "
+    "MarginR, MarginV\n"
+    "Style: Default,Arial,40,&H00FFFFFF,&H00000000,&H66000000,1,3,2,1,2,"
+    "60,60,50\n\n"
+    "[Events]\n"
+    "Format: Layer, Start, End, Style, Text\n"
+)
+
+
+def _caption_text(item) -> str:
+    """The caption string for a section. Accepts a bare string or a section
+    dict (``{index, lines, text}``) — what split_sections emits."""
+    if isinstance(item, dict):
+        item = item.get("text") or item.get("caption") or ""
+    return str(item or "").strip()
+
+
+def _ass_escape(text: str) -> str:
+    """Make caption text safe inside an ASS Dialogue line: newlines become hard
+    breaks and ``{}`` (override-tag delimiters) are stripped."""
+    return text.replace("{", "(").replace("}", ")").replace("\r", "").replace("\n", "\\N")
+
+
+def _write_caption_ass(text: str, path: str) -> bool:
+    """Write a one-cue ASS file holding ``text`` for the whole clip (a generous
+    end time; the section clip ends first via -shortest). Returns False for
+    blank text so the caller can skip the subtitles filter."""
+    text = _ass_escape(text)
+    if not text:
+        return False
+    with open(path, "w") as f:
+        f.write(_BURN_ASS_HEADER)
+        f.write(f"Dialogue: 0,0:00:00.00,9:59:59.99,Default,{text}\n")
+    return True
+
 
 def _ext_for(content_type: str, default: str) -> str:
     ct = (content_type or "").split(";", 1)[0].strip().lower()
@@ -45,10 +90,10 @@ def _download(asset, path) -> None:
             dst.write(chunk)
 
 
-def _run_ffmpeg(args) -> None:
+def _run_ffmpeg(args, cwd=None) -> None:
     proc = subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error", *args],
-        capture_output=True, text=True, timeout=RENDER_TIMEOUT_SECONDS,
+        capture_output=True, text=True, timeout=RENDER_TIMEOUT_SECONDS, cwd=cwd,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg failed: {proc.stderr.strip()[:500]}")
@@ -66,12 +111,15 @@ def _ordered_assets(ids, user):
     return [by_id[i] for i in ids if i in by_id]
 
 
-def render_slideshow(image_assets, audio_assets, out_path) -> float:
+def render_slideshow(image_assets, audio_assets, out_path, captions=None) -> float:
     """Build a narrated slideshow: section *i* shows ``image_assets[i]`` for the
-    length of ``audio_assets[i]``. Returns the total duration (seconds)."""
+    length of ``audio_assets[i]``. If ``captions`` is given, ``captions[i]`` is
+    burned in over that section (PRD 12 compose-full). Returns the total
+    duration (seconds)."""
     n = min(len(image_assets), len(audio_assets))
     if n == 0:
         raise RuntimeError("compose needs at least one (image, audio) pair.")
+    captions = captions or []
 
     with tempfile.TemporaryDirectory() as td:
         clip_paths = []
@@ -81,15 +129,22 @@ def render_slideshow(image_assets, audio_assets, out_path) -> float:
             _download(image_assets[i], img)
             _download(audio_assets[i], aud)
             clip = os.path.join(td, f"clip{i}.mp4")
+            # Burn this section's caption (if any) in the same encode pass. The
+            # subtitles filter is referenced by a bare name with cwd=td so the
+            # path needs no shell/filter escaping.
+            vf = _VF
+            cap_text = _caption_text(captions[i]) if i < len(captions) else ""
+            if cap_text and _write_caption_ass(cap_text, os.path.join(td, f"cap{i}.ass")):
+                vf = f"{_VF},subtitles=cap{i}.ass"
             # One section: loop the still over its narration; -shortest ends the
             # clip exactly when the audio does. Uniform codec params so the
             # clips concat losslessly below.
             _run_ffmpeg([
                 "-loop", "1", "-i", img, "-i", aud,
                 "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-b:a", "192k", "-vf", _VF,
+                "-c:a", "aac", "-b:a", "192k", "-vf", vf,
                 "-shortest", "-movflags", "+faststart", clip,
-            ])
+            ], cwd=td)
             clip_paths.append(clip)
 
         concat_list = os.path.join(td, "clips.txt")
@@ -130,11 +185,14 @@ def run_render_job(ir):
     if not images or not audios:
         return _fail(ir, "compose could not load the referenced image/audio assets.")
 
+    captions = payload.get("captions")
+    captions = captions if isinstance(captions, list) else []
+
     started = time.monotonic()
     try:
         with tempfile.TemporaryDirectory() as td:
             out = os.path.join(td, "video.mp4")
-            duration = render_slideshow(images, audios, out)
+            duration = render_slideshow(images, audios, out, captions=captions)
             with open(out, "rb") as fh:
                 video = fh.read()
     except subprocess.TimeoutExpired:
@@ -146,7 +204,10 @@ def run_render_job(ir):
     asset = MediaAsset(
         user=ir.user, inference_request=ir, kind=MediaAsset.OUTPUT_VIDEO,
         content_type="video/mp4", size_bytes=len(video), duration_seconds=duration,
-        metadata={"sections": min(len(images), len(audios))},
+        metadata={
+            "sections": min(len(images), len(audios)),
+            "captions": bool([c for c in captions if _caption_text(c)]),
+        },
     )
     asset.file.save("video.mp4", ContentFile(video), save=False)
     asset.save()

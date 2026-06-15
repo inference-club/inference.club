@@ -73,7 +73,7 @@ PHASES = [
             {"id": "scrape-node", "title": "`scrape` node kind + `scrape` manifest service type (Firecrawl via agent)", "status": STATUS_DONE, "note": "FULL STACK: Firecrawl deployed+proven in k3s (uses cluster vLLM); agent serveScrape (3 tests); inference.club SCRAPE modality — ScrapeView /v1/scrape + _run_scrape/_rerun_scrape storing OUTPUT_DOC + _job_output exposing markdown as text + async/queue support (6 tests); playground page /dashboard/playground/scrape. Goes live once the agent is rebuilt/redeployed (or run locally) so it routes /v1/scrape."},
             {"id": "transcribe-node", "title": "`transcribe` node wrapping existing STT → text + word timestamps", "status": STATUS_IN_PROGRESS, "note": "Routes to existing STT (transcribe→STT/stt, /v1/audio/transcriptions). Authorable + validates; the JSON/asset-ref word-timestamp runner is the remaining agent work."},
             {"id": "compose-node", "title": "`compose` node + `render` service: FFmpeg slideshow (images+audio) → MP4", "status": STATUS_DONE, "note": "DONE: render.py renders centrally on the worker (no provider) — pairs per-section image+audio, builds a 720p narrated slideshow MP4 (each still held for its audio's length), stores OUTPUT_VIDEO + records provenance. New CENTRAL_TYPES dispatch path in jobs.py (RENDER claimed provider-free under RENDER_MAX_CONCURRENT), ComposeView POST /v1/videos/compose (always async), _rerun_render runner. 6 tests in test_compose.py (real ffmpeg). ffmpeg already in the runtime image."},
-            {"id": "v0-tests", "title": "End-to-end test: URL → doc → canned audio → MP4, per-node rerun", "status": STATUS_IN_PROGRESS, "note": "Per-node runners now exist end to end (scrape/LLM/tts/image/compose); test_compose.py covers the compose runner + central dispatch. A single full-graph URL→MP4 integration test is the remaining piece (needs canned/fake providers for the upstream nodes)."},
+            {"id": "v0-tests", "title": "End-to-end test: URL → doc → canned audio → MP4, per-node rerun", "status": STATUS_DONE, "note": "DONE: test_async_jobs.TestUrlToVideoEndToEnd runs the whole url-to-video graph (scrape→dialog→split→tts+image fan-out→gate→compose) with mocked upstream providers and REAL central FFmpeg, asserting a captioned MP4 that traces back to every section's audio+image. Also covers preflight graceful-fail (409 services_unavailable when providers are missing). 54 tests green."},
         ],
     },
     {
@@ -109,7 +109,7 @@ PHASES = [
             {"id": "subtitle-node", "title": "`subtitle` transform: word timestamps → ASS/VTT (word-synced)", "status": STATUS_IN_PROGRESS, "note": "VTT+ASS rendering shipped (`subtitle` op, 5 tests); persisting the result as an OUTPUT_SUBTITLE asset is pending the compose/agent path."},
             {"id": "image-prompt-node", "title": "Per-section image-prompt LLM node", "status": STATUS_PLANNED},
             {"id": "image-series-map", "title": "`image-series`: IMAGE map over sections, timeline-aligned to audio", "status": STATUS_PLANNED},
-            {"id": "compose-full", "title": "`compose` upgrade: images + audio + subtitles + timeline → final MP4", "status": STATUS_IN_PROGRESS, "note": "Base compose (images + audio + per-section timeline → MP4) shipped in render.py (see compose-node). Remaining: burn the OUTPUT_SUBTITLE track (VTT/ASS already rendered by the `subtitle` op) into the final video."},
+            {"id": "compose-full", "title": "`compose` upgrade: images + audio + subtitles + timeline → final MP4", "status": STATUS_DONE, "note": "DONE: compose now burns per-section captions into each clip (ASS subtitles filter, in the same encode pass so concat stays lossless). The url-to-video template passes each section's dialog text as `captions`, aligned to the audio/image order. Word-level karaoke subtitles (from the `subtitle` op's word timestamps) remain a future polish, but section captions are burned in. Covered by the end-to-end test (asserts metadata.captions)."},
             {"id": "pipeline-template", "title": "Ship 'URL → video' workflow template in the gallery", "status": STATUS_DONE, "note": "`url-to-video` template (scrape→dialog→split_sections→tts+image maps→compose w/ derive_from); validates via validate_spec. A test now guards every template. Runs once media providers exist."},
         ],
     },
@@ -169,6 +169,21 @@ PHASES = [
 
 # Most recent first. Add a line whenever a task changes status.
 PROGRESS_LOG = [
+    {
+        "date": "2026-06-15",
+        "note": (
+            "URL→video closed out (V0/V2 headless path): (1) a full-graph "
+            "end-to-end test runs scrape→dialog→split→tts+image→gate→compose "
+            "with mocked providers + REAL central FFmpeg, asserting a captioned "
+            "MP4 with provenance; (2) compose burns per-section captions into "
+            "each clip (ASS subtitles in the same encode pass; template feeds "
+            "section text); (3) graceful-fail preflight — start_run now checks "
+            "the user can route to a provider for every modality the workflow "
+            "needs (RENDER excluded — it's central) and returns 409 "
+            "services_unavailable listing what's missing, before spending any "
+            "compute. 54 tests green."
+        ),
+    },
     {
         "date": "2026-06-15",
         "note": (

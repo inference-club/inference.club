@@ -61,6 +61,22 @@ class WorkflowError(ValueError):
     """A spec the engine can't run (bad shape, unknown step kind, …)."""
 
 
+class ServicesUnavailable(WorkflowError):
+    """The spec is valid, but the user can't route to a provider for one or more
+    modalities it needs right now (PRD 12). Subclasses WorkflowError so existing
+    ``except WorkflowError`` handlers surface it; carries the missing service
+    labels so a caller can render a precise message."""
+
+    def __init__(self, missing):
+        self.missing = list(missing)
+        joined = ", ".join(self.missing)
+        super().__init__(
+            "This workflow can't run yet — no online provider for: "
+            f"{joined}. Bring the service(s) online (or remove those steps) and "
+            "try again."
+        )
+
+
 # --- templating --------------------------------------------------------------
 
 
@@ -203,6 +219,58 @@ def _resolve_kind(step):
     return _SHORT_TYPE.get(t)
 
 
+# --- preflight: does the user have the providers this workflow needs? ---------
+
+# Friendly labels for a service_type, for the "missing services" message. ""
+# (no service restriction) is the chat/LLM path.
+_SERVICE_LABELS = {
+    "": "chat / LLM",
+    "image": "image generation",
+    "video": "video generation",
+    "music": "music generation",
+    "tts": "text-to-speech",
+    "stt": "speech-to-text",
+    "scrape": "web scraping",
+    "mesh": "3D mesh",
+    "audio-enhance": "audio cleanup",
+}
+
+
+def required_services(steps):
+    """The distinct ``(inference_type, service_type)`` pairs a normalized spec
+    needs from a provider. Central modalities (RENDER/compose, run on our own
+    worker) and inline steps (transform/collect/gate) need no provider and are
+    excluded."""
+    from . import jobs
+
+    needed = set()
+    for step in steps:
+        if step.get("kind") not in ("inference", "map", "prompt"):
+            continue
+        resolved = _resolve_kind(step)
+        if resolved is None:
+            continue
+        itype, stype = resolved
+        if itype in jobs.CENTRAL_TYPES:
+            continue
+        needed.add((itype, stype))
+    return needed
+
+
+def preflight_run(user, steps):
+    """Return a sorted list of friendly labels for the modalities this workflow
+    needs that ``user`` currently has no online provider for. Empty ⇒ runnable.
+    Uses the same resolution as job dispatch (``jobs.auto_model_for``), so a
+    pass here means each step will actually find a provider."""
+    from . import jobs
+
+    missing = set()
+    for _itype, stype in required_services(steps):
+        if not jobs.auto_model_for(user, stype):
+            missing.add(_SERVICE_LABELS.get(stype, stype or "chat / LLM"))
+    return sorted(missing)
+
+
 # --- run lifecycle -----------------------------------------------------------
 
 
@@ -212,6 +280,11 @@ def start_run(user, spec, inputs=None, name="", workflow=None):
     from .models import WorkflowRun, WorkflowStepRun, WF_RUNNING
 
     steps = validate_spec(spec)
+    # Fail fast (before spending any compute) if the user can't route to a
+    # provider for every modality this workflow needs (PRD 12 graceful-fail).
+    missing = preflight_run(user, steps)
+    if missing:
+        raise ServicesUnavailable(missing)
     inputs = inputs or {}
     run = WorkflowRun.objects.create(
         user=user, workflow=workflow, name=name or spec.get("name") or "",

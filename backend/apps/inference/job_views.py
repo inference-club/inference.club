@@ -332,6 +332,12 @@ class WorkflowRunListCreateView(APIView):
 
         try:
             run = workflows.start_run(request.user, spec, inputs=inputs, name=name)
+        except workflows.ServicesUnavailable as e:
+            return Response(
+                {"error": {"message": str(e), "type": "services_unavailable",
+                           "missing": e.missing}},
+                status=status.HTTP_409_CONFLICT,
+            )
         except workflows.WorkflowError as e:
             return Response(
                 {"error": {"message": str(e), "type": "invalid_spec"}},
@@ -560,6 +566,12 @@ class WorkflowRunFromSavedView(APIView):
             run = workflows.start_run(
                 request.user, wf.spec, inputs=cleaned,
                 name=body.get("name") or wf.name, workflow=wf,
+            )
+        except workflows.ServicesUnavailable as e:
+            return Response(
+                {"error": {"message": str(e), "type": "services_unavailable",
+                           "missing": e.missing}},
+                status=status.HTTP_409_CONFLICT,
             )
         except workflows.WorkflowError as e:
             return Response(
