@@ -9,7 +9,7 @@ import logging
 
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -702,3 +702,35 @@ class QueueSummaryView(APIView):
                 "worker_stalled": worker_stalled,
             }
         )
+
+
+class MediaAssetDetailView(APIView):
+    """``GET /v1/assets/<id>`` — JSON metadata + provenance for one media asset
+    (PRD 12 §5.1). Distinct from ``/api/inference/assets/<id>/`` (which serves
+    the *bytes*): this returns the kind, sizes, ``metadata``, a browser URL, the
+    job that produced it, and its ``derived_from``/``derivatives`` provenance
+    edges. Public-kind assets are readable by anyone; everything else is
+    owner-only, matching ``MediaAssetView``.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, id):
+        from .models import MediaAsset
+        from .serializers import MediaAssetDetailSerializer
+
+        asset = (
+            MediaAsset.objects.select_related("inference_request")
+            .prefetch_related("derived_from", "derivatives")
+            .filter(id=id)
+            .first()
+        )
+        if asset is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if asset.kind not in MediaAsset.PUBLIC_KINDS:
+            if not request.user.is_authenticated or asset.user_id != request.user.id:
+                return Response(
+                    {"detail": "Not your asset."}, status=status.HTTP_403_FORBIDDEN
+                )
+        data = MediaAssetDetailSerializer(asset, context={"request": request}).data
+        return Response(data)

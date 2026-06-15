@@ -30,7 +30,7 @@ export const STEP_KINDS: { kind: StepKind; label: string; hint: string }[] = [
   { kind: 'prompt', label: 'Prompt', hint: 'An LLM writes a prompt for the next step' },
   { kind: 'inference', label: 'Inference', hint: 'Run one generation (image, video, chat…)' },
   { kind: 'map', label: 'Fan-out', hint: 'Run one job per item of a list' },
-  { kind: 'transform', label: 'Transform', hint: 'Reshape data (split, join, pluck, zip)' },
+  { kind: 'transform', label: 'Transform', hint: 'Reshape data (split, sections, subtitles, join, pluck, zip)' },
   { kind: 'collect', label: 'Collect', hint: 'Gather a fan-out back into a list' },
   { kind: 'gate', label: 'Human gate', hint: 'Pause for your approval' },
 ]

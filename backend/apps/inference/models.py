@@ -171,6 +171,14 @@ class ProviderService(BaseModel):
     TYPE_MESH = "mesh"
     TYPE_MUSIC = "music"
     TYPE_VIDEO = "video"
+    # --- media pipeline service types (PRD 12) ---
+    # Authorable + routable today; a provider serves them by declaring the type
+    # in its manifest. Until one does, steps using them queue (like any modality
+    # with no provider). Runners are deferred — the agent-side handlers are the
+    # remaining work.
+    TYPE_SCRAPE = "scrape"  # URL → document (Firecrawl), `scrape` node
+    TYPE_RENDER = "render"  # images+audio+subs → video (FFmpeg), `compose` node
+    TYPE_AUDIO_ENHANCE = "audio-enhance"  # denoise/clean (StudioVoice), `clean` node
     SERVICE_TYPE_CHOICES = (
         (TYPE_LLM, "Language model"),
         (TYPE_STT, "Speech to text"),
@@ -179,6 +187,9 @@ class ProviderService(BaseModel):
         (TYPE_MESH, "Image to 3D"),
         (TYPE_MUSIC, "Music generation"),
         (TYPE_VIDEO, "Video generation"),
+        (TYPE_SCRAPE, "Web scrape"),
+        (TYPE_RENDER, "Video compose"),
+        (TYPE_AUDIO_ENHANCE, "Audio enhancement"),
     )
 
     # Who may route inference requests to this service.
@@ -503,6 +514,10 @@ class InferenceRequest(BaseModel):
         ("MESH", "Image to 3D"),
         ("MUSIC", "Music Generation"),
         ("VOICE", "Voice Cloning"),
+        # --- media pipeline (PRD 12); runners deferred to the agent ---
+        ("SCRAPE", "Web Scrape"),
+        ("RENDER", "Video Compose"),
+        ("ENHANCE", "Audio Enhancement"),
     )
 
     STATUS_CHOICES = (
@@ -726,6 +741,10 @@ class MediaAsset(BaseModel):
     OUTPUT_IMAGE = "OUTPUT_IMAGE"
     OUTPUT_MODEL = "OUTPUT_MODEL"  # generated 3D mesh (GLB), image-to-3D
     OUTPUT_VIDEO = "OUTPUT_VIDEO"  # generated video (MP4), text/image-to-video
+    # --- media pipeline (PRD 12) ---
+    INPUT_DOC = "INPUT_DOC"  # scraped source document (markdown), `scrape` node
+    OUTPUT_DOC = "OUTPUT_DOC"  # generated text/script (e.g. [S1]/[S2] dialog)
+    OUTPUT_SUBTITLE = "OUTPUT_SUBTITLE"  # ASS/VTT subtitle track, `subtitle` node
     KIND_CHOICES = (
         (INPUT_AUDIO, "Input audio"),
         (OUTPUT_AUDIO, "Output audio"),
@@ -733,12 +752,19 @@ class MediaAsset(BaseModel):
         (OUTPUT_IMAGE, "Output image"),
         (OUTPUT_MODEL, "Output 3D model"),
         (OUTPUT_VIDEO, "Output video"),
+        (INPUT_DOC, "Input document"),
+        (OUTPUT_DOC, "Output document"),
+        (OUTPUT_SUBTITLE, "Output subtitle"),
     )
     # Kinds served publicly (by URL, no auth) so generated images/audio/3D
-    # models/videos embed in <img>/<audio>/<model-viewer>/<video> tags and show
-    # on profiles. Generated output is open by default; uploaded input audio
-    # (STT) stays owner-gated/private.
-    PUBLIC_KINDS = {INPUT_IMAGE, OUTPUT_IMAGE, OUTPUT_AUDIO, OUTPUT_MODEL, OUTPUT_VIDEO}
+    # models/videos/subtitles embed in <img>/<audio>/<model-viewer>/<video>/
+    # <track> tags and show on profiles. Generated output is open by default;
+    # uploaded input audio (STT) and source/output documents stay
+    # owner-gated/private.
+    PUBLIC_KINDS = {
+        INPUT_IMAGE, OUTPUT_IMAGE, OUTPUT_AUDIO, OUTPUT_MODEL, OUTPUT_VIDEO,
+        OUTPUT_SUBTITLE,
+    }
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -760,6 +786,14 @@ class MediaAsset(BaseModel):
         null=True, blank=True, help_text="Audio/video duration, when known."
     )
     metadata = models.JSONField(default=dict, blank=True)
+    # --- provenance (PRD 12 §5.1) ---
+    # The upstream asset(s) this one was produced from — an OUTPUT_VIDEO derives
+    # from its images + audio + subtitle; an image-to-image frame from its
+    # parent. Combined with ``inference_request`` (which job + prompt/params
+    # made it), this lets any artifact be traced back to its component parts.
+    derived_from = models.ManyToManyField(
+        "self", symmetrical=False, related_name="derivatives", blank=True,
+    )
 
     class Meta:
         ordering = ["-created_on"]
@@ -769,6 +803,14 @@ class MediaAsset(BaseModel):
 
     def __str__(self):
         return f"{self.kind} asset {self.pk} for {self.user_id}"
+
+    def record_derivation(self, sources) -> None:
+        """Record that this asset was produced from ``sources`` (MediaAsset
+        instances or ids). Idempotent; ignores self-links and falsy ids."""
+        ids = [getattr(s, "pk", s) for s in (sources or [])]
+        ids = [i for i in ids if i and i != self.pk]
+        if ids:
+            self.derived_from.add(*ids)
 
 
 class VoiceSample(BaseModel):

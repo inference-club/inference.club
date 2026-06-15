@@ -36,11 +36,21 @@ _ENDPOINT_TYPE = {
     "/v1/videos/generations": ("VIDEO", "video"),
     "/v1/music/generations": ("MUSIC", "music"),
     "/v1/audio/speech": ("TTS", "tts"),
+    # --- media pipeline (PRD 12); runners deferred to the agent ---
+    "/v1/audio/transcriptions": ("STT", "stt"),
+    "/v1/scrape": ("SCRAPE", "scrape"),
+    "/v1/videos/compose": ("RENDER", "render"),
+    "/v1/audio/enhance": ("ENHANCE", "audio-enhance"),
 }
 _SHORT_TYPE = {
     "llm": ("LLM", ""), "chat": ("LLM", ""),
     "image": ("IMAGE", "image"), "video": ("VIDEO", "video"),
     "music": ("MUSIC", "music"), "tts": ("TTS", "tts"),
+    # --- media pipeline (PRD 12) ---
+    "stt": ("STT", "stt"), "transcribe": ("STT", "stt"),
+    "scrape": ("SCRAPE", "scrape"),
+    "compose": ("RENDER", "render"), "render": ("RENDER", "render"),
+    "clean": ("ENHANCE", "audio-enhance"), "enhance": ("ENHANCE", "audio-enhance"),
 }
 
 _TEMPLATE_RE = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
@@ -525,6 +535,10 @@ def _run_transform(spec, context):
     - ``pluck`` — map a list, taking ``field`` from each item.
     - ``split_lines`` — split a string on newlines (drops blanks).
     - ``join`` — join a list with ``sep`` (default newline).
+    - ``split_sections`` — group lines into sections of ``size`` (default 2),
+      the hn.fm dialog-section shape: ``[{index, lines, text}]`` (PRD 12).
+    - ``subtitle`` — render word timestamps into a ``format`` (vtt|ass)
+      subtitle string (PRD 12).
     """
     op = (spec.get("op") or "passthrough").lower()
     value = render(spec.get("input"), context)
@@ -554,7 +568,114 @@ def _run_transform(spec, context):
         lists = [x if isinstance(x, list) else [] for x in lists]
         n = min((len(x) for x in lists), default=0)
         return [[col[i] for col in lists] for i in range(n)]
+    if op == "split_sections":
+        return _split_sections(value, spec.get("size", 2))
+    if op == "subtitle":
+        return _render_subtitle(value, spec.get("format", "vtt"))
     return value
+
+
+# --- media pipeline transforms (PRD 12) --------------------------------------
+
+
+def _split_sections(value, size):
+    """Group lines into sections of ``size`` (hn.fm: 2 dialog lines per
+    section). ``value`` may be a list of strings or a newline string. Returns
+    ``[{index, lines, text}]`` — a ``map`` step can then fan one TTS/image job
+    per section, and ``index`` keeps audio/images/subtitles aligned."""
+    try:
+        size = max(1, int(size))
+    except (TypeError, ValueError):
+        size = 2
+    if isinstance(value, str):
+        lines = [ln.strip() for ln in value.splitlines() if ln.strip()]
+    elif isinstance(value, list):
+        lines = [str(x).strip() for x in value if str(x).strip()]
+    else:
+        return []
+    sections = []
+    for i in range(0, len(lines), size):
+        chunk = lines[i:i + size]
+        sections.append({
+            "index": len(sections),
+            "lines": chunk,
+            "text": "\n".join(chunk),
+        })
+    return sections
+
+
+def _subtitle_cues(words):
+    """Normalize ASR word timestamps to ``(start_s, end_s, text)`` cues.
+    Accepts hn.fm's ``{word, start_ms, duration_ms}`` or ``{text, start, end}``
+    (seconds); skips blanks and gives zero-length words a small floor."""
+    cues = []
+    for w in words:
+        if not isinstance(w, dict):
+            continue
+        text = str(w.get("word") or w.get("text") or "").strip()
+        if not text:
+            continue
+        if "start_ms" in w or "duration_ms" in w:
+            start = float(w.get("start_ms") or 0) / 1000.0
+            end = start + float(w.get("duration_ms") or 0) / 1000.0
+        else:
+            start = float(w.get("start") or 0)
+            end = float(w.get("end") or start)
+        if end <= start:
+            end = start + 0.3
+        cues.append((start, end, text))
+    return cues
+
+
+def _fmt_ts_vtt(s):
+    s = max(0.0, float(s))
+    h = int(s // 3600)
+    m = int((s % 3600) // 60)
+    return f"{h:02d}:{m:02d}:{s % 60:06.3f}"
+
+
+def _fmt_ts_ass(s):
+    s = max(0.0, float(s))
+    h = int(s // 3600)
+    m = int((s % 3600) // 60)
+    sec = int(s % 60)
+    cs = int(round((s - int(s)) * 100))
+    return f"{h:d}:{m:02d}:{sec:02d}.{cs:02d}"
+
+
+_ASS_HEADER = (
+    "[Script Info]\n"
+    "ScriptType: v4.00+\n\n"
+    "[V4+ Styles]\n"
+    "Format: Name, Fontname, Fontsize, PrimaryColour, Bold, Alignment, MarginV\n"
+    "Style: Default,Arial,48,&H00FFFFFF,1,2,40\n\n"
+    "[Events]\n"
+    "Format: Layer, Start, End, Style, Text"
+)
+
+
+def _render_subtitle(value, fmt):
+    """Word timestamps → a subtitle string. ``value`` may be a ``{words:[...]}``
+    dict (our STT shape) or a bare word list. ``fmt`` is ``vtt`` (default) or
+    ``ass`` (word-synced, for the slideshow renderer)."""
+    words = value.get("words") if isinstance(value, dict) else value
+    if not isinstance(words, list):
+        return ""
+    cues = _subtitle_cues(words)
+    if (fmt or "vtt").lower() == "ass":
+        lines = [_ASS_HEADER]
+        for start, end, text in cues:
+            lines.append(
+                f"Dialogue: 0,{_fmt_ts_ass(start)},{_fmt_ts_ass(end)},Default,{text}"
+            )
+        return "\n".join(lines) + "\n"
+    out = ["WEBVTT", ""]
+    for i, (start, end, text) in enumerate(cues, 1):
+        out.append(str(i))
+        out.append(f"{_fmt_ts_vtt(start)} --> {_fmt_ts_vtt(end)}")
+        out.append(text)
+        out.append("")
+    return "\n".join(out).strip() + "\n"
 
 
 # --- job completion hook -----------------------------------------------------
@@ -590,6 +711,7 @@ def on_job_finished(job):
         run.context = ctx
         run.save(update_fields=["context", "modified_on"])
         _set_step(step, WF_DONE, output=out)
+        _record_step_provenance(step, sibling_jobs, ctx)
 
     advance_run(run.id)
 
@@ -618,6 +740,58 @@ def _job_output(job):
         out["asset_id"] = asset.id
         out["url"] = _asset_url_safe(asset)
     return out
+
+
+# --- provenance (PRD 12 §5.1) ------------------------------------------------
+
+
+def _extract_asset_ids(value):
+    """Pull MediaAsset ids out of a resolved ``derive_from`` reference. Accepts
+    a bare id, a job-output dict (``{asset_id|id: N, ...}``), or arbitrarily
+    nested lists/dicts of those — so ``{{steps.images.output}}`` (a map's list
+    of per-item outputs) yields every frame's asset id."""
+    ids = []
+
+    def walk(v):
+        if isinstance(v, bool):
+            return
+        if isinstance(v, int):
+            ids.append(v)
+        elif isinstance(v, dict):
+            # Prefer an explicit asset id; don't also harvest request_id etc.
+            for key in ("asset_id", "id"):
+                if isinstance(v.get(key), int) and not isinstance(v.get(key), bool):
+                    ids.append(v[key])
+                    return
+            for sub in v.values():
+                walk(sub)
+        elif isinstance(v, list):
+            for sub in v:
+                walk(sub)
+
+    walk(value)
+    return ids
+
+
+def _record_step_provenance(step, jobs, context):
+    """Link a step's produced assets to the upstream assets it derived from,
+    declared on the step as ``derive_from`` (a ref or list of refs resolved
+    against the run context). Best-effort: provenance is metadata, so any error
+    here must never fail the run."""
+    refs = step.spec.get("derive_from")
+    if not refs:
+        return
+    try:
+        source_ids = set()
+        for ref in (refs if isinstance(refs, list) else [refs]):
+            source_ids.update(_extract_asset_ids(render(ref, context)))
+        if not source_ids:
+            return
+        for job in jobs:
+            for asset in job.assets.exclude(kind__startswith="INPUT"):
+                asset.record_derivation(source_ids)
+    except Exception:
+        logger.exception("provenance recording failed for step %s", step.step_id)
 
 
 def _llm_text(results):

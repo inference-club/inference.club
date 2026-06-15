@@ -12,6 +12,31 @@ export type JobStatus =
 export type WorkflowStatus =
   | 'PENDING' | 'RUNNING' | 'AWAITING' | 'DONE' | 'FAILED' | 'CANCELED' | 'SKIPPED'
 
+// A stored media asset + its provenance (PRD 12 §5.1). Mirrors
+// MediaAssetDetailSerializer.
+export type MediaAssetKind =
+  | 'INPUT_AUDIO' | 'OUTPUT_AUDIO' | 'INPUT_IMAGE' | 'OUTPUT_IMAGE'
+  | 'OUTPUT_MODEL' | 'OUTPUT_VIDEO' | 'INPUT_DOC' | 'OUTPUT_DOC' | 'OUTPUT_SUBTITLE'
+
+export interface MediaAssetRef {
+  id: number
+  kind: MediaAssetKind
+}
+
+export interface MediaAsset {
+  id: number
+  kind: MediaAssetKind
+  content_type: string
+  size_bytes: number | null
+  duration_seconds: number | null
+  metadata: Record<string, unknown>
+  url: string | null
+  produced_by: { request_id: number; type: string } | null
+  derived_from: MediaAssetRef[]
+  derivatives: MediaAssetRef[]
+  created_on: string
+}
+
 export interface AsyncJob {
   id: string | number
   inference_type: string
@@ -102,11 +127,14 @@ export interface StepSpec {
   id: string
   kind: StepKind
   title?: string
-  // inference / map
+  // inference / map (media-pipeline types per PRD 12 need a serving provider)
   type?: 'chat' | 'image' | 'video' | 'music' | 'tts'
+    | 'transcribe' | 'scrape' | 'compose' | 'clean'
   model?: string
   body?: Record<string, unknown>
   over?: string
+  // provenance (PRD 12): refs to upstream assets this step's output derives from
+  derive_from?: string[]
   response_schema?: Record<string, unknown>
   // prompt (meta-prompting)
   target?: 'image' | 'video' | 'music' | 'tts' | 'text'
@@ -114,9 +142,11 @@ export interface StepSpec {
   instructions?: string
   count?: number
   // transform / collect
-  op?: 'passthrough' | 'pluck' | 'split_lines' | 'join' | 'zip'
+  op?: 'passthrough' | 'pluck' | 'split_lines' | 'split_sections' | 'subtitle' | 'join' | 'zip'
   field?: string
   sep?: string
+  size?: number
+  format?: 'vtt' | 'ass'
   from?: string
   inputs?: unknown
   // common
@@ -242,6 +272,9 @@ export function useAsyncJobs() {
   const forkRun = (runId: number | string, name?: string) =>
     post<SavedWorkflow>(`/v1/workflows/from-run/${runId}`, name ? { name } : {})
 
+  // --- media assets + provenance (PRD 12) ---
+  const getAsset = (id: number | string) => get<MediaAsset>(`/v1/assets/${id}`)
+
   // --- queue summary ---
   const queueSummary = () => get<QueueSummary>('/api/inference/queue/summary/')
 
@@ -251,6 +284,7 @@ export function useAsyncJobs() {
     fetchSuggestions, queueSummary, rerunStep,
     listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow,
     runSavedWorkflow, forkTemplate, forkRun,
+    getAsset,
   }
 }
 

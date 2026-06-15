@@ -23,6 +23,11 @@ const MODALITIES = [
   { value: 'video', label: 'Video' },
   { value: 'music', label: 'Music' },
   { value: 'tts', label: 'Speech (TTS)' },
+  // media pipeline (PRD 12) — needs a provider serving the matching service
+  { value: 'transcribe', label: 'Transcribe (STT)' },
+  { value: 'scrape', label: 'Scrape URL' },
+  { value: 'compose', label: 'Compose video' },
+  { value: 'clean', label: 'Clean audio' },
 ]
 const TARGETS = [
   { value: 'image', label: 'Image prompt' },
@@ -35,6 +40,8 @@ const OPS = [
   { value: 'passthrough', label: 'Passthrough' },
   { value: 'pluck', label: 'Pluck a field' },
   { value: 'split_lines', label: 'Split lines' },
+  { value: 'split_sections', label: 'Split into sections' },
+  { value: 'subtitle', label: 'Subtitle (from timestamps)' },
   { value: 'join', label: 'Join' },
   { value: 'zip', label: 'Zip lists' },
 ]
@@ -48,6 +55,25 @@ const bodyPrompt = computed({
 const bodyInput = computed({
   get: () => String((step.value.body as { input?: unknown })?.input ?? ''),
   set: (v: string) => setBody('input', v),
+})
+
+// Media-pipeline modalities (PRD 12). Each has a distinct primary body field;
+// they only run once a provider serves the matching service. `compose` has no
+// single field (it joins images+audio+subtitle), so it shows just the note.
+const MEDIA_BODY: Record<string, { key: string; label: string; ph: string }> = {
+  scrape: { key: 'url', label: 'URL to scrape', ph: 'https://… or {{inputs.url}}' },
+  transcribe: { key: 'audio', label: 'Audio to transcribe', ph: '{{steps.tts.output.url}} or asset id' },
+  clean: { key: 'audio', label: 'Audio to clean', ph: '{{steps.tts.output.url}} or asset id' },
+}
+const isMediaType = computed(() =>
+  ['transcribe', 'scrape', 'compose', 'clean'].includes(String(step.value.type)))
+const mediaCfg = computed(() => MEDIA_BODY[String(step.value.type)])
+const mediaBodyValue = computed({
+  get: () => {
+    const k = mediaCfg.value?.key
+    return k ? String((step.value.body as Record<string, unknown>)?.[k] ?? '') : ''
+  },
+  set: (v: string) => { const k = mediaCfg.value?.key; if (k) setBody(k, v) },
 })
 const chatUser = computed({
   get: () => {
@@ -72,6 +98,16 @@ const zipText = ref(Array.isArray(step.value.inputs) ? (step.value.inputs as str
 const onZip = (v: string) => {
   zipText.value = v
   step.value.inputs = v.split('\n').map((l) => l.trim()).filter(Boolean)
+}
+
+// Provenance (PRD 12): refs to the upstream assets this step's output derives
+// from, one per line. Populates MediaAsset.derived_from at job completion.
+const deriveFromText = ref(Array.isArray(step.value.derive_from) ? step.value.derive_from.join('\n') : '')
+const onDeriveFrom = (v: string) => {
+  deriveFromText.value = v
+  const list = v.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (list.length) step.value.derive_from = list
+  else delete step.value.derive_from
 }
 
 const upstreamIds = computed(() => props.nodes.filter((n) => n.id !== step.value.id).map((n) => n.id))
@@ -157,6 +193,16 @@ const FIELD = 'w-full rounded-md border bg-background px-2.5 py-1.5 text-sm'
         <span class="mb-1 block text-xs font-medium text-muted-foreground">Text to speak</span>
         <textarea v-model="bodyInput" rows="3" :class="FIELD" placeholder="{{item}} or {{steps.script.output}}" @focus="remember" />
       </label>
+      <template v-else-if="isMediaType">
+        <div class="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-600 dark:text-amber-400">
+          Media-pipeline node (PRD 12). Authorable now; runs once a provider serves the
+          <code>{{ step.type }}</code> service.
+        </div>
+        <label v-if="mediaCfg" class="block">
+          <span class="mb-1 block text-xs font-medium text-muted-foreground">{{ mediaCfg.label }}</span>
+          <input v-model="mediaBodyValue" :class="FIELD" :placeholder="mediaCfg.ph" @focus="remember" >
+        </label>
+      </template>
       <label v-else class="block">
         <span class="mb-1 block text-xs font-medium text-muted-foreground">Prompt</span>
         <textarea v-model="bodyPrompt" rows="3" :class="FIELD" placeholder="{{item}} or a literal prompt" @focus="remember" />
@@ -170,6 +216,15 @@ const FIELD = 'w-full rounded-md border bg-background px-2.5 py-1.5 text-sm'
                   @focus="remember" @input="onSchema(($event.target as HTMLTextAreaElement).value)" />
         <span v-if="schemaError" class="mt-1 block text-[11px] text-rose-500">{{ schemaError }}</span>
         <span v-else class="mt-1 block text-[11px] text-muted-foreground">Forces structured output; the reply is parsed into this step's output.</span>
+      </label>
+      <!-- provenance (PRD 12) -->
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-muted-foreground">Derived from (optional, one asset ref per line)</span>
+        <textarea
+:value="deriveFromText" rows="2" :class="[FIELD, 'font-mono text-xs']"
+                  placeholder="{{steps.images.output}}&#10;{{steps.tts.output.asset_id}}"
+                  @focus="remember" @input="onDeriveFrom(($event.target as HTMLTextAreaElement).value)" />
+        <span class="mt-1 block text-[11px] text-muted-foreground">Traces this step's output assets back to their sources.</span>
       </label>
     </template>
 
@@ -192,6 +247,17 @@ const FIELD = 'w-full rounded-md border bg-background px-2.5 py-1.5 text-sm'
       <label v-if="step.op === 'join'" class="block">
         <span class="mb-1 block text-xs font-medium text-muted-foreground">Separator</span>
         <input v-model="step.sep" :class="FIELD" placeholder="\n" @focus="remember" >
+      </label>
+      <label v-if="step.op === 'split_sections'" class="block">
+        <span class="mb-1 block text-xs font-medium text-muted-foreground">Lines per section</span>
+        <input v-model.number="step.size" type="number" min="1" :class="FIELD" placeholder="2" @focus="remember" >
+      </label>
+      <label v-if="step.op === 'subtitle'" class="block">
+        <span class="mb-1 block text-xs font-medium text-muted-foreground">Subtitle format</span>
+        <select v-model="step.format" :class="FIELD">
+          <option value="vtt">WebVTT (.vtt)</option>
+          <option value="ass">ASS (.ass)</option>
+        </select>
       </label>
       <label v-if="step.op === 'zip'" class="block">
         <span class="mb-1 block text-xs font-medium text-muted-foreground">Lists to pair (one ref per line)</span>

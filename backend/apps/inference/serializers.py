@@ -357,6 +357,48 @@ def _video_url(obj, request) -> str | None:
     return urls[0] if urls else None
 
 
+class MediaAssetDetailSerializer(serializers.ModelSerializer):
+    """JSON view of one media asset + its provenance (PRD 12 §5.1), served at
+    ``GET /v1/assets/<id>``. ``url`` is the browser-facing URL (public-bucket or
+    app route); ``produced_by`` is the job that made it; ``derived_from`` /
+    ``derivatives`` are the upstream/downstream assets in the provenance graph —
+    so any artifact traces back to its component parts."""
+
+    url = serializers.SerializerMethodField()
+    produced_by = serializers.SerializerMethodField()
+    derived_from = serializers.SerializerMethodField()
+    derivatives = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MediaAsset
+        fields = [
+            "id", "kind", "content_type", "size_bytes", "duration_seconds",
+            "metadata", "url", "produced_by", "derived_from", "derivatives",
+            "created_on",
+        ]
+
+    def get_url(self, obj):
+        return asset_url(obj, self.context.get("request"))
+
+    def get_produced_by(self, obj):
+        if obj.inference_request_id is None:
+            return None
+        return {
+            "request_id": obj.inference_request_id,
+            "type": obj.inference_request.inference_type,
+        }
+
+    def get_derived_from(self, obj):
+        return [
+            {"id": a.id, "kind": a.kind} for a in obj.derived_from.all()
+        ]
+
+    def get_derivatives(self, obj):
+        return [
+            {"id": a.id, "kind": a.kind} for a in obj.derivatives.all()
+        ]
+
+
 def _video_meta(obj) -> dict | None:
     """The text/image-to-video generation stats (duration + resolved
     width/height/fps/frames/seed) for a VIDEO request, from the LTX

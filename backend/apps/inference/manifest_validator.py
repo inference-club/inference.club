@@ -21,7 +21,12 @@ ENGINES = {"vllm", "lmstudio", "ollama", "sglang", "llamacpp", "tgi", "other"}
 # (e.g. TRELLIS.2): one image in, a textured GLB out. "video" is text/
 # image-to-video (e.g. LTX-2): a prompt (+ optional first-frame image) in, an
 # MP4 out.
-SERVICE_TYPES = {"llm", "stt", "tts", "image", "mesh", "music", "video"}
+SERVICE_TYPES = {
+    "llm", "stt", "tts", "image", "mesh", "music", "video",
+    # media pipeline (PRD 12): a provider may declare these to serve the
+    # scrape / compose / clean nodes. Runners are agent-side, still in progress.
+    "scrape", "render", "audio-enhance",
+}
 
 # Limits — see `docs/plans/service-manifest.md` §6.
 MAX_RAW_YAML_BYTES = 64 * 1024

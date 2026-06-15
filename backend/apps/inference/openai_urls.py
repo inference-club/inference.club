@@ -7,6 +7,7 @@ from .job_views import (
     JobDetailView,
     JobListView,
     JobRetryView,
+    MediaAssetDetailView,
     WorkflowDetailView,
     WorkflowForkRunView,
     WorkflowForkTemplateView,
@@ -61,6 +62,9 @@ urlpatterns = [
     path("videos/generations/", VideoGenerationsView.as_view()),
     path("voice/generations", VoiceGenerationsView.as_view(), name="voice-generations"),
     path("voice/generations/", VoiceGenerationsView.as_view()),
+    # --- media assets + provenance (PRD 12) ---
+    path("assets/<int:id>", MediaAssetDetailView.as_view(), name="asset-detail"),
+    path("assets/<int:id>/", MediaAssetDetailView.as_view()),
     # --- async jobs / batches / workflows (PRD 10) ---
     path("jobs", JobListView.as_view(), name="jobs"),
     path("jobs/", JobListView.as_view()),
