@@ -1451,6 +1451,24 @@ class AudioEnhanceView(_RateLimitHeadersMixin, APIView):
 _SPEAKER_TAG_RE = re.compile(r"\[S(\d+)\]")
 
 
+def _append_dia_end_tag(text):
+    """Dia generates much cleaner audio when the script ends with a dangling
+    speaker tag that marks end-of-sequence (nothing after it). Append it on a
+    new line: the *other* speaker for a two-speaker dialogue (``…[S2] hi`` →
+    ``…[S2] hi\\n[S1]``), or the same speaker when only one is used (``[S1]
+    story`` → ``[S1] story\\n[S1]``). No-op when there are no tags or the script
+    already ends with a bare tag."""
+    s = (text or "").rstrip()
+    if not s or _SPEAKER_TAG_RE.search(s) is None:
+        return s
+    if re.search(r"\[S\d+\]\s*$", s):  # already ends on a dangling tag
+        return s
+    nums = [int(n) for n in _SPEAKER_TAG_RE.findall(s)]
+    last = nums[-1]
+    nxt = (2 if last == 1 else 1) if len(set(nums)) >= 2 else last
+    return f"{s}\n[S{nxt}]"
+
+
 def _normalize_script(text):
     """Normalize a voice script and report which speakers it uses.
 
@@ -1460,18 +1478,22 @@ def _normalize_script(text):
       ``[S1] `` (the single-speaker default).
     - Has tags → must start with ``[S1]`` and use only ``[S1]``/``[S2]``
       (``[S3]+`` is rejected in V1).
+
+    The returned text ends with a dangling speaker tag (see
+    ``_append_dia_end_tag``); ``speakers_used`` reflects the real content turns,
+    not that trailing control tag.
     """
     s = (text or "").strip()
     nums = [int(n) for n in _SPEAKER_TAG_RE.findall(s)]
     if not nums:
-        return "[S1] " + s, {"S1"}, None
+        return _append_dia_end_tag("[S1] " + s), {"S1"}, None
     if not s.startswith("[S1]"):
         return None, None, "Script must start with [S1]."
     bad = sorted({n for n in nums if n not in (1, 2)})
     if bad:
         tags = ", ".join(f"[S{n}]" for n in bad)
         return None, None, f"Only [S1] and [S2] are supported (found {tags})."
-    return s, {f"S{n}" for n in nums}, None
+    return _append_dia_end_tag(s), {f"S{n}" for n in nums}, None
 
 
 def _has_feature(pm, feature):
@@ -3373,6 +3395,9 @@ def _rerun_voice(ir, provider_model):
     text = p.get("input") or p.get("text") or ""
     if not str(text).strip():
         return _retry_simple_fail(ir, "No input script stored for this voice request.")
+    # End the script with a dangling speaker tag so Dia knows where the sequence
+    # stops — markedly improves audio quality for single- and multi-speaker.
+    text = _append_dia_end_tag(str(text))
 
     def _f(key, default):
         v = p.get(key)

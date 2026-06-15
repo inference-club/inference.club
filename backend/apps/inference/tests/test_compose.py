@@ -121,6 +121,14 @@ def test_render_job_accepts_step_output_dicts(user):
         inference_request=ir, kind=MediaAsset.OUTPUT_VIDEO).exists()
 
 
+def test_caption_text_strips_speaker_tags_and_whitespace():
+    """Burned-in subtitles must read as clean spoken text — no [S1]/[S2]."""
+    assert render._caption_text("[S1] Hey, what's up?\n[S2]   Not much!  ") == \
+        "Hey, what's up?\nNot much!"
+    assert render._caption_text({"text": "  [S1] Single line.  "}) == "Single line."
+    assert render._caption_text("[S1]") == ""
+
+
 def test_render_job_without_assets_fails_cleanly(user):
     ir = InferenceRequest.objects.create(
         user=user, inference_type="RENDER", status="PROCESSING",

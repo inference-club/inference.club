@@ -11,11 +11,16 @@ bounded by the dedicated render-concurrency cap in the dispatcher.
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import time
 
 logger = logging.getLogger("django")
+
+# Dia speaker tags ([S1]/[S2]/…) drive narration but must never appear in the
+# burned-in subtitles — strip them (and surrounding whitespace) from captions.
+_SPEAKER_TAG_RE = re.compile(r"\[S\d+\]")
 
 # A render of a handful of sections is quick, but FFmpeg encode time scales with
 # total duration; cap a single compose so a runaway can't pin a worker forever.
@@ -48,11 +53,15 @@ _BURN_ASS_HEADER = (
 
 
 def _caption_text(item) -> str:
-    """The caption string for a section. Accepts a bare string or a section
-    dict (``{index, lines, text}``) — what split_sections emits."""
+    """The on-screen caption for a section. Accepts a bare string or a section
+    dict (``{index, lines, text}``) — what split_sections emits. Strips Dia
+    speaker tags ([S1]/[S2]) and trims whitespace per line so the subtitle reads
+    as clean spoken text, never the raw narration script."""
     if isinstance(item, dict):
         item = item.get("text") or item.get("caption") or ""
-    return str(item or "").strip()
+    text = _SPEAKER_TAG_RE.sub("", str(item or ""))
+    lines = [ln.strip() for ln in text.splitlines()]
+    return "\n".join(ln for ln in lines if ln).strip()
 
 
 def _ass_escape(text: str) -> str:
