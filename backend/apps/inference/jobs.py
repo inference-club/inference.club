@@ -27,11 +27,13 @@ logger = logging.getLogger("django")
 JOB_SERVICE_TYPE = {
     "LLM": "", "STT": "stt", "TTS": "tts",
     "IMAGE": "image", "MESH": "mesh", "MUSIC": "music", "VIDEO": "video",
+    "SCRAPE": "scrape",
 }
 # Modalities accepted over the async API directly. File-input modalities
 # (STT/MESH/VOICE/image-edits) need an uploaded blob and stay synchronous for
 # now; workflows still drive them via stored input assets where applicable.
-ASYNC_SUBMIT_TYPES = {"LLM", "IMAGE", "VIDEO", "MUSIC", "TTS"}
+# SCRAPE is JSON-bodied ({url}) and re-runnable, so it's async-submittable.
+ASYNC_SUBMIT_TYPES = {"LLM", "IMAGE", "VIDEO", "MUSIC", "TTS", "SCRAPE"}
 
 MAX_BACKOFF_SECONDS = 600
 

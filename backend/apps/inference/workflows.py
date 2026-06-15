@@ -722,6 +722,15 @@ def _job_output(job):
     job itself, so this only needs to carry values later steps template on."""
     out = {"request_id": job.id, "type": job.inference_type}
     results = job.results if isinstance(job.results, dict) else {}
+    if job.inference_type == "SCRAPE":
+        # Expose the scraped markdown as `text` so a downstream dialog/summary
+        # step reads {{steps.fetch.output.text}}; carry the doc asset + title.
+        out["text"] = results.get("markdown") or ""
+        out["title"] = results.get("title") or ""
+        out["url"] = results.get("source_url") or ""
+        if results.get("doc_asset_id"):
+            out["asset_id"] = results["doc_asset_id"]
+        return out
     if job.inference_type == "LLM":
         text = _llm_text(results)
         out["text"] = text

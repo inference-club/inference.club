@@ -2520,6 +2520,91 @@ class ImageEditsView(_ImageProxyBase):
         return self._finalize(request, ir, upstream, started, requested_format)
 
 
+# --- web scrape (URL → markdown) -------------------------------------------
+
+
+class ScrapeView(_RateLimitHeadersMixin, APIView):
+    """``POST /v1/scrape`` — fetch a URL and return clean markdown (Firecrawl).
+
+    A "high-level" inference modality: the provider's scrape service crawls the
+    page and uses an LLM under the hood for clean extraction. The agent returns
+    the markdown, which we persist as an OUTPUT_DOC asset so workflows (the
+    ``scrape`` node) can chain it into a dialog/summary step. Body: ``{"url":
+    "...", "model": "firecrawl"}`` (+ optional ``async``). See PRD 12.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AccountTypeScopedRateThrottle]
+    throttle_scope = "inference"
+    inference_type = "SCRAPE"
+
+    def post(self, request):
+        body = request.data
+        if not isinstance(body, dict):
+            return Response(
+                {"error": {"message": "JSON body required.", "type": "invalid_request"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        visibility, collection_name = pop_sharing_params(request)
+        go_async = _pop_async(request)
+        url = body.get("url")
+        if not isinstance(url, str) or not url.strip():
+            return Response(
+                {"error": {"message": "`url` is required.", "type": "missing_url"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        url = url.strip()
+
+        model_name = body.get("model")
+        provider_model = _find_provider_for_model(
+            request.user, model_name, service_type="scrape"
+        )
+        if provider_model is None:
+            return Response(
+                {"error": {"message": (
+                    f"No online web-scrape provider serving model "
+                    f"'{model_name}' for this user."), "type": "no_provider"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        provider = provider_model.provider
+        canonical = _model_slug(provider_model)
+        stored_payload = {"model": canonical or model_name or "", "url": url}
+
+        if go_async:
+            return _enqueue_async(
+                request, self.inference_type, stored_payload,
+                visibility, collection_name, model_name=canonical or model_name or "",
+            )
+
+        ir = InferenceRequest.objects.create(
+            user=request.user, provider=provider,
+            model_name=canonical or model_name or "",
+            inference_type="SCRAPE", payload=stored_payload,
+            status="PROCESSING", visibility=visibility or "",
+        )
+        file_into_collection(request.user, ir, collection_name)
+
+        ok, err = _run_scrape(ir, provider, url, time.monotonic())
+        if not ok:
+            return Response(
+                {"error": {"message": err or "scrape failed", "type": "upstream_error"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        r = ir.results or {}
+        return Response(
+            {
+                "request_id": str(ir.id),
+                "markdown": r.get("markdown", ""),
+                "title": r.get("title", ""),
+                "source_url": r.get("source_url", url),
+                "doc_asset_id": r.get("doc_asset_id"),
+                "chars": r.get("chars", 0),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 # --- image-to-3D (mesh) ----------------------------------------------------
 
 # Valid TRELLIS.2 render resolutions: 512 (fast) · 1024 · 1536 (sharpest).
@@ -2768,6 +2853,7 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
 _RETRY_SERVICE_TYPE = {
     "LLM": None, "STT": "stt", "TTS": "tts",
     "IMAGE": "image", "MESH": "mesh", "MUSIC": "music", "VIDEO": "video",
+    "SCRAPE": "scrape",
 }
 
 
@@ -2799,6 +2885,84 @@ def _retry_store_upstream_error(ir, started, upstream):
     ir.latency_ms = int((time.monotonic() - started) * 1000)
     ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
     return False, txt or f"Upstream returned HTTP {upstream.status_code}"
+
+
+def _store_output_doc(user, ir, markdown, *, title="", source_url=""):
+    """Persist scraped markdown as an OUTPUT_DOC MediaAsset (PRD 12). The page
+    title + source url live in ``metadata``. Returns the asset, or None."""
+    from django.core.files.base import ContentFile
+
+    from .models import MediaAsset  # noqa: F811
+
+    raw = (markdown or "").encode("utf-8")
+    asset = MediaAsset(
+        user=user, inference_request=ir, kind=MediaAsset.OUTPUT_DOC,
+        content_type="text/markdown; charset=utf-8", size_bytes=len(raw),
+        metadata={"title": title or "", "source_url": source_url or ""},
+    )
+    asset.file.save("document.md", ContentFile(raw), save=False)
+    asset.save()
+    return asset
+
+
+def _run_scrape(ir, provider, url, started):
+    """Forward a scrape to the provider agent's ``/scrape``, store the returned
+    markdown as an OUTPUT_DOC asset, and finalize ``ir``. The agent replies with
+    the extracted markdown as text/markdown plus X-Scrape-Title /
+    X-Scrape-Source-Url headers (it tolerates a Firecrawl-shaped JSON too).
+    Shared by ScrapeView (sync) and ``_rerun_scrape`` (async/retry). Returns
+    ``(ok, error)``."""
+    try:
+        upstream = requests.post(
+            _retry_endpoint(provider, "/scrape"), json={"url": url},
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+
+    ctype = (upstream.headers.get("content-type") or "").lower()
+    if "application/json" in ctype:
+        try:
+            j = upstream.json()
+            d = (j.get("data") or {}) if isinstance(j, dict) else {}
+            meta = d.get("metadata") or {}
+            markdown = d.get("markdown") or ""
+            title = meta.get("title") or ""
+            source_url = meta.get("sourceURL") or url
+        except ValueError:
+            markdown, title, source_url = upstream.text or "", "", url
+    else:
+        markdown = upstream.text or ""
+        title = upstream.headers.get("X-Scrape-Title") or ""
+        source_url = upstream.headers.get("X-Scrape-Source-Url") or url
+
+    asset = None
+    try:
+        asset = _store_output_doc(ir.user, ir, markdown, title=title, source_url=source_url)
+    except Exception as e:
+        logger.warning("scrape: doc store failed: %s", e)
+
+    ir.status = "PROCESSED"
+    ir.results = {
+        "markdown": markdown,
+        "doc_asset_id": asset.id if asset else None,
+        "title": title,
+        "source_url": source_url,
+        "chars": len(markdown),
+    }
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "results", "latency_ms", "modified_on"])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
+def _rerun_scrape(ir, provider_model):
+    url = (ir.payload or {}).get("url") or ""
+    if not url:
+        return _retry_simple_fail(ir, "No URL stored for this scrape request.")
+    return _run_scrape(ir, provider_model.provider, url, time.monotonic())
 
 
 def _retry_read_input_asset(ir, kind):
@@ -3176,7 +3340,7 @@ def _retry_simple_fail(ir, message):
 _RETRY_RUNNERS = {
     "LLM": _rerun_llm, "STT": _rerun_stt, "TTS": _rerun_tts,
     "IMAGE": _rerun_image, "MESH": _rerun_mesh, "MUSIC": _rerun_music,
-    "VIDEO": _rerun_video,
+    "VIDEO": _rerun_video, "SCRAPE": _rerun_scrape,
 }
 
 

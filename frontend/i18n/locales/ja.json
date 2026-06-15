@@ -133,6 +133,7 @@
     "items": {
       "chat": "チャット",
       "transcription": "文字起こし",
+      "scrape": "Webスクレイプ",
       "images": "画像",
       "imageTo3d": "画像から3D",
       "videoGeneration": "動画生成",

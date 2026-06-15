@@ -133,6 +133,7 @@
     "items": {
       "chat": "聊天",
       "transcription": "转录",
+      "scrape": "网页抓取",
       "images": "图像",
       "imageTo3d": "图像转 3D",
       "videoGeneration": "视频生成",

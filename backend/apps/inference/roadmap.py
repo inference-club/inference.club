@@ -70,7 +70,7 @@ PHASES = [
             {"id": "media-asset-model", "title": "MediaAsset provenance: derived_from M2M + DOC/SUBTITLE kinds + record_derivation() + migration 0028", "status": STATUS_DONE, "note": "Extended the existing MediaAsset model rather than adding a new one."},
             {"id": "asset-api", "title": "GET /v1/assets/<id> (metadata + provenance) + MediaAssetDetailSerializer + useAsyncJobs.getAsset", "status": STATUS_DONE, "note": "6 tests in test_media_assets.py, all green."},
             {"id": "steps-emit-assets", "title": "Workflow steps emit MediaAsset ids + record provenance edges (vs transient results)", "status": STATUS_DONE, "note": "on_job_finished resolves a step's `derive_from` refs and links produced assets via record_derivation(); builder has a Derived-from field. _extract_asset_ids + integration tests green."},
-            {"id": "scrape-node", "title": "`scrape` node kind + `scrape` manifest service type (Firecrawl via agent)", "status": STATUS_IN_PROGRESS, "note": "Vocabulary registered. Firecrawl DEPLOYED + PROVEN in the k3s cluster (home-cluster/services/firecrawl, 5 official-image pods on a3): scraped the test blog → markdown, and a json extraction hit the in-cluster vLLM (Δrequest=1, Δprompt_tokens=1552) returning correct structured JSON. Agent scrape handler done+tested in inference-club-agent (serveScrape, 3 tests). Remaining: rebuild/redeploy the agent so it ROUTES /v1/scrape, and add the inference.club SCRAPE runner to store OUTPUT_DOC."},
+            {"id": "scrape-node", "title": "`scrape` node kind + `scrape` manifest service type (Firecrawl via agent)", "status": STATUS_DONE, "note": "FULL STACK: Firecrawl deployed+proven in k3s (uses cluster vLLM); agent serveScrape (3 tests); inference.club SCRAPE modality — ScrapeView /v1/scrape + _run_scrape/_rerun_scrape storing OUTPUT_DOC + _job_output exposing markdown as text + async/queue support (6 tests); playground page /dashboard/playground/scrape. Goes live once the agent is rebuilt/redeployed (or run locally) so it routes /v1/scrape."},
             {"id": "transcribe-node", "title": "`transcribe` node wrapping existing STT → text + word timestamps", "status": STATUS_IN_PROGRESS, "note": "Routes to existing STT (transcribe→STT/stt, /v1/audio/transcriptions). Authorable + validates; the JSON/asset-ref word-timestamp runner is the remaining agent work."},
             {"id": "compose-node", "title": "`compose` node + `render` service: FFmpeg slideshow (images+audio) → MP4", "status": STATUS_IN_PROGRESS, "note": "Vocabulary registered (RENDER/render, /v1/videos/compose). Authorable + validates; agent-side FFmpeg renderer deferred."},
             {"id": "v0-tests", "title": "End-to-end test: URL → doc → canned audio → MP4, per-node rerun", "status": STATUS_PLANNED},
@@ -169,6 +169,18 @@ PHASES = [
 
 # Most recent first. Add a line whenever a task changes status.
 PROGRESS_LOG = [
+    {
+        "date": "2026-06-15",
+        "note": (
+            "Scrape end to end: rebuilt the agent with serveScrape (routes "
+            "/v1/scrape → Firecrawl, 3 tests), and added the inference.club SCRAPE "
+            "modality — /v1/scrape ScrapeView, _run_scrape/_rerun_scrape storing "
+            "the markdown as an OUTPUT_DOC asset, workflow output exposing it as "
+            "`text`, async/queue support, and a /dashboard/playground/scrape page. "
+            "6 scrape tests + 45 regression green. Paste a link → markdown works "
+            "in the app and feeds the url-to-video workflow's scrape node."
+        ),
+    },
     {
         "date": "2026-06-15",
         "note": (

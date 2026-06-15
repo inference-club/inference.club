@@ -133,6 +133,7 @@
     "items": {
       "chat": "Chat",
       "transcription": "Transcription",
+      "scrape": "Extraction web",
       "images": "Images",
       "imageTo3d": "Image vers 3D",
       "videoGeneration": "Génération de vidéo",

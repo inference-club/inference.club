@@ -39,6 +39,7 @@ from .openai_views import (
     Mesh3DGenerationsView,
     ModelsView,
     MusicGenerationsView,
+    ScrapeView,
     VideoGenerationsView,
     VoiceGenerationsView,
 )
@@ -70,6 +71,8 @@ urlpatterns = [
     path("videos/generations/", VideoGenerationsView.as_view()),
     path("voice/generations", VoiceGenerationsView.as_view(), name="voice-generations"),
     path("voice/generations/", VoiceGenerationsView.as_view()),
+    path("scrape", ScrapeView.as_view(), name="scrape"),
+    path("scrape/", ScrapeView.as_view()),
     # --- media assets + provenance (PRD 12) ---
     path("assets/<int:id>", MediaAssetDetailView.as_view(), name="asset-detail"),
     path("assets/<int:id>/", MediaAssetDetailView.as_view()),

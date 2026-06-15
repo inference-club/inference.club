@@ -133,6 +133,7 @@
     "items": {
       "chat": "Чат",
       "transcription": "Транскрипция",
+      "scrape": "Веб-скрейпинг",
       "images": "Изображения",
       "imageTo3d": "Изображение в 3D",
       "videoGeneration": "Генерация видео",
