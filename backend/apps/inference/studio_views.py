@@ -49,6 +49,43 @@ class EpisodeListCreateView(APIView):
         )
 
 
+class EpisodeFromTextView(APIView):
+    """POST /v1/episodes/from-text — paste a block of text and split it into an
+    Episode of narration-sized Segments. Body: ``{text, [title], [target_words]}``
+    (target_words groups whole sentences toward that size; default 32)."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request):
+        from . import narration
+
+        body = request.data if isinstance(request.data, dict) else {}
+        text = (body.get("text") or "").strip()
+        if not text:
+            return Response({"detail": "`text` is required."}, status=400)
+        try:
+            target = int(body.get("target_words") or narration.CHUNK_TARGET_WORDS)
+        except (TypeError, ValueError):
+            return Response({"detail": "`target_words` must be a number."}, status=400)
+
+        chunks = narration.split_into_segments(text, target_words=target)
+        if not chunks:
+            return Response({"detail": "No sentences found in `text`."}, status=400)
+
+        title = (body.get("title") or chunks[0])[:200].strip() or "Narration"
+        ep = Episode.objects.create(
+            user=request.user, title=title,
+            description=(body.get("description") or "").strip(),
+        )
+        Segment.objects.bulk_create([
+            Segment(episode=ep, position=i, text=c) for i, c in enumerate(chunks)
+        ])
+        return Response(
+            EpisodeSerializer(ep, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class EpisodeDetailView(APIView):
     """GET/PATCH/DELETE /v1/episodes/<id> — the full workspace payload."""
 

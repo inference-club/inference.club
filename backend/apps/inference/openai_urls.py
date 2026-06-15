@@ -22,6 +22,7 @@ from .job_views import (
 )
 from .studio_views import (
     EpisodeDetailView,
+    EpisodeFromTextView,
     EpisodeListCreateView,
     SegmentDetailView,
     SegmentListCreateView,
@@ -87,6 +88,9 @@ urlpatterns = [
     # --- narration studio (PRD 12 §5.4) ---
     path("episodes", EpisodeListCreateView.as_view(), name="episodes"),
     path("episodes/", EpisodeListCreateView.as_view()),
+    # from-text must precede the generic <int:id> episode routes.
+    path("episodes/from-text", EpisodeFromTextView.as_view(), name="episode-from-text"),
+    path("episodes/from-text/", EpisodeFromTextView.as_view()),
     path("episodes/<int:id>", EpisodeDetailView.as_view(), name="episode-detail"),
     path("episodes/<int:id>/", EpisodeDetailView.as_view()),
     # Reorder must precede the generic segments collection route.

@@ -323,3 +323,51 @@ def test_regenerate_without_voice_provider_errors(user):
     assert res["ok"] is False
     seg.refresh_from_db()
     assert seg.status == Segment.STATUS_ERROR
+
+
+# --- text → chunks (Phase 2) -------------------------------------------------
+
+
+def test_split_into_segments_groups_toward_target_and_strips_tags():
+    text = ("First sentence here. Second one follows. A third sentence. And a "
+            "fourth. Fifth sentence now. Sixth and final one here today.")
+    segs = narration.split_into_segments(text, target_words=8)
+    assert len(segs) >= 2
+    for s in segs:                                   # each near the target, whole sentences
+        assert s.endswith((".", "!", "?"))
+        assert 4 <= len(s.split()) <= 16
+    assert narration.split_into_segments("[S1] Hi there. [S2] Bye now.", 8) == ["Hi there. Bye now."]
+    assert narration.split_into_segments("   ", 8) == []
+
+
+def test_chunk_transform_op_returns_indexed_sections():
+    from apps.inference import workflows
+    out = workflows._run_transform(
+        {"op": "chunk", "input": "One two three four. Five six seven eight.", "target_words": 4},
+        {},
+    )
+    assert isinstance(out, list) and out[0]["index"] == 0 and "text" in out[0]
+
+
+def test_episode_from_text_creates_episode_with_segments(user):
+    from rest_framework.test import APIClient
+    c = APIClient(); c.force_authenticate(user)
+    # target_words below the 8-word floor clamps to 8; use enough sentences to
+    # split into multiple segments at that size.
+    text = ("First sentence here now. Second one follows along. A third sentence "
+            "appears. And then a fourth. Fifth sentence arrives soon. Sixth and "
+            "final sentence here today.")
+    r = c.post("/v1/episodes/from-text", {"text": text, "target_words": 8, "title": "T"}, format="json")
+    assert r.status_code == 201, r.content
+    data = r.json()
+    assert data["title"] == "T"
+    assert len(data["segments"]) >= 2
+    assert all(s["text"] for s in data["segments"])
+    # positions are sequential
+    assert [s["position"] for s in data["segments"]] == list(range(len(data["segments"])))
+
+
+def test_episode_from_text_requires_text(user):
+    from rest_framework.test import APIClient
+    c = APIClient(); c.force_authenticate(user)
+    assert c.post("/v1/episodes/from-text", {"text": "   "}, format="json").status_code == 400

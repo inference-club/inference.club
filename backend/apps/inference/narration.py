@@ -593,3 +593,80 @@ def regenerate_segment(segment, *, text_override=None, seed=None):
         segment.save(update_fields=["status", "modified_on"])
         return {"ok": False, "error": "Could not generate a new take (no voice provider?)."}
     return process_segment(segment)
+
+
+# --- text → sized chunks (ported from inference-club-studio) ------------------
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+CHUNK_TARGET_WORDS = 32   # default words per segment
+CHUNK_MIN_WORDS = 8
+CHUNK_MAX_WORDS = 120
+_CHUNK_MIN_RATIO = 0.7
+_CHUNK_MAX_RATIO = 1.3
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Sentence list from free text: strip speaker tags, split paragraphs, then
+    sentences on .!? boundaries; collapse whitespace; drop blanks."""
+    out = []
+    for para in re.split(r"\n\s*\n", strip_speaker_tags(text).strip()):
+        para = re.sub(r"\s+", " ", para).strip()
+        if not para:
+            continue
+        out.extend(s.strip() for s in _SENTENCE_SPLIT_RE.split(para) if s.strip())
+    return out
+
+
+def _chunk_penalty(count, target, lo, hi) -> float:
+    if lo <= count <= hi:
+        return abs(count - target)
+    if count < lo:
+        return (lo - count) * 8 + abs(count - target)
+    return (count - hi) * 6 + abs(count - target)
+
+
+def split_into_segments(text: str, target_words: int = CHUNK_TARGET_WORDS) -> list[str]:
+    """Split pasted text into narration-sized segments by grouping whole
+    sentences toward ``target_words`` words each (dynamic programming that
+    minimizes deviation, with a soft min/max around the target). Ported from
+    inference-club-studio. Returns a list of segment strings."""
+    try:
+        target = int(target_words or CHUNK_TARGET_WORDS)
+    except (TypeError, ValueError):
+        target = CHUNK_TARGET_WORDS
+    target = max(CHUNK_MIN_WORDS, min(CHUNK_MAX_WORDS, target))
+    lo = max(CHUNK_MIN_WORDS, round(target * _CHUNK_MIN_RATIO))
+    hi = min(CHUNK_MAX_WORDS, round(target * _CHUNK_MAX_RATIO))
+    if hi < lo:
+        hi = lo
+
+    sentences = _split_sentences(text)
+    n = len(sentences)
+    if n == 0:
+        return []
+    prefix = [0]
+    for s in sentences:
+        prefix.append(prefix[-1] + len(s.split()))
+
+    def span(a, b):
+        return prefix[b] - prefix[a]
+
+    best = [float("inf")] * (n + 1)
+    nxt = [n] * (n + 1)
+    best[n] = 0.0
+    for start in range(n - 1, -1, -1):
+        for end in range(start + 1, n + 1):
+            wc = span(start, end)
+            cost = _chunk_penalty(wc, target, lo, hi) + best[end]
+            if cost < best[start]:
+                best[start] = cost
+                nxt[start] = end
+            if wc > hi * 2 and end > start + 1:
+                break  # no point growing a group far past the max
+
+    groups, i = [], 0
+    while i < n:
+        j = nxt[i]
+        groups.append(" ".join(sentences[i:j]))
+        i = j
+    return groups

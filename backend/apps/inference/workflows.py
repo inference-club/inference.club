@@ -651,6 +651,15 @@ def _run_transform(spec, context):
         return _split_sections(value, spec.get("size", 2))
     if op == "subtitle":
         return _render_subtitle(value, spec.get("format", "vtt"))
+    if op == "chunk":
+        # Split free text into narration-sized chunks (whole sentences grouped
+        # toward `target_words`) → [{index, text}] for a downstream map (PRD 12).
+        from . import narration
+        chunks = narration.split_into_segments(
+            value if isinstance(value, str) else str(value or ""),
+            target_words=spec.get("target_words", narration.CHUNK_TARGET_WORDS),
+        )
+        return [{"index": i, "text": c} for i, c in enumerate(chunks)]
     return value
 
 
