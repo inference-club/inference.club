@@ -166,7 +166,8 @@
       "videos": "Videos",
       "workflows": "Workflows",
       "queue": "Queue & workflows",
-      "anonAccess": "Anonymous access"
+      "anonAccess": "Anonymous access",
+      "roadmap": "Roadmap"
     }
   },
   "queue": {

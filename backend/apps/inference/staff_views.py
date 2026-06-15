@@ -293,3 +293,21 @@ class AdminRequestModerateView(APIView):
         return Response(
             {"detail": "action must be 'hide' or 'delete'"}, status=400
         )
+
+
+class AdminRoadmapView(APIView):
+    """GET /api/admin/roadmap/ — the Media Pipeline & Narration Studio roadmap.
+
+    Read-only staff view over the git-versioned tracker in ``apps.inference.
+    roadmap`` (phases, tasks, status, progress log). The tracker module is the
+    source of truth — edit ``roadmap.py`` to update; a future public roadmap
+    (PRD 12 V5) can serve ``roadmap_payload(include_internal=False)`` without the
+    staff gate. See docs/prd/12-media-pipeline-and-narration-studio.md.
+    """
+
+    permission_classes = [IsStaff]
+
+    def get(self, request):
+        from .roadmap import roadmap_payload
+
+        return Response(roadmap_payload(include_internal=True))

@@ -109,6 +109,7 @@ export const dashboardNav: DashboardNavGroup[] = [
       { titleKey: 'dashboard.items.activity', url: '/dashboard/admin/activity' },
       { titleKey: 'dashboard.items.moderation', url: '/dashboard/admin/moderation' },
       { titleKey: 'dashboard.items.anonAccess', url: '/dashboard/admin/access' },
+      { titleKey: 'dashboard.items.roadmap', url: '/dashboard/admin/roadmap' },
     ],
   },
 ]

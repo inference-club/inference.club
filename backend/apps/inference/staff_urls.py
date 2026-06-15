@@ -5,12 +5,14 @@ from .staff_views import (
     AdminReportDetailView,
     AdminReportListView,
     AdminRequestModerateView,
+    AdminRoadmapView,
 )
 
 app_name = "staff"
 
 urlpatterns = [
     path("activity/", AdminActivityView.as_view(), name="admin-activity"),
+    path("roadmap/", AdminRoadmapView.as_view(), name="admin-roadmap"),
     path("reports/", AdminReportListView.as_view(), name="admin-report-list"),
     path(
         "reports/<int:id>/",

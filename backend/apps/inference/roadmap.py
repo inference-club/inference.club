@@ -1,0 +1,296 @@
+"""Living, git-versioned tracker for the Media Pipeline & Narration Studio
+programme (see docs/prd/12-media-pipeline-and-narration-studio.md).
+
+This module is the **source of truth for status**; the PRD is the prose behind
+it. It is served read-only to staff by ``AdminRoadmapView`` (/api/admin/roadmap/)
+and rendered at /dashboard/admin/roadmap. Keeping it as a plain Python literal
+(rather than a DB table) means progress is reviewed in PRs, travels with the
+code, and survives any interruption — edit a task's ``status`` here and the admin
+page reflects it on next load.
+
+Update protocol: when a task lands, flip its ``status`` and add a dated line to
+``PROGRESS_LOG``. Statuses: "planned" | "in_progress" | "blocked" | "done".
+
+A future public roadmap (PRD 12 V5) can reuse ``roadmap_payload()`` with
+``include_internal=False`` to drop notes/log and the staff gate.
+"""
+
+from __future__ import annotations
+
+# --- status vocabulary -------------------------------------------------------
+
+STATUS_PLANNED = "planned"
+STATUS_IN_PROGRESS = "in_progress"
+STATUS_BLOCKED = "blocked"
+STATUS_DONE = "done"
+
+_STATUS_ORDER = {
+    STATUS_DONE: 0,
+    STATUS_IN_PROGRESS: 1,
+    STATUS_BLOCKED: 2,
+    STATUS_PLANNED: 3,
+}
+
+# --- the roadmap ------------------------------------------------------------
+# Each phase: id, title, headline, status, gate (proof of success), tracks A/B,
+# and a list of tasks. Each task: id, title, status, note (optional).
+
+ROADMAP_META = {
+    "title": "Media Pipeline & Narration Studio",
+    "prd": "docs/prd/12-media-pipeline-and-narration-studio.md",
+    "updated": "2026-06-14",
+    "summary": (
+        "Adapt two of Brian's repos — hn.fm (URL→narrated/subtitled/illustrated "
+        "video pipeline) and inference-club-studio (the Narrations review app) — "
+        "into inference.club, expressed on the existing async-job + workflow "
+        "engine. Track A is the headless media pipeline (new node kinds + a "
+        "provenance-bearing media-asset model); Track B is the human-in-the-loop "
+        "Narration Studio (retakes, trim, clean, Dia voices, dynamic image "
+        "series). Every artifact traces back to its parts and any node re-runs."
+    ),
+    "tracks": {
+        "A": "Media Pipeline (from hn.fm)",
+        "B": "Narration Studio (from inference-club-studio)",
+        "meta": "Admin roadmap & docs",
+    },
+}
+
+PHASES = [
+    {
+        "id": "v0-foundations",
+        "phase": "V0",
+        "title": "Foundations: media assets, provenance & core nodes",
+        "track": "A",
+        "status": STATUS_PLANNED,
+        "gate": (
+            "A saved workflow takes a URL → scraped doc → (canned narration) → "
+            "slideshow MP4, fully re-runnable per node."
+        ),
+        "tasks": [
+            {"id": "media-asset-model", "title": "MediaAsset provenance: derived_from M2M + DOC/SUBTITLE kinds + record_derivation() + migration 0028", "status": STATUS_DONE, "note": "Extended the existing MediaAsset model rather than adding a new one."},
+            {"id": "asset-api", "title": "GET /v1/assets/<id> (metadata + provenance) + MediaAssetDetailSerializer + useAsyncJobs.getAsset", "status": STATUS_DONE, "note": "6 tests in test_media_assets.py, all green."},
+            {"id": "steps-emit-assets", "title": "Workflow steps emit MediaAsset ids + record provenance edges (vs transient results)", "status": STATUS_DONE, "note": "on_job_finished resolves a step's `derive_from` refs and links produced assets via record_derivation(); builder has a Derived-from field. _extract_asset_ids + integration tests green."},
+            {"id": "scrape-node", "title": "`scrape` node kind + `scrape` manifest service type (Firecrawl via agent)", "status": STATUS_IN_PROGRESS, "note": "Vocabulary registered (SCRAPE/scrape, /v1/scrape, _resolve_kind, manifest_validator, builder). Authorable + validates; agent-side Firecrawl runner deferred."},
+            {"id": "transcribe-node", "title": "`transcribe` node wrapping existing STT → text + word timestamps", "status": STATUS_IN_PROGRESS, "note": "Routes to existing STT (transcribe→STT/stt, /v1/audio/transcriptions). Authorable + validates; the JSON/asset-ref word-timestamp runner is the remaining agent work."},
+            {"id": "compose-node", "title": "`compose` node + `render` service: FFmpeg slideshow (images+audio) → MP4", "status": STATUS_IN_PROGRESS, "note": "Vocabulary registered (RENDER/render, /v1/videos/compose). Authorable + validates; agent-side FFmpeg renderer deferred."},
+            {"id": "v0-tests", "title": "End-to-end test: URL → doc → canned audio → MP4, per-node rerun", "status": STATUS_PLANNED},
+        ],
+    },
+    {
+        "id": "v1-dialog-audio",
+        "phase": "V1",
+        "title": "Dialog & audio pipeline",
+        "track": "A",
+        "status": STATUS_PLANNED,
+        "gate": (
+            "URL → [S1]/[S2] script → Dia-cloned, StudioVoice-cleaned, stitched "
+            "narration track."
+        ),
+        "tasks": [
+            {"id": "dialog-node", "title": "`dialog` node: LLM → [S1]/[S2] script via response_schema (structured)", "status": STATUS_PLANNED},
+            {"id": "section-split", "title": "Section-split transform (2 dialog lines → 1 section) + mapping to assets", "status": STATUS_DONE, "note": "`split_sections` op in _run_transform → [{index,lines,text}]; builder inspector + 4 tests."},
+            {"id": "tts-clone-map", "title": "`tts-clone`: per-section Dia voice (map over sections) → audio assets", "status": STATUS_PLANNED},
+            {"id": "clean-node", "title": "`clean` node + `audio-enhance` service (StudioVoice), keep original separate", "status": STATUS_IN_PROGRESS, "note": "Vocabulary registered (ENHANCE/audio-enhance, /v1/audio/enhance, builder). Authorable + validates; StudioVoice runner + keep-original wiring deferred."},
+            {"id": "stitch-node", "title": "`stitch` transform: pydub concat + section offsets/timeline", "status": STATUS_PLANNED},
+            {"id": "v1-tests", "title": "Tests: dialog→sections→tts→clean→stitch with provenance assertions", "status": STATUS_PLANNED},
+        ],
+    },
+    {
+        "id": "v2-subtitles-images",
+        "phase": "V2",
+        "title": "Subtitles & illustrated video",
+        "track": "A",
+        "status": STATUS_PLANNED,
+        "gate": (
+            "The full hn.fm flow as one inference.club workflow: URL → narrated, "
+            "subtitled, illustrated MP4."
+        ),
+        "tasks": [
+            {"id": "subtitle-node", "title": "`subtitle` transform: word timestamps → ASS/VTT (word-synced)", "status": STATUS_IN_PROGRESS, "note": "VTT+ASS rendering shipped (`subtitle` op, 5 tests); persisting the result as an OUTPUT_SUBTITLE asset is pending the compose/agent path."},
+            {"id": "image-prompt-node", "title": "Per-section image-prompt LLM node", "status": STATUS_PLANNED},
+            {"id": "image-series-map", "title": "`image-series`: IMAGE map over sections, timeline-aligned to audio", "status": STATUS_PLANNED},
+            {"id": "compose-full", "title": "`compose` upgrade: images + audio + subtitles + timeline → final MP4", "status": STATUS_PLANNED},
+            {"id": "pipeline-template", "title": "Ship 'URL → video' workflow template in the gallery", "status": STATUS_PLANNED},
+        ],
+    },
+    {
+        "id": "v3-narration-studio",
+        "phase": "V3",
+        "title": "Narration Studio (review app)",
+        "track": "B",
+        "status": STATUS_PLANNED,
+        "gate": "A user hand-builds & polishes an episode in the Studio and renders it.",
+        "tasks": [
+            {"id": "episode-models", "title": "Episode / Segment / Variant / ImageSeries / ImageFrame models + migrations", "status": STATUS_PLANNED},
+            {"id": "episode-api", "title": "Episode/Segment CRUD + reorder API + serializers + composable", "status": STATUS_PLANNED},
+            {"id": "studio-shell", "title": "/dashboard/studio shell: segment list, reorder, inline edit, status", "status": STATUS_PLANNED},
+            {"id": "timeline-waveform", "title": "Waveform timeline + word-level highlight + seek (from transcribe)", "status": STATUS_PLANNED},
+            {"id": "retakes", "title": "Retakes/variants: regenerate, A/B player, select active, auto-fallback", "status": STATUS_PLANNED},
+            {"id": "trim-panel", "title": "Headspace trim: drag-handle waveform, preview/apply, auto re-transcribe", "status": STATUS_PLANNED},
+            {"id": "clean-toggle", "title": "StudioVoice clean toggle (cleaned-vs-original, original preserved)", "status": STATUS_PLANNED},
+            {"id": "voices-dialog", "title": "Dia voice-sample manager + per-segment override (reuse PRD 09 VoiceSample)", "status": STATUS_PLANNED},
+            {"id": "dynamic-image-series", "title": "Dynamic image-series panel: LLM plan, i2i continuity, suggest-next", "status": STATUS_PLANNED},
+            {"id": "export-render", "title": "Export bar: concat/gaps/fade/normalize → audio; 'send to compose' → video", "status": STATUS_PLANNED},
+        ],
+    },
+    {
+        "id": "v4-advanced-compositing",
+        "phase": "V4",
+        "title": "Advanced compositing & 3D",
+        "track": "B",
+        "status": STATUS_PLANNED,
+        "gate": (
+            "An episode rendered with title cards + a 3D scene + music; Blender "
+            "export opens."
+        ),
+        "tasks": [
+            {"id": "hyperframes", "title": "HyperFrames title cards / lower-thirds / animated text / alpha overlays", "status": STATUS_PLANNED},
+            {"id": "image-to-video", "title": "Per-section image→video (LTX-2) instead of static slides", "status": STATUS_PLANNED},
+            {"id": "frame-interp", "title": "`frame-interp` service + effects/filters", "status": STATUS_PLANNED},
+            {"id": "music-bed", "title": "Music bed (existing MUSIC modality) ducked under narration", "status": STATUS_PLANNED},
+            {"id": "threed-compositing", "title": "TRELLIS meshes + ThreeJS scenes composited into video (image+video+3D)", "status": STATUS_PLANNED},
+            {"id": "blender-export", "title": "Blender export: episode → .blend + Python build script", "status": STATUS_PLANNED},
+        ],
+    },
+    {
+        "id": "v5-sharing-public-roadmap",
+        "phase": "V5",
+        "title": "Sharing & roadmap surfaces",
+        "track": "meta",
+        "status": STATUS_PLANNED,
+        "gate": "Template gallery for these pipelines; public roadmap live.",
+        "tasks": [
+            {"id": "pipeline-templates", "title": "Template gallery entries for the media pipelines", "status": STATUS_PLANNED},
+            {"id": "episode-sharing", "title": "Episode sharing/visibility (reuse PRD 01 sharing model)", "status": STATUS_PLANNED},
+            {"id": "public-roadmap", "title": "Public roadmap reusing roadmap_payload(include_internal=False)", "status": STATUS_PLANNED},
+        ],
+    },
+]
+
+# Most recent first. Add a line whenever a task changes status.
+PROGRESS_LOG = [
+    {
+        "date": "2026-06-14",
+        "note": (
+            "Wired steps-emit-assets provenance: a step's `derive_from` refs are "
+            "resolved at job completion and its produced assets are linked via "
+            "MediaAsset.record_derivation() (_extract_asset_ids handles ids / "
+            "job-output dicts / map lists); builder gained a 'Derived from' "
+            "field. Closes V0's spine. 59 tests green."
+        ),
+    },
+    {
+        "date": "2026-06-14",
+        "note": (
+            "Registered the media-pipeline modality vocabulary (PRD 12 option 1): "
+            "SCRAPE/RENDER/ENHANCE inference types + scrape/render/audio-enhance "
+            "service types (migration 0029), engine routing (_ENDPOINT_TYPE/"
+            "_SHORT_TYPE incl. transcribe→STT), manifest_validator acceptance, and "
+            "builder modality options with a 'needs a provider' note. The "
+            "scrape/transcribe/compose/clean nodes are now authorable and "
+            "validate; agent-side runners are the remaining work. 12 media "
+            "tests + 38 regression + 34 manifest/modality tests green."
+        ),
+    },
+    {
+        "date": "2026-06-14",
+        "note": (
+            "Added two inline media-pipeline transforms to the engine (no agent "
+            "needed): `split_sections` (hn.fm 2-lines-per-section, V1) and "
+            "`subtitle` (word timestamps → VTT/ASS, V2), both wired into the "
+            "builder inspector. 9 new tests green; 38 workflow/job tests still "
+            "green."
+        ),
+    },
+    {
+        "date": "2026-06-14",
+        "note": (
+            "V0 scaffold started: extended MediaAsset with a derived_from "
+            "provenance graph + DOC/SUBTITLE kinds + record_derivation() "
+            "(migration 0028), and shipped GET /v1/assets/<id> "
+            "(MediaAssetDetailSerializer, useAsyncJobs.getAsset). 6 new tests "
+            "green, 38 related tests still green. Next: scrape/transcribe/compose "
+            "node kinds."
+        ),
+    },
+    {
+        "date": "2026-06-14",
+        "note": (
+            "Programme kicked off. Studied hn.fm and inference-club-studio; wrote "
+            "PRD 12 and this tracker; shipped the staff-only admin roadmap page "
+            "(/dashboard/admin/roadmap). No feature phases started yet."
+        ),
+    },
+]
+
+
+# --- derived payload --------------------------------------------------------
+
+def _phase_progress(phase: dict) -> dict:
+    tasks = phase.get("tasks", [])
+    total = len(tasks)
+    done = sum(1 for t in tasks if t.get("status") == STATUS_DONE)
+    in_progress = sum(1 for t in tasks if t.get("status") == STATUS_IN_PROGRESS)
+    return {"total": total, "done": done, "in_progress": in_progress}
+
+
+def _derive_phase_status(phase: dict) -> str:
+    """If a phase's own status is left "planned" but its tasks have moved,
+    surface the real state so the board never lies."""
+    declared = phase.get("status", STATUS_PLANNED)
+    if declared != STATUS_PLANNED:
+        return declared
+    p = _phase_progress(phase)
+    if p["total"] and p["done"] == p["total"]:
+        return STATUS_DONE
+    if p["in_progress"] or p["done"]:
+        return STATUS_IN_PROGRESS
+    return STATUS_PLANNED
+
+
+def roadmap_payload(include_internal: bool = True) -> dict:
+    """Serializable roadmap for the admin (and, later, public) surface.
+
+    ``include_internal=False`` strips the progress log (future public view).
+    """
+    phases = []
+    for phase in PHASES:
+        prog = _phase_progress(phase)
+        phases.append(
+            {
+                "id": phase["id"],
+                "phase": phase["phase"],
+                "title": phase["title"],
+                "track": phase["track"],
+                "status": _derive_phase_status(phase),
+                "gate": phase["gate"],
+                "progress": prog,
+                "tasks": [
+                    {
+                        "id": t["id"],
+                        "title": t["title"],
+                        "status": t.get("status", STATUS_PLANNED),
+                        "note": t.get("note", ""),
+                    }
+                    for t in phase.get("tasks", [])
+                ],
+            }
+        )
+
+    all_tasks = [t for p in PHASES for t in p.get("tasks", [])]
+    totals = {
+        "tasks": len(all_tasks),
+        "done": sum(1 for t in all_tasks if t.get("status") == STATUS_DONE),
+        "in_progress": sum(1 for t in all_tasks if t.get("status") == STATUS_IN_PROGRESS),
+        "phases": len(PHASES),
+        "phases_done": sum(1 for p in phases if p["status"] == STATUS_DONE),
+    }
+
+    payload = {
+        "meta": ROADMAP_META,
+        "totals": totals,
+        "phases": phases,
+    }
+    if include_internal:
+        payload["progress_log"] = PROGRESS_LOG
+    return payload

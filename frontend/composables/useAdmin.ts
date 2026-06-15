@@ -43,6 +43,47 @@ export interface AdminActivity {
   }[]
 }
 
+// --- roadmap (PRD 12) -------------------------------------------------------
+
+export type RoadmapStatus = 'planned' | 'in_progress' | 'blocked' | 'done'
+
+export interface RoadmapTask {
+  id: string
+  title: string
+  status: RoadmapStatus
+  note: string
+}
+
+export interface RoadmapPhase {
+  id: string
+  phase: string
+  title: string
+  track: string
+  status: RoadmapStatus
+  gate: string
+  progress: { total: number; done: number; in_progress: number }
+  tasks: RoadmapTask[]
+}
+
+export interface Roadmap {
+  meta: {
+    title: string
+    prd: string
+    updated: string
+    summary: string
+    tracks: Record<string, string>
+  }
+  totals: {
+    tasks: number
+    done: number
+    in_progress: number
+    phases: number
+    phases_done: number
+  }
+  phases: RoadmapPhase[]
+  progress_log?: { date: string; note: string }[]
+}
+
 // --- anonymous access management (PRD 08) -----------------------------------
 
 export interface AccessCode {
@@ -172,6 +213,8 @@ export function useAdmin() {
 
   const getActivity = () => withState(() => api<AdminActivity>('/activity/'))
 
+  const getRoadmap = () => withState(() => api<Roadmap>('/roadmap/'))
+
   // status: 'open' (default, OPEN+REVIEWING), 'all', or a specific status.
   const listReports = (status = 'open') =>
     withState(() =>
@@ -256,6 +299,7 @@ export function useAdmin() {
     loading,
     error,
     getActivity,
+    getRoadmap,
     listReports,
     updateReport,
     moderateRequest,
