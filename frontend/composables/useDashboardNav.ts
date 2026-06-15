@@ -30,6 +30,7 @@ export const dashboardNav: DashboardNavGroup[] = [
       { titleKey: 'dashboard.items.images', url: '/dashboard/playground/images' },
       { titleKey: 'dashboard.items.imageTo3d', url: '/dashboard/playground/model3d' },
       { titleKey: 'dashboard.items.videoGeneration', url: '/dashboard/playground/videos' },
+      { titleKey: 'dashboard.items.imageToVideo', url: '/dashboard/playground/image-to-video' },
       { titleKey: 'dashboard.items.textToSpeech', url: '/dashboard/playground/speech' },
       { titleKey: 'dashboard.items.voiceCloning', url: '/dashboard/playground/voice-cloning' },
       { titleKey: 'dashboard.items.musicGeneration', url: '/dashboard/playground/music' },

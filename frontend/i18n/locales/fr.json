@@ -136,6 +136,7 @@
       "images": "Images",
       "imageTo3d": "Image vers 3D",
       "videoGeneration": "Génération de vidéo",
+      "imageToVideo": "Image → Vidéo",
       "textToSpeech": "Synthèse vocale",
       "voiceCloning": "Clonage de voix",
       "musicGeneration": "Génération musicale",

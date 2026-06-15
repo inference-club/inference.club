@@ -136,6 +136,7 @@
       "images": "图像",
       "imageTo3d": "图像转 3D",
       "videoGeneration": "视频生成",
+      "imageToVideo": "图像 → 视频",
       "textToSpeech": "文本转语音",
       "voiceCloning": "语音克隆",
       "musicGeneration": "音乐生成",
