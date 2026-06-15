@@ -4,13 +4,16 @@ KindRoutedGCSStorage splits media between two Google Cloud Storage buckets
 based on the object key's kind prefix (``media_asset_upload_to`` keys start
 with the lowercased MediaAsset kind):
 
-- ``input_audio/`` (the only non-public kind) goes to the private bucket,
-  which has public-access-prevention enforced. It is read back through the
-  backend's owner-gated asset route.
-- Everything else goes to the public bucket and is served to browsers
-  directly from ``storage.googleapis.com`` — no app hop, no signed-URL
-  expiry to break long-lived links, and an immutable Cache-Control set at
-  upload time (keys embed a UUID, so they never change content).
+- Non-public kinds — anything outside ``MediaAsset.PUBLIC_KINDS`` (the
+  uploaded ``input_audio/`` and the intermediate ``input_doc/`` /
+  ``output_doc/`` text documents) — go to the private bucket, which has
+  public-access-prevention enforced. They're read back through the backend's
+  owner-gated asset route. Unknown prefixes default to private (fail closed).
+- Public kinds (images, audio, video, 3D models, subtitles) go to the public
+  bucket and are served to browsers directly from ``storage.googleapis.com``
+  — no app hop, no signed-URL expiry to break long-lived links, and an
+  immutable Cache-Control set at upload time (keys embed a UUID, so they
+  never change content).
 
 Two buckets instead of per-object ACLs keeps uniform bucket-level access on
 (Google's recommendation) and makes the public/private boundary auditable
@@ -37,16 +40,23 @@ def _gcs_credentials():
     return service_account.Credentials.from_service_account_info(info)
 
 
-# Keys under this prefix hold owner-gated content (MediaAsset.INPUT_AUDIO is
-# the only kind outside MediaAsset.PUBLIC_KINDS).
-PRIVATE_PREFIX = "input_audio/"
+def _public_prefixes():
+    """Object-key prefixes (``output_image/``, …) that route to the PUBLIC
+    bucket — derived from ``MediaAsset.PUBLIC_KINDS`` so there's one source of
+    truth. Any other kind (INPUT_AUDIO, INPUT_DOC, OUTPUT_DOC, …) is owner-gated
+    and goes to the private bucket. Lazy import: storage is resolved long after
+    apps load, so this never risks a circular import."""
+    from apps.inference.models import MediaAsset
+
+    return frozenset(f"{k.lower()}/" for k in MediaAsset.PUBLIC_KINDS)
 
 
 class KindRoutedGCSStorage(Storage):
     def _backend(self, name):
-        if (name or "").startswith(PRIVATE_PREFIX):
-            return self._private
-        return self._public
+        # Default to private for anything that isn't a known public kind prefix,
+        # so a newly-added kind is never accidentally world-readable.
+        prefix = (name or "").split("/", 1)[0] + "/"
+        return self._public if prefix in _public_prefixes() else self._private
 
     @cached_property
     def _public(self):

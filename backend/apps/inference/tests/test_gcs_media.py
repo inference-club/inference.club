@@ -48,9 +48,22 @@ class TestKindRoutedGCSStorage:
         params = storage._backend("output_image/x").object_parameters
         assert params["cache_control"] == "public, max-age=31536000, immutable"
 
-    def test_private_prefix_matches_the_only_non_public_kind(self):
+    def test_non_public_kinds_route_to_the_private_bucket(self):
+        # Inputs + intermediate text documents are owner-gated, never world-
+        # readable. This pins the classification so a newly-added kind can't be
+        # made public by omission.
         non_public = {k for k, _ in MediaAsset.KIND_CHOICES} - MediaAsset.PUBLIC_KINDS
-        assert {f"{k.lower()}/" for k in non_public} == {"input_audio/"}
+        assert non_public == {"INPUT_AUDIO", "INPUT_DOC", "OUTPUT_DOC"}
+        storage = KindRoutedGCSStorage()
+        for k in non_public:
+            backend = storage._backend(f"{k.lower()}/42/abc123/file.bin")
+            assert backend.bucket_name == "priv-bucket", k
+            assert backend.querystring_auth is True
+
+    def test_unknown_prefix_fails_closed_to_private(self):
+        # A key with no recognized public kind prefix must not leak to public.
+        backend = KindRoutedGCSStorage()._backend("mystery/42/x.bin")
+        assert backend.bucket_name == "priv-bucket"
 
 
 def _asset(user, kind, name="f.bin", body=b"x"):
