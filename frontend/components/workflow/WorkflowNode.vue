@@ -7,9 +7,12 @@
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { CheckCircle2, Circle, Clock, Loader2, XCircle, Music, FileText,
-  GitFork, Hand, Wrench, Layers, Sparkles, RotateCcw, Play, Download, X } from 'lucide-vue-next'
+  GitFork, Hand, Wrench, Layers, Sparkles, RotateCcw, Download, X,
+  Maximize2, Brain } from 'lucide-vue-next'
 import { modalityHex } from '@/composables/useClusterState'
+import { roleClasses } from '@/utils/inference'
 import type { WorkflowStep, AsyncJob } from '@/composables/useAsyncJobs'
+import type { InferenceRequest } from '@/types'
 
 const props = defineProps<{
   data: {
@@ -55,28 +58,66 @@ const model = computed(() => step.value.jobs?.find((j) => j.model_name)?.model_n
 const jobs = computed(() => step.value.jobs || [])
 const doneCount = computed(() => jobs.value.filter((j) => j.status === 'PROCESSED').length)
 
-interface Thumb { type: 'image' | 'video' | 'audio' | 'text'; url?: string; label?: string }
+interface Thumb { type: 'image' | 'video' | 'audio'; url?: string }
 const thumbOf = (j: AsyncJob): Thumb | null => {
   if (j.image_urls?.length) return { type: 'image', url: j.image_urls[0] }
   if (j.input_image_url) return { type: 'image', url: j.input_image_url }
   if (j.video_url) return { type: 'video', url: j.video_url }
   if (j.output_audio_url) return { type: 'audio', url: j.output_audio_url }
-  if (j.inference_type === 'LLM') return { type: 'text', label: j.prompt_preview }
   return null
 }
 const thumbs = computed(() => jobs.value.map(thumbOf).filter((t): t is Thumb => !!t))
+// Videos play inline in the node (with controls) so a result is watchable right
+// here — no need to open the inference/videos tab. Images/audio stay as small
+// click-to-lightbox thumbnails.
+const videoThumbs = computed(() => thumbs.value.filter((t) => t.type === 'video' && t.url))
+const otherThumbs = computed(() => thumbs.value.filter((t) => t.type !== 'video'))
+
+// LLM jobs carry a prompt + a text response; we let the user expand them to
+// read the full conversation (the node itself only has the truncated preview).
+const llmJobs = computed(() => jobs.value.filter((j) => j.inference_type === 'LLM'))
+const hasText = computed(() => llmJobs.value.length > 0)
 
 // Click a thumbnail to open the full media (image/video/audio) in a lightbox
 // with playback controls + a download link — teleported to <body> so it
 // escapes the Vue Flow transformed canvas.
 const lightbox = ref<Thumb | null>(null)
-const canOpen = (th: Thumb) => !!th.url && th.type !== 'text'
+const canOpen = (th: Thumb) => !!th.url
 const openThumb = (th: Thumb) => { if (canOpen(th)) lightbox.value = th }
 const closeLightbox = () => { lightbox.value = null }
-const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeLightbox() }
-watch(lightbox, (v) => {
+
+// Expand the full prompt & response. A job's id is its InferenceRequest id, so
+// we lazily fetch the detail serializer (messages + response_text + reasoning)
+// the first time the panel is opened, then cache it per job. Teleported to
+// <body> like the media lightbox so it escapes the transformed canvas.
+const { getInferenceRequest } = useInferenceRequest()
+interface JobDetail { loading: boolean; error: string | null; req: InferenceRequest | null }
+const detailOpen = ref(false)
+const details = ref<Record<string, JobDetail>>({})
+const loadDetail = async (j: AsyncJob) => {
+  const key = String(j.id)
+  if (details.value[key]?.req) return
+  details.value = { ...details.value, [key]: { loading: true, error: null, req: null } }
+  try {
+    const req = await getInferenceRequest(key)
+    details.value = { ...details.value, [key]: { loading: false, error: null, req } }
+  } catch (e: unknown) {
+    details.value = {
+      ...details.value,
+      [key]: { loading: false, error: (e as Error)?.message || 'Failed to load', req: null },
+    }
+  }
+}
+const openDetail = () => {
+  detailOpen.value = true
+  llmJobs.value.forEach((j) => void loadDetail(j))
+}
+const closeDetail = () => { detailOpen.value = false }
+
+const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { closeLightbox(); closeDetail() } }
+watch([lightbox, detailOpen], ([lb, dt]) => {
   if (typeof document === 'undefined') return
-  if (v) document.addEventListener('keydown', onKey)
+  if (lb || dt) document.addEventListener('keydown', onKey)
   else document.removeEventListener('keydown', onKey)
 })
 onBeforeUnmount(() => {
@@ -154,26 +195,32 @@ v-if="modality" class="rounded px-1.5 py-0.5 font-medium uppercase text-white"
     </div>
 
     <!-- body: media / detail -->
-    <div class="px-3 py-2">
-      <div v-if="thumbs.length" class="flex gap-1.5 overflow-x-auto nowheel">
-        <button
-v-for="(th, i) in thumbs.slice(0, 6)" :key="i" type="button"
-                class="nodrag relative h-14 w-14 shrink-0 overflow-hidden rounded-md border bg-muted"
-                :class="canOpen(th) ? 'cursor-pointer hover:ring-2 hover:ring-sky-400' : 'cursor-default'"
-                :title="canOpen(th) ? 'Click to view' : undefined"
-                @click.stop="openThumb(th)" @mousedown.stop>
-          <img v-if="th.type === 'image' && th.url" :src="th.url" class="h-full w-full object-cover" loading="lazy" alt="" >
-          <template v-else-if="th.type === 'video' && th.url">
-            <video :src="th.url" class="h-full w-full object-cover" muted playsinline preload="metadata" />
-            <span class="absolute inset-0 flex items-center justify-center bg-black/25">
-              <Play class="size-5 fill-white text-white drop-shadow" />
-            </span>
-          </template>
-          <div v-else-if="th.type === 'audio'" class="flex h-full items-center justify-center"><Music class="size-5 text-fuchsia-500" /></div>
-          <div v-else class="flex h-full items-center justify-center"><FileText class="size-4 text-sky-500" /></div>
-        </button>
-        <span v-if="thumbs.length > 6" class="self-center text-xs text-muted-foreground">+{{ thumbs.length - 6 }}</span>
-      </div>
+    <div class="space-y-2 px-3 py-2">
+      <template v-if="thumbs.length">
+        <!-- Video results play inline (controls) so they're watchable right in
+             the node; click to enlarge in the lightbox. -->
+        <video
+v-for="(v, i) in videoThumbs.slice(0, 3)" :key="'v' + i"
+               :src="v.url" controls playsinline preload="metadata"
+               class="nodrag nowheel w-full rounded-md border bg-black"
+               @mousedown.stop @dblclick.stop="openThumb(v)" />
+        <span v-if="videoThumbs.length > 3" class="text-xs text-muted-foreground">
+          +{{ videoThumbs.length - 3 }} more clips
+        </span>
+
+        <div v-if="otherThumbs.length" class="flex gap-1.5 overflow-x-auto nowheel">
+          <button
+v-for="(th, i) in otherThumbs.slice(0, 6)" :key="i" type="button"
+                  class="nodrag relative h-14 w-14 shrink-0 overflow-hidden rounded-md border bg-muted"
+                  :class="canOpen(th) ? 'cursor-pointer hover:ring-2 hover:ring-sky-400' : 'cursor-default'"
+                  :title="canOpen(th) ? 'Click to view' : undefined"
+                  @click.stop="openThumb(th)" @mousedown.stop>
+            <img v-if="th.type === 'image' && th.url" :src="th.url" class="h-full w-full object-cover" loading="lazy" alt="" >
+            <div v-else-if="th.type === 'audio'" class="flex h-full items-center justify-center"><Music class="size-5 text-fuchsia-500" /></div>
+          </button>
+          <span v-if="otherThumbs.length > 6" class="self-center text-xs text-muted-foreground">+{{ otherThumbs.length - 6 }}</span>
+        </div>
+      </template>
 
       <div v-else-if="step.kind === 'gate' && step.status === 'AWAITING'" class="flex gap-2">
         <button
@@ -193,6 +240,16 @@ v-else-if="step.status === 'RUNNING'"
         <Loader2 class="size-3 animate-spin" /> {{ runningHint }}
       </p>
       <p v-else class="line-clamp-2 text-xs text-muted-foreground">{{ detail }}</p>
+
+      <!-- Expand the full prompt + response of this step's LLM job(s). -->
+      <button
+        v-if="hasText"
+        type="button"
+        class="nodrag flex w-full items-center justify-center gap-1 rounded-md border border-dashed px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-sky-500"
+        title="View the full prompt & response"
+        @click.stop="openDetail" @mousedown.stop>
+        <Maximize2 class="size-3" /> Prompt &amp; response
+      </button>
     </div>
   </div>
 
@@ -224,6 +281,87 @@ type="button" title="Close (Esc)"
                   @click="closeLightbox">
             <X class="size-4" />
           </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Full prompt & response panel for the step's LLM job(s). Lazily fetched
+       detail (messages + response_text + reasoning), teleported to body. -->
+  <Teleport to="body">
+    <div
+      v-if="detailOpen"
+      class="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:p-8"
+      @click.self="closeDetail" @mousedown.stop>
+      <div class="my-auto w-full max-w-2xl rounded-xl border bg-background text-foreground shadow-xl">
+        <div class="flex items-center justify-between gap-2 border-b px-4 py-3">
+          <div class="flex min-w-0 items-center gap-2">
+            <component :is="KIND_ICON[step.kind] || FileText" class="size-4 shrink-0 text-muted-foreground" />
+            <span class="truncate text-sm font-semibold" :title="step.title">{{ step.title }}</span>
+            <span v-if="model" class="truncate text-xs text-muted-foreground">· {{ model }}</span>
+          </div>
+          <button
+            type="button" title="Close (Esc)"
+            class="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            @click="closeDetail">
+            <X class="size-4" />
+          </button>
+        </div>
+
+        <div class="max-h-[75vh] space-y-5 overflow-y-auto px-4 py-4">
+          <div v-for="(j, idx) in llmJobs" :key="String(j.id)" class="space-y-3">
+            <div v-if="llmJobs.length > 1" class="text-xs font-semibold uppercase text-muted-foreground">
+              Output {{ idx + 1 }}
+            </div>
+
+            <p v-if="details[String(j.id)]?.loading" class="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 class="size-4 animate-spin" /> Loading…
+            </p>
+            <p v-else-if="details[String(j.id)]?.error" class="text-sm text-rose-500">
+              {{ details[String(j.id)]?.error }}
+            </p>
+
+            <template v-else-if="details[String(j.id)]?.req">
+              <!-- Prompt -->
+              <section class="space-y-2">
+                <h4 class="text-sm font-semibold">Prompt</h4>
+                <div
+                  v-for="(m, i) in details[String(j.id)]!.req!.messages || []" :key="i"
+                  class="rounded-lg border p-3">
+                  <span
+                    class="mb-2 inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium capitalize"
+                    :class="roleClasses(m.role)">{{ m.role || 'message' }}</span>
+                  <MarkdownRenderer :content="m.content" />
+                </div>
+                <p
+                  v-if="!(details[String(j.id)]!.req!.messages || []).length"
+                  class="whitespace-pre-wrap rounded-lg border p-3 text-sm text-muted-foreground">
+                  {{ j.prompt_preview || 'No prompt recorded.' }}
+                </p>
+              </section>
+
+              <!-- Reasoning -->
+              <section v-if="details[String(j.id)]!.req!.reasoning" class="space-y-2">
+                <h4 class="flex items-center gap-1.5 text-sm font-semibold">
+                  <Brain class="size-4 text-amber-500" /> Reasoning
+                </h4>
+                <div class="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-muted-foreground">
+                  <MarkdownRenderer :content="details[String(j.id)]!.req!.reasoning" />
+                </div>
+              </section>
+
+              <!-- Response -->
+              <section class="space-y-2">
+                <h4 class="text-sm font-semibold">Response</h4>
+                <div
+                  v-if="details[String(j.id)]!.req!.response_text"
+                  class="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                  <MarkdownRenderer :content="details[String(j.id)]!.req!.response_text" />
+                </div>
+                <p v-else class="rounded-lg border p-3 text-sm text-muted-foreground">No response content stored.</p>
+              </section>
+            </template>
+          </div>
         </div>
       </div>
     </div>
