@@ -228,6 +228,8 @@ TEMPLATES = [
              "placeholder": "https://example.com/an-interesting-post"},
             {"name": "style", "label": "Illustration style", "type": "text",
              "default": "clean editorial illustration, soft light"},
+            {"name": "voice_seed", "label": "Voice seed (shared across sections for a consistent voice)",
+             "type": "number", "default": 42, "min": 0, "max": 2147483647},
         ],
         steps=[
             {"id": "fetch", "kind": "inference", "type": "scrape", "title": "Scrape the article",
@@ -239,9 +241,11 @@ TEMPLATES = [
                 "prose around it.\n\nARTICLE:\n{{steps.fetch.output.text}}"}]}},
             {"id": "sections", "kind": "transform", "op": "split_sections", "title": "Group into sections",
              "input": "{{steps.script.output.text}}", "size": 2},
-            {"id": "speech", "kind": "map", "type": "tts", "title": "Voice each section",
+            {"id": "speech", "kind": "map", "type": "voice", "title": "Narrate each section (Dia)",
              "over": "{{steps.sections.output}}",
-             "body": {"input": "{{item.text}}"}},
+             # Dia voices the [S1]/[S2] dialogue. The SAME seed is passed to every
+             # section so the narrator's voice stays consistent across the video.
+             "body": {"input": "{{item.text}}", "seed": "{{inputs.voice_seed}}"}},
             {"id": "art", "kind": "map", "type": "image", "title": "Illustrate each section",
              "over": "{{steps.sections.output}}",
              "body": {"prompt": "{{inputs.style}} — {{item.text}}"}},

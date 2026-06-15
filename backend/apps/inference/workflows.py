@@ -38,6 +38,7 @@ _ENDPOINT_TYPE = {
     "/v1/audio/speech": ("TTS", "tts"),
     # --- media pipeline (PRD 12); runners deferred to the agent ---
     "/v1/audio/transcriptions": ("STT", "stt"),
+    "/v1/voice/generations": ("VOICE", "tts"),
     "/v1/scrape": ("SCRAPE", "scrape"),
     "/v1/videos/compose": ("RENDER", "render"),
     "/v1/audio/enhance": ("ENHANCE", "audio-enhance"),
@@ -48,6 +49,9 @@ _SHORT_TYPE = {
     "music": ("MUSIC", "music"), "tts": ("TTS", "tts"),
     # --- media pipeline (PRD 12) ---
     "stt": ("STT", "stt"), "transcribe": ("STT", "stt"),
+    # `voice`/`dia` → Dia voice-cloning/dialogue (routes via /v1/voice/generations
+    # to the tts-typed voice service); a fixed `seed` keeps the voice consistent.
+    "voice": ("VOICE", "tts"), "dia": ("VOICE", "tts"),
     "scrape": ("SCRAPE", "scrape"),
     "compose": ("RENDER", "render"), "render": ("RENDER", "render"),
     "clean": ("ENHANCE", "audio-enhance"), "enhance": ("ENHANCE", "audio-enhance"),

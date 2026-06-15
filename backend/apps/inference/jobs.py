@@ -28,6 +28,10 @@ JOB_SERVICE_TYPE = {
     "LLM": "", "STT": "stt", "TTS": "tts",
     "IMAGE": "image", "MESH": "mesh", "MUSIC": "music", "VIDEO": "video",
     "SCRAPE": "scrape", "RENDER": "render",
+    # VOICE (Dia voice cloning / dialogue) is served by a tts-typed service that
+    # advertises voice-cloning, so it shares the tts capacity pool. The workflow
+    # `voice` step uses it; the public async API does not (it needs an upload).
+    "VOICE": "tts",
 }
 # Modalities accepted over the async API directly. File-input modalities
 # (STT/MESH/VOICE/image-edits) need an uploaded blob and stay synchronous for

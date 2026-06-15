@@ -2907,6 +2907,9 @@ _RETRY_SERVICE_TYPE = {
     "LLM": None, "STT": "stt", "TTS": "tts",
     "IMAGE": "image", "MESH": "mesh", "MUSIC": "music", "VIDEO": "video",
     "SCRAPE": "scrape", "RENDER": "render",
+    # VOICE (Dia) routes to a tts-typed voice-cloning service; the agent picks
+    # the /v1/voice/generations path by endpoint, not by this service type.
+    "VOICE": "tts",
 }
 
 
@@ -3178,6 +3181,70 @@ def _rerun_tts(ir, provider_model):
     return True, None
 
 
+def _rerun_voice(ir, provider_model):
+    """VOICE (Dia) async runner — used by the workflow ``voice`` step. Forwards
+    the stored script + Dia sampling controls (notably a fixed ``seed``, so the
+    generated voice is identical across every section) to the agent's
+    ``/voice/generations`` → Dia, and stores the result as OUTPUT_AUDIO.
+
+    Sample-free generation (no cloning): the workflow narrates the [S1]/[S2]
+    dialogue directly, and consistency comes from the shared seed rather than a
+    reference clip. (Voice-sample cloning stays on the synchronous
+    VoiceGenerationsView, which needs uploaded blobs.)"""
+    provider = provider_model.provider
+    p = ir.payload or {}
+    text = p.get("input") or p.get("text") or ""
+    if not str(text).strip():
+        return _retry_simple_fail(ir, "No input script stored for this voice request.")
+
+    def _f(key, default):
+        v = p.get(key)
+        return str(v if v is not None else default)
+
+    fields = {
+        "text": (None, str(text)),
+        "max_new_tokens": (None, _f("max_new_tokens", 3072)),
+        "cfg_scale": (None, _f("cfg_scale", 3.0)),
+        "temperature": (None, _f("temperature", 1.8)),
+        "top_p": (None, _f("top_p", 0.95)),
+        "cfg_filter_top_k": (None, _f("cfg_filter_top_k", 45)),
+        "speed_factor": (None, _f("speed_factor", 1.0)),
+        # A real (non-negative) seed makes Dia's voice reproducible; the workflow
+        # passes the SAME seed to every section so all narration shares a voice.
+        "seed": (None, _f("seed", -1)),
+    }
+    endpoint = provider.tailnet_base_url.rstrip("/") + "/voice/generations"
+    started = time.monotonic()
+    try:
+        upstream = requests.post(
+            endpoint, files=fields, timeout=UPSTREAM_TIMEOUT_SECONDS,
+            verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+
+    audio = upstream.content
+    out_ct = (upstream.headers.get("content-type") or "audio/wav").split(";", 1)[0]
+    try:
+        seconds = float(upstream.headers.get("x-duration-seconds") or 0) or _wav_seconds(audio)
+    except (TypeError, ValueError):
+        seconds = _wav_seconds(audio)
+    used_seed = upstream.headers.get("x-seed")
+    asset = _retry_save_output_audio(ir, audio, out_ct, "wav", seconds)
+    ir.status = "PROCESSED"
+    ir.audio_seconds = seconds
+    ir.results = {
+        "audio_asset_id": asset.id if asset else None,
+        "content_type": out_ct, "seed": used_seed, "characters": len(str(text)),
+    }
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
 def _rerun_image(ir, provider_model):
     provider = provider_model.provider
     p = ir.payload or {}
@@ -3402,6 +3469,7 @@ _RETRY_RUNNERS = {
     "LLM": _rerun_llm, "STT": _rerun_stt, "TTS": _rerun_tts,
     "IMAGE": _rerun_image, "MESH": _rerun_mesh, "MUSIC": _rerun_music,
     "VIDEO": _rerun_video, "SCRAPE": _rerun_scrape, "RENDER": _rerun_render,
+    "VOICE": _rerun_voice,
 }
 
 

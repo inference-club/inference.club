@@ -89,7 +89,7 @@ PHASES = [
         "tasks": [
             {"id": "dialog-node", "title": "`dialog` node: LLM → [S1]/[S2] script via response_schema (structured)", "status": STATUS_PLANNED},
             {"id": "section-split", "title": "Section-split transform (2 dialog lines → 1 section) + mapping to assets", "status": STATUS_DONE, "note": "`split_sections` op in _run_transform → [{index,lines,text}]; builder inspector + 4 tests."},
-            {"id": "tts-clone-map", "title": "`tts-clone`: per-section Dia voice (map over sections) → audio assets", "status": STATUS_PLANNED},
+            {"id": "tts-clone-map", "title": "`tts-clone`: per-section Dia voice (map over sections) → audio assets", "status": STATUS_DONE, "note": "DONE: `voice` workflow step type (VOICE→Dia via /v1/voice/generations) + async _rerun_voice runner (JOB_SERVICE_TYPE/_RETRY_RUNNERS, tts capacity pool). url-to-video's speech map now narrates each section's [S1]/[S2] dialogue with Dia, passing the SAME `voice_seed` (template input, default 42) to every section so the voice stays consistent. Verified live: VOICE job → club-host → Dia, seed honored, OUTPUT_AUDIO stored. Sample-based cloning stays on the sync VoiceGenerationsView (needs an upload)."},
             {"id": "clean-node", "title": "`clean` node + `audio-enhance` service (StudioVoice), keep original separate", "status": STATUS_IN_PROGRESS, "note": "Vocabulary registered (ENHANCE/audio-enhance, /v1/audio/enhance, builder). Authorable + validates; StudioVoice runner + keep-original wiring deferred."},
             {"id": "stitch-node", "title": "`stitch` transform: pydub concat + section offsets/timeline", "status": STATUS_PLANNED},
             {"id": "v1-tests", "title": "Tests: dialog→sections→tts→clean→stitch with provenance assertions", "status": STATUS_PLANNED},
@@ -169,6 +169,22 @@ PHASES = [
 
 # Most recent first. Add a line whenever a task changes status.
 PROGRESS_LOG = [
+    {
+        "date": "2026-06-15",
+        "note": (
+            "url-to-video now narrates with Dia, not Riva (V1 tts-clone): added a "
+            "`voice` workflow step type + async _rerun_voice runner routing "
+            "VOICE→Dia (/v1/voice/generations), and switched the template's "
+            "speech map to it. A `voice_seed` template input (default 42) is "
+            "passed identically to every section so Dia's generated voice stays "
+            "consistent across the whole video. Root cause it fixed: the old "
+            "`type: tts` step hit the agent's Riva tts backend (magpie, scaled "
+            "to 0) → connection refused; Dia only answers the voice-cloning "
+            "path. Verified live end to end (VOICE job → club-host → Dia, seed "
+            "honored, OUTPUT_AUDIO stored). 40 tests green. Also exposed "
+            "firecrawl on a3's hostPort 3002 so the dev agent can reach scrape."
+        ),
+    },
     {
         "date": "2026-06-15",
         "note": (

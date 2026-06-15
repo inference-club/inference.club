@@ -501,8 +501,8 @@ class TestUrlToVideoEndToEnd:
                 return _FakeResp(
                     {"choices": [{"message": {"role": "assistant", "content": dialog}}]}
                 )
-            if "audio/synthesize" in url:
-                return _FakeResp(wav, content_type="audio/wav")
+            if "audio/synthesize" in url or "voice/generations" in url:
+                return _FakeResp(wav, content_type="audio/wav", headers={"x-seed": "42"})
             if "images/generations" in url:
                 return _FakeResp({"created": 1, "data": [{"b64_json": img_b64}]})
             return _FakeResp({})
