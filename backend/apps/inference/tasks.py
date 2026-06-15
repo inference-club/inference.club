@@ -56,3 +56,19 @@ def process_segment(segment_id):
             logger.exception("process_segment task failed for segment %s", segment_id)
             seg.status = Segment.STATUS_ERROR
             seg.save(update_fields=["status", "modified_on"])
+
+
+@shared_task(name="apps.inference.tasks.regenerate_segment")
+def regenerate_segment(segment_id, text_override=None, seed=None):
+    """Generate a fresh take for a segment and run the full pipeline on it."""
+    from . import narration
+    from .models import Segment
+
+    seg = Segment.objects.filter(id=segment_id).select_related("episode").first()
+    if seg is not None:
+        try:
+            narration.regenerate_segment(seg, text_override=text_override, seed=seed)
+        except Exception:
+            logger.exception("regenerate_segment task failed for segment %s", segment_id)
+            seg.status = Segment.STATUS_ERROR
+            seg.save(update_fields=["status", "modified_on"])

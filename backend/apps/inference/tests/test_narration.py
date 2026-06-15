@@ -156,7 +156,7 @@ class _FakeResp:
         return _json.loads(self.content)
 
 
-def _service_model(u, service_type, model_name):
+def _service_model(u, service_type, model_name, features=None):
     p = Provider.objects.create(
         user=u, name=f"n-{service_type}", tailnet_hostname=f"h-{service_type}",
         is_active=True, accepting_requests=True, last_seen_at=timezone.now(),
@@ -164,6 +164,7 @@ def _service_model(u, service_type, model_name):
     svc = ProviderService.objects.create(
         provider=p, name=f"{service_type}-svc", engine="other",
         service_type=service_type, access_policy=ProviderService.ACCESS_AUTHENTICATED,
+        declared_features=features or [],
     )
     pm = ProviderModel(provider=p, name=model_name, service=svc)
     link_catalog_model(pm)
@@ -257,3 +258,68 @@ def test_process_endpoint_409_without_audio(user):
     seg = Segment.objects.create(episode=ep, position=0, text="no take yet")
     c = APIClient(); c.force_authenticate(user)
     assert c.post(f"/v1/segments/{seg.id}/process", {}, format="json").status_code == 409
+
+
+def test_regenerate_segment_generates_take_then_processes(user):
+    # Dia (voice-cloning tts) for generation + stt for ASR; no enhance is fine.
+    _service_model(user, "tts", "dia", features=["voice-cloning"])
+    _service_model(user, "stt", "qwen3-asr")
+    from apps.inference.models import Episode
+    ep = Episode.objects.create(user=user, title="ep")
+    seg = Segment.objects.create(episode=ep, position=0, text="once upon a time")
+    take_wav = _wav([(0.3, 0), (0.7, 440), (0.3, 0)])
+    words = [{"word": w, "start": 0.3 + i * 0.1, "end": 0.4 + i * 0.1}
+             for i, w in enumerate("once upon a time".split())]
+
+    def _post(url, **kw):
+        if "voice/generations" in url:
+            return _FakeResp(take_wav, content_type="audio/wav")
+        if "audio/transcriptions" in url:
+            return _FakeResp({"text": "once upon a time", "words": words})
+        return _FakeResp({})
+
+    with patch("apps.inference.openai_views.requests.post", side_effect=_post):
+        res = narration.regenerate_segment(seg)
+    assert res["ok"], res
+    seg.refresh_from_db()
+    assert seg.selected_variant_id is not None              # a fresh take was made + selected
+    v = seg.selected_variant
+    assert v.audio_id and v.cleaned_audio_id                # generated + processed
+    assert v.transcript == "once upon a time"
+    assert seg.status == Segment.STATUS_READY
+    assert seg.variants.count() == 1
+
+
+def test_regenerate_endpoint_inline(user, settings):
+    settings.ASYNC_ENABLED = False
+    _service_model(user, "tts", "dia", features=["voice-cloning"])
+    _service_model(user, "stt", "qwen3-asr")
+    from apps.inference.models import Episode
+    ep = Episode.objects.create(user=user, title="ep")
+    seg = Segment.objects.create(episode=ep, position=0, text="hello world")
+    wav = _wav([(0.3, 0), (0.6, 440), (0.3, 0)])
+    words = [{"word": "hello", "start": 0.3, "end": 0.6}, {"word": "world", "start": 0.6, "end": 0.9}]
+
+    def _post(url, **kw):
+        if "voice/generations" in url:
+            return _FakeResp(wav, content_type="audio/wav")
+        if "audio/transcriptions" in url:
+            return _FakeResp({"text": "hello world", "words": words})
+        return _FakeResp({})
+
+    from rest_framework.test import APIClient
+    c = APIClient(); c.force_authenticate(user)
+    with patch("apps.inference.openai_views.requests.post", side_effect=_post):
+        r = c.post(f"/v1/segments/{seg.id}/regenerate", {"seed": 7}, format="json")
+    assert r.status_code == 202, r.content
+    assert r.json()["status"] == Segment.STATUS_READY
+
+
+def test_regenerate_without_voice_provider_errors(user):
+    from apps.inference.models import Episode
+    ep = Episode.objects.create(user=user, title="ep")
+    seg = Segment.objects.create(episode=ep, position=0, text="no voice provider")
+    res = narration.regenerate_segment(seg)
+    assert res["ok"] is False
+    seg.refresh_from_db()
+    assert seg.status == Segment.STATUS_ERROR

@@ -248,6 +248,15 @@ _QUALITY_PROMPT = (
 )
 
 
+_SPEAKER_TAG_RE = re.compile(r"\[S\d+\]")
+
+
+def strip_speaker_tags(text: str) -> str:
+    """Drop Dia ``[S1]/[S2]`` tags + extra whitespace — so grading compares the
+    *spoken words* to the transcript, not the control tokens."""
+    return re.sub(r"\s+", " ", _SPEAKER_TAG_RE.sub("", text or "")).strip()
+
+
 def _normalize_for_similarity(text: str) -> str:
     text = (text or "").lower()
     text = re.sub(r"[^a-z0-9\s]", " ", text)
@@ -453,7 +462,7 @@ def process_segment(segment):
     variant.transcript = text
 
     # 4) Grade the transcript against the intended text.
-    grade = grade_transcription(user, variant.text or segment.text, text)
+    grade = grade_transcription(user, strip_speaker_tags(variant.text or segment.text), text)
     variant.grade = grade
     variant.save(update_fields=[
         "cleaned_audio", "words", "duration_seconds", "transcript", "grade",
@@ -465,3 +474,122 @@ def process_segment(segment):
     segment.save(update_fields=["status", "modified_on"])
     return {"ok": True, "status": segment.status, "grade": grade,
             "duration": out_dur, "audio_asset_id": final.id if final else None}
+
+
+# --- take generation + regenerate (PRD 12 V3) --------------------------------
+
+
+def generate_take(segment, *, text_override=None, seed=None):
+    """Generate a fresh Dia take for ``segment`` → a new Variant (made the
+    selected take). Honors the segment's ``voice_sample`` (voice cloning) when
+    set; otherwise a seeded plain generation. Returns the Variant, or None if no
+    voice provider is reachable / generation failed."""
+    import random
+
+    import requests
+    from django.core.files.base import ContentFile
+
+    from .models import InferenceRequest, MediaAsset, Variant
+    from .openai_views import (UPSTREAM_TIMEOUT_SECONDS, _append_dia_end_tag,
+                               _ffmpeg_to_wav, _find_voice_provider, _is_wav,
+                               _normalize_script, _read_asset_bytes, _tailnet_proxies,
+                               _wav_seconds)
+
+    user = segment.episode.user
+    raw = (text_override if text_override is not None else segment.text or "").strip()
+    if not raw:
+        return None
+    text, _spk, err = _normalize_script(raw)
+    if err or not text:
+        text = _append_dia_end_tag("[S1] " + raw)
+    if seed is None:
+        seed = random.randint(0, 2_147_483_647)
+
+    pm = _find_voice_provider(user, None)
+    if pm is None:
+        return None
+    provider = pm.provider
+
+    # Optional voice-cloning prompt from the segment's sample.
+    audio_prompt, prompt_text = None, ""
+    if segment.voice_sample_id and segment.voice_sample and (segment.voice_sample.transcript or "").strip():
+        try:
+            raw_bytes = _read_asset_bytes(segment.voice_sample.audio)
+            wav = _ffmpeg_to_wav(raw_bytes)
+            if wav is None and _is_wav(raw_bytes):
+                wav = raw_bytes
+            if wav:
+                audio_prompt = wav
+                prompt_text = f"[S1] {segment.voice_sample.transcript.strip()}"
+        except Exception:
+            logger.warning("generate_take: voice-sample read failed", exc_info=True)
+
+    fields = {
+        "text": (None, text), "max_new_tokens": (None, "3072"),
+        "cfg_scale": (None, "3.0"), "temperature": (None, "1.8"),
+        "top_p": (None, "0.95"), "cfg_filter_top_k": (None, "45"),
+        "speed_factor": (None, "1.0"), "seed": (None, str(seed)),
+    }
+    if audio_prompt is not None:
+        fields["audio_prompt_text"] = (None, prompt_text)
+        fields["audio_prompt"] = ("prompt.wav", audio_prompt, "audio/wav")
+
+    ir = InferenceRequest.objects.create(
+        user=user, provider=provider, inference_type="VOICE", status="PROCESSING",
+        model_name=pm.name or "",
+        payload={"input": text, "seed": seed, "voice_sample_id": segment.voice_sample_id},
+    )
+    try:
+        up = requests.post(
+            provider.tailnet_base_url.rstrip("/") + "/voice/generations", files=fields,
+            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        ir.status = "REQUESTED"
+        ir.results = {"error": str(e)}
+        ir.save(update_fields=["status", "results", "modified_on"])
+        return None
+    if not up.ok:
+        ir.status = "REQUESTED"
+        ir.results = {"upstream_status": up.status_code, "error": (up.text or "")[:300]}
+        ir.save(update_fields=["status", "results", "modified_on"])
+        return None
+
+    audio = up.content
+    out_ct = (up.headers.get("content-type") or "audio/wav").split(";", 1)[0]
+    try:
+        seconds = float(up.headers.get("x-duration-seconds") or 0) or _wav_seconds(audio)
+    except (TypeError, ValueError):
+        seconds = _wav_seconds(audio)
+    asset = MediaAsset(
+        user=user, inference_request=ir, kind=MediaAsset.OUTPUT_AUDIO,
+        content_type=out_ct, size_bytes=len(audio), duration_seconds=seconds,
+    )
+    asset.file.save("voice.wav", ContentFile(audio), save=False)
+    asset.save()
+    ir.status = "PROCESSED"
+    ir.audio_seconds = seconds
+    ir.results = {"audio_asset_id": asset.id, "content_type": out_ct,
+                  "seed": up.headers.get("x-seed")}
+    ir.save(update_fields=["status", "audio_seconds", "results", "modified_on"])
+
+    variant = Variant.objects.create(
+        segment=segment, text=text, audio=asset, inference_request=ir,
+        duration_seconds=seconds,
+    )
+    segment.selected_variant = variant
+    segment.save(update_fields=["selected_variant", "modified_on"])
+    return variant
+
+
+def regenerate_segment(segment, *, text_override=None, seed=None):
+    """Redo a segment end to end: generate a fresh take, then run the full
+    pipeline (clean → ASR → trim → grade) on it. Returns the process summary."""
+    from .models import Segment
+
+    variant = generate_take(segment, text_override=text_override, seed=seed)
+    if variant is None:
+        segment.status = Segment.STATUS_ERROR
+        segment.save(update_fields=["status", "modified_on"])
+        return {"ok": False, "error": "Could not generate a new take (no voice provider?)."}
+    return process_segment(segment)

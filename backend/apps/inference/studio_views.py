@@ -222,3 +222,42 @@ class SegmentProcessView(APIView):
             SegmentSerializer(seg, context={"request": request}).data,
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class SegmentRegenerateView(APIView):
+    """POST /v1/segments/<id>/regenerate — generate a fresh take (Dia, honoring
+    the segment's voice sample) and run the full pipeline on it. Optional body:
+    ``{text, seed}`` (text overrides the spoken line; seed pins the voice).
+    Returns the segment (202)."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id):
+        from django.conf import settings
+
+        from . import jobs, narration
+        from .tasks import regenerate_segment as regenerate_task
+
+        seg = get_object_or_404(
+            Segment.objects.filter(episode__user=request.user).select_related("episode"),
+            id=id,
+        )
+        body = request.data if isinstance(request.data, dict) else {}
+        text_override = body.get("text")
+        seed = body.get("seed")
+        try:
+            seed = int(seed) if seed not in (None, "") else None
+        except (TypeError, ValueError):
+            return Response({"detail": "`seed` must be an integer."}, status=400)
+
+        if jobs.async_enabled() and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            seg.status = Segment.STATUS_GENERATING
+            seg.save(update_fields=["status", "modified_on"])
+            regenerate_task.delay(seg.id, text_override=text_override, seed=seed)
+        else:
+            narration.regenerate_segment(seg, text_override=text_override, seed=seed)
+            seg.refresh_from_db()
+        return Response(
+            SegmentSerializer(seg, context={"request": request}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
