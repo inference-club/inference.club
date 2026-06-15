@@ -202,3 +202,17 @@ class TestPublicOutputVideo:
         # Anonymous can fetch a generated video (public by URL).
         resp = APIClient().get(f"/api/inference/assets/{asset.id}/")
         assert resp.status_code == 200
+
+
+def test_normalize_prompt_punct_maps_smart_punctuation_to_ascii():
+    """LTX-2 encodes prompts as latin-1 and 500s on smart punctuation; the
+    video runner normalizes it first (regression for the workflow video step)."""
+    from apps.inference.openai_views import _normalize_prompt_punct
+
+    out = _normalize_prompt_punct("A time‑lapse — “gazebo”… piece‑by‑piece")
+    assert out == 'A time-lapse - "gazebo"... piece-by-piece'
+    # whole result is latin-1 encodable now (what LTX-2 needs)
+    out.encode("latin-1")
+    # genuine non-latin text (CJK) is left untouched
+    assert _normalize_prompt_punct("東京") == "東京"
+    assert _normalize_prompt_punct(None) is None

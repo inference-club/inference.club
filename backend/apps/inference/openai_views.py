@@ -2298,11 +2298,13 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
 
         # The LTX /generate request shape. The agent forwards this body verbatim
         # to the upstream server's POST /generate and streams the MP4 back.
-        forward = {"prompt": prompt, "enhance_prompt": enhance_prompt}
+        # Normalize smart punctuation — LTX-2 encodes the prompt as latin-1 and
+        # 500s on non-breaking hyphens / curly quotes / em dashes.
+        forward = {"prompt": _normalize_prompt_punct(prompt), "enhance_prompt": enhance_prompt}
         if served_name or canonical or model_name:
             forward["model"] = served_name or canonical or model_name
         if negative_prompt:
-            forward["negative_prompt"] = negative_prompt
+            forward["negative_prompt"] = _normalize_prompt_punct(negative_prompt)
         if image:
             forward["image"] = image
             forward["image_strength"] = image_strength
@@ -3652,6 +3654,29 @@ def _rerun_music(ir, provider_model):
     return True, None
 
 
+# LLMs (e.g. Nemotron) often emit "smart" punctuation — non-breaking hyphen
+# (U+2011), en/em dashes, curly quotes, ellipsis, non-breaking spaces. The LTX-2
+# video server encodes the prompt as latin-1 and 500s on any of these. Map them
+# to ASCII before forwarding. Only punctuation is touched, so genuine non-latin
+# text (e.g. CJK) is preserved — though a latin-1 upstream would still need its
+# own UTF-8 fix to accept that.
+_PROMPT_PUNCT = {
+    "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-",
+    "―": "-", "‘": "'", "’": "'", "‚": "'", "′": "'",
+    "“": '"', "”": '"', "„": '"', "″": '"',
+    "…": "...", " ": " ", " ": " ", " ": " ",
+}
+_PROMPT_PUNCT_RE = re.compile("|".join(map(re.escape, _PROMPT_PUNCT)))
+
+
+def _normalize_prompt_punct(text):
+    """Replace LLM smart-punctuation with ASCII so a latin-1 upstream (LTX-2)
+    doesn't choke. No-op for non-strings."""
+    if not isinstance(text, str):
+        return text
+    return _PROMPT_PUNCT_RE.sub(lambda m: _PROMPT_PUNCT[m.group()], text)
+
+
 def _rerun_video(ir, provider_model):
     import base64
 
@@ -3661,11 +3686,11 @@ def _rerun_video(ir, provider_model):
     p = ir.payload or {}
     forward = {
         "model": provider_model.name or p.get("model") or ir.model_name,
-        "prompt": p.get("prompt") or "",
+        "prompt": _normalize_prompt_punct(p.get("prompt") or ""),
         "enhance_prompt": bool(p.get("enhance_prompt")),
     }
     if p.get("negative_prompt"):
-        forward["negative_prompt"] = p["negative_prompt"]
+        forward["negative_prompt"] = _normalize_prompt_punct(p["negative_prompt"])
     if p.get("has_image"):
         image, ctype = _retry_read_input_asset(ir, MediaAsset.INPUT_IMAGE)
         if image is None:
