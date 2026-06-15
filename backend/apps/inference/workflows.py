@@ -55,6 +55,8 @@ _SHORT_TYPE = {
     "scrape": ("SCRAPE", "scrape"),
     "compose": ("RENDER", "render"), "render": ("RENDER", "render"),
     "clean": ("ENHANCE", "audio-enhance"), "enhance": ("ENHANCE", "audio-enhance"),
+    # `trim` — central narration silence/pause trim (no provider; see narration.py).
+    "trim": ("TRIM", "trim"),
 }
 
 _TEMPLATE_RE = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")

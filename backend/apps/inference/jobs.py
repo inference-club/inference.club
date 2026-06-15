@@ -32,6 +32,9 @@ JOB_SERVICE_TYPE = {
     # advertises voice-cloning, so it shares the tts capacity pool. The workflow
     # `voice` step uses it; the public async API does not (it needs an upload).
     "VOICE": "tts",
+    # TRIM (narration silence/pause trimming) runs centrally on the worker with
+    # FFmpeg — a deterministic transform over stored audio, no provider needed.
+    "TRIM": "trim",
 }
 # Modalities accepted over the async API directly. File-input modalities
 # (STT/MESH/VOICE/image-edits) need an uploaded blob and stay synchronous for
@@ -43,7 +46,7 @@ ASYNC_SUBMIT_TYPES = {"LLM", "IMAGE", "VIDEO", "MUSIC", "TTS", "SCRAPE", "RENDER
 # (PRD 12 §5.5). RENDER (compose / FFmpeg) is a deterministic transform over
 # assets we already store, so it needs no provider — the dispatcher claims it
 # under a central concurrency cap and run_job calls its runner with no pm.
-CENTRAL_TYPES = {"RENDER"}
+CENTRAL_TYPES = {"RENDER", "TRIM"}
 # Tally key for central jobs (provider_id is None; grouped by service type).
 _CENTRAL_PROVIDER_ID = None
 

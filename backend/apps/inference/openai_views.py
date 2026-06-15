@@ -3110,7 +3110,7 @@ _RETRY_SERVICE_TYPE = {
     "SCRAPE": "scrape", "RENDER": "render", "ENHANCE": "audio-enhance",
     # VOICE (Dia) routes to a tts-typed voice-cloning service; the agent picks
     # the /v1/voice/generations path by endpoint, not by this service type.
-    "VOICE": "tts",
+    "VOICE": "tts", "TRIM": "trim",
 }
 
 
@@ -3228,6 +3228,14 @@ def _rerun_render(ir, provider_model):
     from . import render
 
     return render.run_render_job(ir)
+
+
+def _rerun_trim(ir, provider_model):
+    """TRIM (narration silence/pause trim) runner — central FFmpeg, no provider
+    (claimed centrally; see jobs.CENTRAL_TYPES)."""
+    from . import narration
+
+    return narration.run_trim_job(ir)
 
 
 def _retry_read_input_asset(ir, kind):
@@ -3762,7 +3770,7 @@ _RETRY_RUNNERS = {
     "LLM": _rerun_llm, "STT": _rerun_stt, "TTS": _rerun_tts,
     "IMAGE": _rerun_image, "MESH": _rerun_mesh, "MUSIC": _rerun_music,
     "VIDEO": _rerun_video, "SCRAPE": _rerun_scrape, "RENDER": _rerun_render,
-    "VOICE": _rerun_voice, "ENHANCE": _rerun_enhance,
+    "VOICE": _rerun_voice, "ENHANCE": _rerun_enhance, "TRIM": _rerun_trim,
 }
 
 

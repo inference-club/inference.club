@@ -172,6 +172,22 @@ PROGRESS_LOG = [
     {
         "date": "2026-06-15",
         "note": (
+            "Narration Studio pipeline primitives (V3, phase 1a): new "
+            "narration.py with (1) normalize_words — canonicalizes ASR word "
+            "lists to [{word,start,end}]; (2) a central FFmpeg TRIM modality "
+            "(no provider, like RENDER) that trims leading/trailing silence and "
+            "collapses long internal pauses from word timestamps via the aselect "
+            "filter; (3) grade_transcription — LLM judge (ASR vs original, 0-10, "
+            "accept >=8) with a SequenceMatcher fallback, ported from "
+            "inference-club-studio. 7 tests green (real-ffmpeg trim + central "
+            "dispatch). Next: per-segment orchestrator (clean->ASR->trim->grade) "
+            "+ regenerate/process endpoints, text->chunks, the narration-review "
+            "gate node, and the editor page."
+        ),
+    },
+    {
+        "date": "2026-06-15",
+        "note": (
             "StudioVoice cleaning wired into url-to-video (V1 clean-node): every "
             "Dia narration clip now runs through Maxine Studio Voice before "
             "compose. Added the async _rerun_enhance runner (ENHANCE → agent "
