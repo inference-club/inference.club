@@ -214,6 +214,23 @@ const memVolume = computed(() => {
   return { frac, fillH: Math.max(0.02, frac * MEM_VOL_H) }
 })
 
+// GPU VRAM pillar (live dcgm only): the green twin of the RAM gauge. Fill =
+// VRAM used / total; its glow tracks GPU utilization so a saturated 4090 reads
+// as "hot" at a glance. nil when the node has no live dcgm data (a2/spark) — the
+// pillar simply doesn't render there.
+const gpuVolume = computed(() => {
+  const gpu = props.host.live?.gpu
+  if (!gpu || gpu.vram_total_bytes <= 0) return null
+  const frac = gpu.vram_used_bytes > 0
+    ? Math.min(1, gpu.vram_used_bytes / gpu.vram_total_bytes)
+    : 0
+  return {
+    frac,
+    fillH: Math.max(0.02, frac * MEM_VOL_H),
+    util: Math.max(0, Math.min(100, gpu.util_percent)) / 100,
+  }
+})
+
 interface PodBrick {
   pod: LivePod
   color: string
@@ -502,6 +519,38 @@ const setHover = (h: boolean) => {
           :emissive-intensity="isDark ? 0.8 : 0.15"
           :transparent="true"
           :opacity="0.85"
+        />
+      </TresMesh>
+    </TresGroup>
+
+    <!-- GPU VRAM pillar: green twin of the RAM gauge, one slot further out so
+         "regular memory" and "GPU memory" sit side by side. Fill = VRAM
+         used/total; the fill's glow tracks GPU utilization. No pod cargo —
+         VRAM isn't attributed per pod. Live dcgm-exporter data only. -->
+    <TresGroup v-if="gpuVolume" :position="[dims.w / 2 + 1.12, 0.12, 0]">
+      <TresMesh :position="[0, MEM_VOL_H / 2, 0]">
+        <TresBoxGeometry :args="[0.5, MEM_VOL_H, 0.5]" />
+        <TresMeshStandardMaterial
+          color="#22c55e"
+          :transparent="true"
+          :opacity="isDark ? 0.1 : 0.08"
+          :depth-write="false"
+        />
+      </TresMesh>
+      <!-- Cap line marking 100% of VRAM -->
+      <TresMesh :position="[0, MEM_VOL_H, 0]">
+        <TresBoxGeometry :args="[0.54, 0.02, 0.54]" />
+        <TresMeshBasicMaterial color="#22c55e" :transparent="true" :opacity="isDark ? 0.5 : 0.35" />
+      </TresMesh>
+      <TresMesh v-if="gpuVolume.frac > 0" :position="[0, gpuVolume.fillH / 2, 0]">
+        <TresBoxGeometry :args="[0.46, gpuVolume.fillH, 0.46]" />
+        <TresMeshStandardMaterial
+          color="#16a34a"
+          :emissive="isDark ? '#22c55e' : '#000000'"
+          :emissive-intensity="isDark ? 0.25 + gpuVolume.util * 0.9 : 0"
+          :transparent="true"
+          :opacity="isDark ? 0.34 : 0.25"
+          :depth-write="false"
         />
       </TresMesh>
     </TresGroup>

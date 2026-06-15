@@ -3,7 +3,8 @@
 // The scene is driven by a single ClusterSnapshot built from two sources:
 //   shape — the provider's kubernetes-derived manifest (hosts, GPUs, services)
 //   live  — GET /api/inference/providers/<id>/cluster/, the backend's proxy of
-//           the agent's /cluster/state (node conditions, memory, pod phases)
+//           the agent's /cluster/state (node conditions, memory, GPU VRAM/util,
+//           pod phases)
 // Live state is progressive enhancement: the snapshot renders fully from the
 // manifest alone, and the poll layers health/usage on top when available.
 //
@@ -28,6 +29,25 @@ export interface LiveNode {
   os_image?: string
   memory: { allocatable_bytes: number; capacity_bytes: number; usage_bytes: number }
   gpu_allocatable: number
+  // Live VRAM/utilization from dcgm-exporter (agent clusterstate.go NodeGPU).
+  // Absent when the node has no reachable exporter — render falls back to the
+  // gpu_allocatable count.
+  gpu?: LiveNodeGPU
+}
+
+export interface LiveGPUDevice {
+  index: number
+  model?: string
+  vram_used_bytes: number
+  vram_total_bytes: number
+  util_percent: number
+}
+
+export interface LiveNodeGPU {
+  vram_used_bytes: number
+  vram_total_bytes: number
+  util_percent: number // averaged across devices
+  devices?: LiveGPUDevice[]
 }
 
 export interface LivePod {

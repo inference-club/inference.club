@@ -892,6 +892,13 @@ const helpOpen = ref(false)
                   {{ formatBytes(selection.host.live.memory.usage_bytes) }} / {{ formatBytes(selection.host.live.memory.allocatable_bytes) }}
                 </dd>
               </div>
+              <div v-if="selection.host.live.gpu" class="flex justify-between gap-2">
+                <dt class="text-slate-500 dark:text-slate-400">GPU memory</dt>
+                <dd class="font-mono text-emerald-600 dark:text-emerald-400">
+                  {{ formatBytes(selection.host.live.gpu.vram_used_bytes) }} / {{ formatBytes(selection.host.live.gpu.vram_total_bytes) }}
+                  <span class="text-slate-400 dark:text-slate-500"> · {{ selection.host.live.gpu.util_percent }}% util</span>
+                </dd>
+              </div>
               <div v-if="badConditions(selection.host).length" class="pt-1">
                 <dt class="text-red-500 font-medium">Conditions</dt>
                 <dd>

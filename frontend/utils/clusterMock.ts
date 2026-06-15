@@ -137,6 +137,11 @@ function liveState(scenario: MockScenario): ClusterStatePayload {
         architecture: 'amd64', kubelet_version: 'v1.35.5+k3s1', os_image: 'Ubuntu 24.04.4 LTS',
         memory: { allocatable_bytes: 16688115712, capacity_bytes: 16688115712, usage_bytes: 8448741376 },
         gpu_allocatable: 1,
+        // a1 runs dcgm-exporter — a busy 4090 (~17/24 GiB, 55% util).
+        gpu: {
+          vram_used_bytes: 18253611008, vram_total_bytes: 25769803776, util_percent: 55,
+          devices: [{ index: 0, model: 'NVIDIA GeForce RTX 4090', vram_used_bytes: 18253611008, vram_total_bytes: 25769803776, util_percent: 55 }],
+        },
       },
       {
         name: 'a2', host_id: 'a2', ready: true, conditions: HEALTHY_CONDITIONS,
@@ -152,6 +157,11 @@ function liveState(scenario: MockScenario): ClusterStatePayload {
         architecture: 'amd64', kubelet_version: 'v1.35.5+k3s1', os_image: 'Ubuntu 24.04.4 LTS',
         memory: { allocatable_bytes: 67146694656, capacity_bytes: 67146694656, usage_bytes: degraded ? 0 : 18775068672 },
         gpu_allocatable: 1,
+        // a3 runs dcgm-exporter too — a lightly-loaded 4090 (~12/24 GiB, 30% util).
+        gpu: {
+          vram_used_bytes: 12884901888, vram_total_bytes: 25769803776, util_percent: 30,
+          devices: [{ index: 0, model: 'NVIDIA GeForce RTX 4090', vram_used_bytes: 12884901888, vram_total_bytes: 25769803776, util_percent: 30 }],
+        },
       },
       {
         name: 'spark-d2ce', host_id: 'spark', ready: true, conditions: HEALTHY_CONDITIONS,
