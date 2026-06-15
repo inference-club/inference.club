@@ -3680,6 +3680,8 @@ def _normalize_prompt_punct(text):
 def _rerun_video(ir, provider_model):
     import base64
 
+    from django.core.files.base import ContentFile
+
     from .models import MediaAsset  # noqa: F811
 
     provider = provider_model.provider
@@ -3734,6 +3736,11 @@ def _rerun_video(ir, provider_model):
         asset.save()
     except Exception as e:
         logger.warning("retry: video output store failed: %s", e)
+        asset = None
+    if asset is None:
+        # Don't report success with no video — that silently breaks any
+        # downstream step (e.g. compose) and masks storage bugs.
+        return _retry_simple_fail(ir, "Generated video could not be stored.")
     ir.status = "PROCESSED"
     ir.audio_seconds = seconds
     ir.results = {"video_asset_id": asset.id if asset else None,
