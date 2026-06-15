@@ -90,7 +90,7 @@ PHASES = [
             {"id": "dialog-node", "title": "`dialog` node: LLM → [S1]/[S2] script via response_schema (structured)", "status": STATUS_PLANNED},
             {"id": "section-split", "title": "Section-split transform (2 dialog lines → 1 section) + mapping to assets", "status": STATUS_DONE, "note": "`split_sections` op in _run_transform → [{index,lines,text}]; builder inspector + 4 tests."},
             {"id": "tts-clone-map", "title": "`tts-clone`: per-section Dia voice (map over sections) → audio assets", "status": STATUS_DONE, "note": "DONE: `voice` workflow step type (VOICE→Dia via /v1/voice/generations) + async _rerun_voice runner (JOB_SERVICE_TYPE/_RETRY_RUNNERS, tts capacity pool). url-to-video's speech map now narrates each section's [S1]/[S2] dialogue with Dia, passing the SAME `voice_seed` (template input, default 42) to every section so the voice stays consistent. Verified live: VOICE job → club-host → Dia, seed honored, OUTPUT_AUDIO stored. Sample-based cloning stays on the sync VoiceGenerationsView (needs an upload)."},
-            {"id": "clean-node", "title": "`clean` node + `audio-enhance` service (StudioVoice), keep original separate", "status": STATUS_IN_PROGRESS, "note": "Vocabulary registered (ENHANCE/audio-enhance, /v1/audio/enhance, builder). Authorable + validates; StudioVoice runner + keep-original wiring deferred."},
+            {"id": "clean-node", "title": "`clean` node + `audio-enhance` service (StudioVoice), keep original separate", "status": STATUS_DONE, "note": "DONE: async _rerun_enhance runner (ENHANCE→agent /audio/enhance→Maxine Studio Voice) reads the upstream audio asset by id, stores the cleaned result as a NEW OUTPUT_AUDIO (original kept separate). Registered in _RETRY_RUNNERS/_RETRY_SERVICE_TYPE/JOB_SERVICE_TYPE. url-to-video now has a `clean` map step over the Dia speech output; compose uses the cleaned track (provenance video→clean→speech). studio-voice deployed in-cluster (a1, HTTP bridge). Covered by the e2e test (clean jobs PROCESSED, cleaned OUTPUT_AUDIO)."},
             {"id": "stitch-node", "title": "`stitch` transform: pydub concat + section offsets/timeline", "status": STATUS_PLANNED},
             {"id": "v1-tests", "title": "Tests: dialog→sections→tts→clean→stitch with provenance assertions", "status": STATUS_PLANNED},
         ],
@@ -169,6 +169,21 @@ PHASES = [
 
 # Most recent first. Add a line whenever a task changes status.
 PROGRESS_LOG = [
+    {
+        "date": "2026-06-15",
+        "note": (
+            "StudioVoice cleaning wired into url-to-video (V1 clean-node): every "
+            "Dia narration clip now runs through Maxine Studio Voice before "
+            "compose. Added the async _rerun_enhance runner (ENHANCE → agent "
+            "/audio/enhance), a `clean` map step over the speech output, and "
+            "repointed compose at the cleaned audio (original kept separate; "
+            "provenance video→clean→speech). studio-voice is deployed in-cluster "
+            "on a1 behind an HTTP bridge. 48 tests green. NOTE: the bridge's LAN "
+            "hostPort 8090 on a1 wasn't reachable from the dev agent at "
+            "integration time — works in-cluster, so prod is fine, but the local "
+            "dev run needs a1:8090 reachable (pod recreate / node check)."
+        ),
+    },
     {
         "date": "2026-06-15",
         "note": (

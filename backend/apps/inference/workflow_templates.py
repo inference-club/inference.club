@@ -246,19 +246,26 @@ TEMPLATES = [
              # Dia voices the [S1]/[S2] dialogue. The SAME seed is passed to every
              # section so the narrator's voice stays consistent across the video.
              "body": {"input": "{{item.text}}", "seed": "{{inputs.voice_seed}}"}},
+            {"id": "clean", "kind": "map", "type": "clean", "title": "Clean each narration (StudioVoice)",
+             "over": "{{steps.speech.output}}",
+             # Run every Dia clip through Maxine Studio Voice. The cleaned audio
+             # is a new asset that traces back to the raw narration (original
+             # kept separate); compose uses the cleaned track.
+             "derive_from": "{{steps.speech.output}}",
+             "body": {"audio_asset_id": "{{item.asset_id}}"}},
             {"id": "art", "kind": "map", "type": "image", "title": "Illustrate each section",
              "over": "{{steps.sections.output}}",
              "body": {"prompt": "{{inputs.style}} — {{item.text}}"}},
             {"id": "review", "kind": "gate", "title": "Review before composing",
-             "depends_on": ["speech", "art"]},
+             "depends_on": ["clean", "art"]},
             {"id": "video", "kind": "inference", "type": "compose", "title": "Compose the video",
              "depends_on": ["review"],
              # Provenance: the finished video traces back to every section's
-             # audio and image (PRD 12 §5.1).
-             "derive_from": ["{{steps.speech.output}}", "{{steps.art.output}}"],
+             # cleaned audio and image (PRD 12 §5.1).
+             "derive_from": ["{{steps.clean.output}}", "{{steps.art.output}}"],
              # captions: each section's dialog text, burned in over its clip,
              # aligned to the same section order as audio/images (PRD 12).
-             "body": {"audio": "{{steps.speech.output}}",
+             "body": {"audio": "{{steps.clean.output}}",
                       "images": "{{steps.art.output}}",
                       "captions": "{{steps.sections.output}}"}},
         ],

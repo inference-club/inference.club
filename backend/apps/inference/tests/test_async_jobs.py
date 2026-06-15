@@ -503,6 +503,8 @@ class TestUrlToVideoEndToEnd:
                 )
             if "audio/synthesize" in url or "voice/generations" in url:
                 return _FakeResp(wav, content_type="audio/wav", headers={"x-seed": "42"})
+            if "audio/enhance" in url:  # StudioVoice clean → cleaned wav back
+                return _FakeResp(wav, content_type="audio/wav")
             if "images/generations" in url:
                 return _FakeResp({"created": 1, "data": [{"b64_json": img_b64}]})
             return _FakeResp({})
@@ -516,6 +518,7 @@ class TestUrlToVideoEndToEnd:
         _service_model(user, "scrape", "firecrawl")
         _service_model(user, "llm", "qwen")
         _service_model(user, "tts", "dia")
+        _service_model(user, "audio-enhance", "maxine-studio-voice")
         _service_model(user, "image", "flux")
 
         dialog = ("[S1] Welcome to the show.\n[S2] Today: lighthouses.\n"
@@ -542,12 +545,18 @@ class TestUrlToVideoEndToEnd:
         run.refresh_from_db()
         assert run.status == "DONE", run.steps.filter(status="FAILED").values("step_id", "error")
 
-        # Two sections (4 dialog lines / 2) → two narrated, illustrated clips.
+        # Two sections (4 dialog lines / 2) → narrated, StudioVoice-cleaned,
+        # illustrated.
         assert run.steps.get(step_id="speech").jobs.count() == 2
+        assert run.steps.get(step_id="clean").jobs.count() == 2
         assert run.steps.get(step_id="art").jobs.count() == 2
+        # Each clean job cleaned a Dia clip into a fresh OUTPUT_AUDIO asset.
+        for j in run.steps.get(step_id="clean").jobs.all():
+            assert j.inference_type == "ENHANCE" and j.status == "PROCESSED"
+            assert j.assets.filter(kind=MediaAsset.OUTPUT_AUDIO).exists()
 
         # The compose step produced one real MP4, captioned, tracing back to
-        # every section's audio + image.
+        # every section's CLEANED audio + image.
         vid_job = run.steps.get(step_id="video").jobs.get()
         vid = vid_job.assets.get(kind=MediaAsset.OUTPUT_VIDEO)
         assert vid.size_bytes > 0 and vid.duration_seconds and vid.duration_seconds > 0
@@ -568,6 +577,7 @@ class TestUrlToVideoEndToEnd:
         err = resp.json()["error"]
         assert err["type"] == "services_unavailable"
         assert set(err["missing"]) == {
-            "web scraping", "chat / LLM", "text-to-speech", "image generation",
+            "web scraping", "chat / LLM", "text-to-speech", "audio cleanup",
+            "image generation",
         }
         assert WorkflowRun.objects.count() == 0

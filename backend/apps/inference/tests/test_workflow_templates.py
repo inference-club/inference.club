@@ -24,8 +24,12 @@ def test_url_to_video_template_is_present_and_shaped():
     # the media-pipeline nodes are wired in
     assert kinds["fetch"]["type"] == "scrape"
     assert kinds["sections"]["op"] == "split_sections"
+    assert kinds["speech"]["type"] == "voice"          # Dia narration
+    assert kinds["clean"]["type"] == "clean"           # StudioVoice cleanup
+    assert kinds["clean"]["over"] == "{{steps.speech.output}}"
     assert kinds["video"]["type"] == "compose"
-    # provenance: the composed video derives from the per-section audio + art
+    # compose consumes the CLEANED audio; provenance traces video → cleaned + art
+    assert kinds["video"]["body"]["audio"] == "{{steps.clean.output}}"
     assert kinds["video"]["derive_from"] == [
-        "{{steps.speech.output}}", "{{steps.art.output}}",
+        "{{steps.clean.output}}", "{{steps.art.output}}",
     ]

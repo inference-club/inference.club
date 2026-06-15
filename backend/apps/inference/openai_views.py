@@ -3105,7 +3105,7 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
 _RETRY_SERVICE_TYPE = {
     "LLM": None, "STT": "stt", "TTS": "tts",
     "IMAGE": "image", "MESH": "mesh", "MUSIC": "music", "VIDEO": "video",
-    "SCRAPE": "scrape", "RENDER": "render",
+    "SCRAPE": "scrape", "RENDER": "render", "ENHANCE": "audio-enhance",
     # VOICE (Dia) routes to a tts-typed voice-cloning service; the agent picks
     # the /v1/voice/generations path by endpoint, not by this service type.
     "VOICE": "tts",
@@ -3447,6 +3447,65 @@ def _rerun_voice(ir, provider_model):
     return True, None
 
 
+def _rerun_enhance(ir, provider_model):
+    """ENHANCE (StudioVoice clean) async runner — used by the workflow ``clean``
+    step. Reads the upstream audio (the voice step's OUTPUT_AUDIO, referenced by
+    ``audio_asset_id``, or a stored INPUT_AUDIO for a retried sync request),
+    forwards it to the agent's ``/audio/enhance`` (NVIDIA Maxine Studio Voice),
+    and stores the cleaned result as a new OUTPUT_AUDIO — the original is left
+    untouched, so cleaned-vs-original stays separable."""
+    from .models import MediaAsset  # noqa: F811
+
+    provider = provider_model.provider
+    p = ir.payload or {}
+    audio, ctype = None, None
+    aid = p.get("audio_asset_id") or p.get("input_asset_id")
+    if aid:
+        a = MediaAsset.objects.filter(id=aid, user=ir.user).first()
+        if a is not None and a.file:
+            try:
+                with a.file.open("rb") as f:
+                    audio = f.read()
+                ctype = a.content_type or ""
+            except Exception as e:
+                logger.warning("enhance: reading source asset %s failed: %s", aid, e)
+    if audio is None:
+        audio, ctype = _retry_read_input_asset(ir, MediaAsset.INPUT_AUDIO)
+    if audio is None:
+        return _retry_simple_fail(ir, "The audio to clean wasn't available.")
+
+    requested_format = p.get("response_format") or "wav"
+    _, content_type, ext = _riva_encoding(requested_format)
+    served = provider_model.name or p.get("model") or ir.model_name
+    data_fields = [("model", served or ""), ("response_format", requested_format)]
+    started = time.monotonic()
+    try:
+        upstream = requests.post(
+            _retry_endpoint(provider, "/audio/enhance"),
+            files={"file": (p.get("filename") or "audio.wav", audio, ctype or "application/octet-stream")},
+            data=data_fields, timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+        )
+    except requests.RequestException as e:
+        return _retry_store_exc(ir, started, e)
+    if not upstream.ok:
+        return _retry_store_upstream_error(ir, started, upstream)
+
+    out = upstream.content
+    out_ct = upstream.headers.get("content-type") or content_type
+    seconds = _wav_seconds(out)
+    asset = _retry_save_output_audio(ir, out, out_ct, ext, seconds)
+    ir.status = "PROCESSED"
+    ir.audio_seconds = seconds
+    ir.results = {
+        "audio_asset_id": asset.id if asset else None,
+        "content_type": out_ct, "source_asset_id": aid,
+    }
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=["status", "audio_seconds", "results", "latency_ms", "modified_on"])
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    return True, None
+
+
 def _rerun_image(ir, provider_model):
     provider = provider_model.provider
     p = ir.payload or {}
@@ -3671,7 +3730,7 @@ _RETRY_RUNNERS = {
     "LLM": _rerun_llm, "STT": _rerun_stt, "TTS": _rerun_tts,
     "IMAGE": _rerun_image, "MESH": _rerun_mesh, "MUSIC": _rerun_music,
     "VIDEO": _rerun_video, "SCRAPE": _rerun_scrape, "RENDER": _rerun_render,
-    "VOICE": _rerun_voice,
+    "VOICE": _rerun_voice, "ENHANCE": _rerun_enhance,
 }
 
 
