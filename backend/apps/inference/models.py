@@ -1286,6 +1286,15 @@ class Episode(BaseModel):
         WorkflowRun, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="episodes",
     )
+    # Default voice for the whole episode. ``voice_model`` is the chosen TTS /
+    # voice model name ("" = auto-pick the first reachable voice-cloning model);
+    # ``voice_sample`` is the Dia reference clip to clone (ignored by plain TTS).
+    # A Segment may still override the sample via its own ``voice_sample``.
+    voice_model = models.CharField(max_length=200, blank=True, default="")
+    voice_sample = models.ForeignKey(
+        "VoiceSample", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="episodes",
+    )
 
     class Meta:
         ordering = ["-modified_on"]

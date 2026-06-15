@@ -46,9 +46,30 @@ export interface Episode {
   id: number
   title: string
   description: string
+  voice_model: string
+  voice_sample_id: number | null
+  voice_sample_name?: string | null
   segments: Segment[]
   created_on: string
   modified_on: string
+}
+
+export interface VoiceOption {
+  model: string
+  label: string
+  provider: string
+  voice_cloning: boolean
+}
+
+export interface VoiceSampleOption {
+  id: number
+  name: string
+  has_transcript: boolean
+}
+
+export interface StudioVoices {
+  voices: VoiceOption[]
+  samples: VoiceSampleOption[]
 }
 
 export interface EpisodeSummary {
@@ -83,6 +104,9 @@ export function useStudio() {
     listEpisodes: () => get<{ data: EpisodeSummary[] }>('/v1/episodes').then((r) => r.data),
     getEpisode: (id: number | string) => get<Episode>(`/v1/episodes/${id}`),
     createEpisode: (title: string) => send<Episode>('POST', '/v1/episodes', { title }),
+    updateEpisode: (id: number, body: { title?: string; voice_model?: string; voice_sample_id?: number | null }) =>
+      send<Episode>('PATCH', `/v1/episodes/${id}`, body),
+    listVoices: () => get<StudioVoices>('/v1/studio/voices'),
     createFromText: (text: string, targetWords?: number, title?: string) =>
       send<Episode>('POST', '/v1/episodes/from-text', {
         text, target_words: targetWords, title,

@@ -69,6 +69,12 @@ class EpisodeSerializer(EpisodeListSerializer):
     """Full episode with its ordered segments (the Studio workspace payload)."""
 
     segments = SegmentSerializer(many=True, read_only=True)
+    voice_sample_name = serializers.SerializerMethodField()
 
     class Meta(EpisodeListSerializer.Meta):
-        fields = EpisodeListSerializer.Meta.fields + ["segments"]
+        fields = EpisodeListSerializer.Meta.fields + [
+            "voice_model", "voice_sample_id", "voice_sample_name", "segments",
+        ]
+
+    def get_voice_sample_name(self, obj):
+        return obj.voice_sample.speaker_name if obj.voice_sample_id else None

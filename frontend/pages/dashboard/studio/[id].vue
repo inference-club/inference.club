@@ -6,9 +6,9 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, Loader2, Plus, Wand2, CheckCircle2 } from 'lucide-vue-next'
+import { ArrowLeft, Loader2, Mic, Plus, Wand2, CheckCircle2 } from 'lucide-vue-next'
 import SegmentCard from '@/components/studio/SegmentCard.vue'
-import { useStudio, type Episode } from '@/composables/useStudio'
+import { useStudio, type Episode, type StudioVoices } from '@/composables/useStudio'
 
 definePageMeta({ layout: 'app' })
 
@@ -20,7 +20,47 @@ const episode = ref<Episode | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const busy = ref(false)
+const voices = ref<StudioVoices | null>(null)
+const savingVoice = ref(false)
 let timer: ReturnType<typeof setInterval> | null = null
+
+const voiceOptions = computed(() => voices.value?.voices || [])
+const sampleOptions = computed(() => (voices.value?.samples || []).filter((s) => s.has_transcript))
+const selectedVoiceModel = computed(() => episode.value?.voice_model || '')
+// No explicit model → the backend auto-picks a voice-cloning model (Dia).
+const cloningSelected = computed(() => {
+  const m = selectedVoiceModel.value
+  if (!m) return true
+  const opt = voiceOptions.value.find((v) => v.model === m)
+  return opt ? opt.voice_cloning : true
+})
+const noVoiceService = computed(() => !!voices.value && voiceOptions.value.length === 0)
+
+async function loadVoices() {
+  try { voices.value = await studio.listVoices() } catch { voices.value = { voices: [], samples: [] } }
+}
+
+async function setVoiceModel(e: Event) {
+  const model = (e.target as HTMLSelectElement).value
+  savingVoice.value = true
+  try {
+    const ep = await studio.updateEpisode(id, { voice_model: model })
+    if (episode.value) Object.assign(episode.value, {
+      voice_model: ep.voice_model, voice_sample_id: ep.voice_sample_id, voice_sample_name: ep.voice_sample_name,
+    })
+  } finally { savingVoice.value = false }
+}
+
+async function setVoiceSample(e: Event) {
+  const v = (e.target as HTMLSelectElement).value
+  savingVoice.value = true
+  try {
+    const ep = await studio.updateEpisode(id, { voice_sample_id: v ? Number(v) : null })
+    if (episode.value) Object.assign(episode.value, {
+      voice_sample_id: ep.voice_sample_id, voice_sample_name: ep.voice_sample_name,
+    })
+  } finally { savingVoice.value = false }
+}
 
 const segments = computed(() => episode.value?.segments || [])
 const readyCount = computed(() => segments.value.filter((s) => s.status === 'ready').length)
@@ -58,6 +98,7 @@ async function processAll() {
 
 onMounted(() => {
   load()
+  loadVoices()
   // Poll while anything is generating so takes/grades appear without a refresh.
   timer = setInterval(() => { if (anyWorking.value) load() }, 2500)
 })
@@ -65,7 +106,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl space-y-4 px-4 py-6">
+  <div class="mx-auto max-w-5xl space-y-4 px-4 py-6">
     <NuxtLink to="/dashboard/studio" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft class="size-4" /> Episodes
     </NuxtLink>
@@ -97,6 +138,40 @@ type="button" :disabled="busy || !segments.length"
             <Wand2 class="size-4" /> Process all
           </button>
         </div>
+      </div>
+
+      <!-- voice picker (applies to every take you generate in this episode) -->
+      <div class="flex flex-wrap items-center gap-3 rounded-xl border bg-background px-3 py-2.5 text-sm">
+        <span class="flex items-center gap-1.5 font-medium"><Mic class="size-4 text-fuchsia-500" /> Voice</span>
+        <p v-if="noVoiceService" class="text-xs text-amber-600 dark:text-amber-400">
+          No voice service is online — start a TTS/Dia deployment to generate takes.
+        </p>
+        <template v-else>
+          <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            Model
+            <select :value="selectedVoiceModel" :disabled="savingVoice"
+                    class="rounded-md border bg-transparent px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-sky-400"
+                    @change="setVoiceModel">
+              <option value="">Auto (voice cloning)</option>
+              <option v-for="v in voiceOptions" :key="v.model" :value="v.model">
+                {{ v.label }}{{ v.voice_cloning ? ' · clone' : '' }}
+              </option>
+            </select>
+          </label>
+          <label v-if="cloningSelected" class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            Sample
+            <select :value="episode.voice_sample_id ?? ''" :disabled="savingVoice"
+                    class="rounded-md border bg-transparent px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-sky-400"
+                    @change="setVoiceSample">
+              <option value="">Default (no clone)</option>
+              <option v-for="s in sampleOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </label>
+          <span v-if="cloningSelected && !sampleOptions.length" class="text-xs text-muted-foreground">
+            No voice samples yet — clone one in Voice Cloning to speak in your own voice.
+          </span>
+          <Loader2 v-if="savingVoice" class="size-3.5 animate-spin text-muted-foreground" />
+        </template>
       </div>
 
       <div class="space-y-3">

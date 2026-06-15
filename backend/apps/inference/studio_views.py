@@ -100,14 +100,29 @@ class EpisodeDetailView(APIView):
 
     def patch(self, request, id):
         ep = self._get(request, id)
+        fields = ["modified_on"]
         if "title" in request.data:
             title = (request.data.get("title") or "").strip()
             if not title:
                 return Response({"detail": "`title` can't be blank."}, status=400)
             ep.title = title[:200]
+            fields.append("title")
         if "description" in request.data:
             ep.description = (request.data.get("description") or "").strip()
-        ep.save(update_fields=["title", "description", "modified_on"])
+            fields.append("description")
+        if "voice_model" in request.data:
+            ep.voice_model = (request.data.get("voice_model") or "").strip()[:200]
+            fields.append("voice_model")
+        if "voice_sample_id" in request.data:
+            vsid = request.data.get("voice_sample_id")
+            if vsid in (None, ""):
+                ep.voice_sample = None
+            elif VoiceSample.objects.filter(id=vsid, user=request.user).exists():
+                ep.voice_sample_id = vsid
+            else:
+                return Response({"detail": "Unknown voice sample."}, status=400)
+            fields.append("voice_sample")
+        ep.save(update_fields=fields)
         return Response(EpisodeSerializer(ep, context={"request": request}).data)
 
     def delete(self, request, id):
@@ -298,3 +313,50 @@ class SegmentRegenerateView(APIView):
             SegmentSerializer(seg, context={"request": request}).data,
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class StudioVoicesView(APIView):
+    """GET /v1/studio/voices — the voices the editor can pick from:
+
+    - ``voices``: reachable TTS / voice models (``voice_cloning`` flags the ones,
+      like Dia, that can clone a reference sample). Empty when no voice service
+      is online — the UI then explains generation is unavailable.
+    - ``samples``: the user's Dia voice samples that have a transcript (required
+      to clone), so they can pick which voice to speak in.
+    """
+
+    permission_classes = [IsFullMember]
+
+    def get(self, request):
+        from .openai_views import _has_feature, _online_providers
+
+        seen, voices = set(), []
+        for provider in _online_providers(request.user):
+            for pm in (
+                provider.models.filter(is_active=True)
+                .filter(service__service_type="tts")
+                .select_related("provider", "service", "catalog_model")
+            ):
+                name = pm.name or ""
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                voices.append({
+                    "model": name,
+                    "label": (getattr(pm.catalog_model, "display_name", "") or name),
+                    "provider": provider.name or provider.tailnet_hostname,
+                    "voice_cloning": bool(_has_feature(pm, "voice-cloning")),
+                })
+        voices.sort(key=lambda v: (not v["voice_cloning"], v["label"].lower()))
+
+        samples = [
+            {
+                "id": vs.id,
+                "name": (f"{vs.speaker_name} · {vs.label}"
+                         if vs.label else vs.speaker_name),
+                "has_transcript": bool((vs.transcript or "").strip()),
+            }
+            for vs in VoiceSample.objects.filter(user=request.user)
+            .select_related("audio").order_by("speaker_name", "label")
+        ]
+        return Response({"voices": voices, "samples": samples})

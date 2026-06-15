@@ -490,12 +490,15 @@ def generate_take(segment, *, text_override=None, seed=None):
     from django.core.files.base import ContentFile
 
     from .models import InferenceRequest, MediaAsset, Variant
-    from .openai_views import (UPSTREAM_TIMEOUT_SECONDS, _append_dia_end_tag,
-                               _ffmpeg_to_wav, _find_voice_provider, _is_wav,
-                               _normalize_script, _read_asset_bytes, _tailnet_proxies,
-                               _wav_seconds)
+    from django.conf import settings
 
-    user = segment.episode.user
+    from .openai_views import (UPSTREAM_TIMEOUT_SECONDS, _append_dia_end_tag,
+                               _ffmpeg_to_wav, _find_voice_provider, _has_feature,
+                               _is_wav, _normalize_script, _read_asset_bytes,
+                               _riva_encoding, _tailnet_proxies, _wav_seconds)
+
+    episode = segment.episode
+    user = episode.user
     raw = (text_override if text_override is not None else segment.text or "").strip()
     if not raw:
         return None
@@ -505,43 +508,62 @@ def generate_take(segment, *, text_override=None, seed=None):
     if seed is None:
         seed = random.randint(0, 2_147_483_647)
 
-    pm = _find_voice_provider(user, None)
+    # The episode picks the voice model ("" → auto voice-cloning model); a
+    # segment's own sample overrides the episode default.
+    chosen_model = (episode.voice_model or "").strip() or None
+    pm = _find_voice_provider(user, chosen_model)
     if pm is None:
         return None
     provider = pm.provider
+    cloning = bool(_has_feature(pm, "voice-cloning"))
+    voice_sample = segment.voice_sample or episode.voice_sample
 
-    # Optional voice-cloning prompt from the segment's sample.
+    # Optional voice-cloning prompt from the chosen sample (Dia-style only).
     audio_prompt, prompt_text = None, ""
-    if segment.voice_sample_id and segment.voice_sample and (segment.voice_sample.transcript or "").strip():
+    if cloning and voice_sample and (voice_sample.transcript or "").strip():
         try:
-            raw_bytes = _read_asset_bytes(segment.voice_sample.audio)
+            raw_bytes = _read_asset_bytes(voice_sample.audio)
             wav = _ffmpeg_to_wav(raw_bytes)
             if wav is None and _is_wav(raw_bytes):
                 wav = raw_bytes
             if wav:
                 audio_prompt = wav
-                prompt_text = f"[S1] {segment.voice_sample.transcript.strip()}"
+                prompt_text = f"[S1] {voice_sample.transcript.strip()}"
         except Exception:
             logger.warning("generate_take: voice-sample read failed", exc_info=True)
-
-    fields = {
-        "text": (None, text), "max_new_tokens": (None, "3072"),
-        "cfg_scale": (None, "3.0"), "temperature": (None, "1.8"),
-        "top_p": (None, "0.95"), "cfg_filter_top_k": (None, "45"),
-        "speed_factor": (None, "1.0"), "seed": (None, str(seed)),
-    }
-    if audio_prompt is not None:
-        fields["audio_prompt_text"] = (None, prompt_text)
-        fields["audio_prompt"] = ("prompt.wav", audio_prompt, "audio/wav")
 
     ir = InferenceRequest.objects.create(
         user=user, provider=provider, inference_type="VOICE", status="PROCESSING",
         model_name=pm.name or "",
-        payload={"input": text, "seed": seed, "voice_sample_id": segment.voice_sample_id},
+        payload={"input": text, "seed": seed,
+                 "voice_sample_id": voice_sample.id if voice_sample else None},
     )
     try:
+        if cloning:
+            fields = {
+                "text": (None, text), "max_new_tokens": (None, "3072"),
+                "cfg_scale": (None, "3.0"), "temperature": (None, "1.8"),
+                "top_p": (None, "0.95"), "cfg_filter_top_k": (None, "45"),
+                "speed_factor": (None, "1.0"), "seed": (None, str(seed)),
+            }
+            if audio_prompt is not None:
+                fields["audio_prompt_text"] = (None, prompt_text)
+                fields["audio_prompt"] = ("prompt.wav", audio_prompt, "audio/wav")
+            endpoint = "/voice/generations"
+        else:
+            # Plain TTS (no cloning): speak the bare line on the chosen voice
+            # service; speaker tags only matter to Dia, so strip them here.
+            encoding, _ct, _ext = _riva_encoding("wav")
+            fields = {
+                "text": (None, strip_speaker_tags(text)),
+                "language": (None, settings.TTS_DEFAULT_LANGUAGE),
+                "voice": (None, settings.TTS_DEFAULT_VOICE),
+                "sample_rate_hz": (None, str(settings.TTS_DEFAULT_SAMPLE_RATE)),
+                "encoding": (None, encoding),
+            }
+            endpoint = "/audio/synthesize"
         up = requests.post(
-            provider.tailnet_base_url.rstrip("/") + "/voice/generations", files=fields,
+            provider.tailnet_base_url.rstrip("/") + endpoint, files=fields,
             timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
         )
     except requests.RequestException as e:

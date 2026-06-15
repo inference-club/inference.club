@@ -29,6 +29,7 @@ from .studio_views import (
     SegmentProcessView,
     SegmentRegenerateView,
     SegmentReorderView,
+    StudioVoicesView,
     VariantSelectView,
 )
 from .openai_views import (
@@ -86,6 +87,8 @@ urlpatterns = [
     path("assets/<int:id>", MediaAssetDetailView.as_view(), name="asset-detail"),
     path("assets/<int:id>/", MediaAssetDetailView.as_view()),
     # --- narration studio (PRD 12 §5.4) ---
+    path("studio/voices", StudioVoicesView.as_view(), name="studio-voices"),
+    path("studio/voices/", StudioVoicesView.as_view()),
     path("episodes", EpisodeListCreateView.as_view(), name="episodes"),
     path("episodes/", EpisodeListCreateView.as_view()),
     # from-text must precede the generic <int:id> episode routes.
