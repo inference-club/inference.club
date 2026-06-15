@@ -147,22 +147,34 @@ TEMPLATES = [
             {"id": "plan", "kind": "inference", "type": "chat", "title": "Art-direct the scene",
              "extract": "json",
              "body": {"messages": [{"role": "user", "content":
-                "You are art-directing a COZY MINIATURE CONSTRUCTION TIME-LAPSE shot as tilt-shift "
-                "faux-miniature photography. The thing being built is: {{inputs.subject}}. Give two "
-                "prompts. `image_prompt`: a vivid one-paragraph FIRST-FRAME prompt of an adorable "
-                "miniature construction site where tiny model workers, mini cranes, scaffolding and "
-                "toy machinery are building {{inputs.subject}} — tilt-shift, shallow depth of field, "
-                "warm cozy light, diorama feel, highly detailed. `video_prompt`: a short motion prompt "
-                "for a smooth time-lapse of the {{inputs.subject}} coming together — workers bustling, "
-                "the structure rising piece by piece, light and shadows shifting through the day. "
+                "You are art-directing a COZY MINIATURE CONSTRUCTION TIME-LAPSE as tilt-shift "
+                "faux-miniature photography. The finished thing the workers are building TOWARD is: "
+                "{{inputs.subject}}. Give two prompts as JSON.\n\n"
+                "`image_prompt`: the VERY FIRST FRAME — the construction site at the very START, "
+                "BEFORE the {{inputs.subject}} exists. Show only an early-stage site: cleared ground "
+                "or a bare foundation / footings / staked-out plot, pallets of staged building "
+                "materials, tiny model workers and mini cranes, scaffolding and toy machinery just "
+                "getting started. CRITICAL: do NOT depict a finished, recognizable, or mostly-built "
+                "{{inputs.subject}} — at this instant it is only groundwork, the structure is not "
+                "built yet. Tilt-shift, shallow depth of field, warm cozy light, diorama feel, "
+                "highly detailed.\n\n"
+                "`video_prompt`: a smooth time-lapse of the {{inputs.subject}} being built from that "
+                "empty foundation all the way to completion, progressing through clear stages — "
+                "foundation poured, then the frame/structure rising, then walls and roof, then "
+                "finishing details — ENDING on the fully completed {{inputs.subject}}. Tiny workers "
+                "bustling, cranes lifting beams, scaffolding going up then coming down, light and "
+                "shadows shifting through the day. Name {{inputs.subject}} as the finished result.\n\n"
                 "Return JSON: {\"image_prompt\":\"...\",\"video_prompt\":\"...\"}." + _JSON_NOTE}]}},
             {"id": "frame", "kind": "inference", "type": "image", "title": "Render the first frame",
-             "body": {"prompt": "{{steps.plan.output.image_prompt}}, tilt-shift miniature photography, "
-                      "faux-model diorama, shallow depth of field, cozy warm lighting, highly detailed",
+             "body": {"prompt": "{{steps.plan.output.image_prompt}}, early-stage construction site, "
+                      "bare foundation only, the structure is NOT built yet, no finished building, "
+                      "tilt-shift miniature photography, faux-model diorama, shallow depth of field, "
+                      "cozy warm lighting, highly detailed",
                       "size": "{{inputs.size}}x{{inputs.size}}"}},
             {"id": "clip", "kind": "inference", "type": "video", "title": "Animate the time-lapse",
-             "body": {"prompt": "{{steps.plan.output.video_prompt}}, smooth construction time-lapse, "
-                      "tilt-shift miniature look",
+             "body": {"prompt": "{{steps.plan.output.video_prompt}}, smooth construction time-lapse "
+                      "progressing from bare foundation through framing and walls to the finished "
+                      "{{inputs.subject}}, tilt-shift miniature look",
                       "image_asset_id": "{{steps.frame.output.asset_id}}",
                       "width": "{{inputs.size}}", "height": "{{inputs.size}}",
                       "duration": "{{inputs.seconds}}"}},
