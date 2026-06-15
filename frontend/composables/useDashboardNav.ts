@@ -45,6 +45,7 @@ export const dashboardNav: DashboardNavGroup[] = [
       { titleKey: 'dashboard.items.gallery', url: '/dashboard/inference/gallery' },
       { titleKey: 'dashboard.items.music', url: '/dashboard/music' },
       { titleKey: 'dashboard.items.videos', url: '/dashboard/watch' },
+      { titleKey: 'dashboard.items.studio', url: '/dashboard/studio' },
       { titleKey: 'dashboard.items.workflows', url: '/dashboard/workflows' },
       { titleKey: 'dashboard.items.queue', url: '/dashboard/queue' },
     ],
