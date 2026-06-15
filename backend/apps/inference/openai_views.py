@@ -2605,6 +2605,50 @@ class ScrapeView(_RateLimitHeadersMixin, APIView):
         )
 
 
+# --- video compose (central FFmpeg render) ---------------------------------
+
+
+class ComposeView(_RateLimitHeadersMixin, APIView):
+    """``POST /v1/videos/compose`` — assemble a narrated slideshow MP4 from
+    per-section image + audio assets (PRD 12 §5.5). Rendered centrally on the
+    worker with FFmpeg — *not* on a provider cluster — so it always runs as an
+    async job. Body: ``{"images": [asset_id…], "audio": [asset_id…]}`` (the
+    workflow ``compose`` node passes the upstream steps' outputs, which carry
+    the same asset ids). Returns the queued job (202)."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AccountTypeScopedRateThrottle]
+    throttle_scope = "inference"
+    inference_type = "RENDER"
+
+    def post(self, request):
+        from . import workflows
+
+        body = request.data
+        if not isinstance(body, dict):
+            return Response(
+                {"error": {"message": "JSON body required.", "type": "invalid_request"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        visibility, collection_name = pop_sharing_params(request)
+        _pop_async(request)  # compose is always async; strip the flag if present
+
+        image_ids = workflows._extract_asset_ids(body.get("images"))
+        audio_ids = workflows._extract_asset_ids(body.get("audio"))
+        if not image_ids or not audio_ids:
+            return Response(
+                {"error": {"message": (
+                    "`images` and `audio` must be non-empty lists of asset ids."),
+                    "type": "invalid_request"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payload = {"images": image_ids, "audio": audio_ids}
+        return _enqueue_async(
+            request, self.inference_type, payload, visibility, collection_name,
+        )
+
+
 # --- image-to-3D (mesh) ----------------------------------------------------
 
 # Valid TRELLIS.2 render resolutions: 512 (fast) · 1024 · 1536 (sharpest).
@@ -2853,7 +2897,7 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
 _RETRY_SERVICE_TYPE = {
     "LLM": None, "STT": "stt", "TTS": "tts",
     "IMAGE": "image", "MESH": "mesh", "MUSIC": "music", "VIDEO": "video",
-    "SCRAPE": "scrape",
+    "SCRAPE": "scrape", "RENDER": "render",
 }
 
 
@@ -2963,6 +3007,14 @@ def _rerun_scrape(ir, provider_model):
     if not url:
         return _retry_simple_fail(ir, "No URL stored for this scrape request.")
     return _run_scrape(ir, provider_model.provider, url, time.monotonic())
+
+
+def _rerun_render(ir, provider_model):
+    """RENDER (compose) runner — central FFmpeg, no provider. ``provider_model``
+    is None (the dispatcher claims RENDER jobs centrally; see jobs.CENTRAL_TYPES)."""
+    from . import render
+
+    return render.run_render_job(ir)
 
 
 def _retry_read_input_asset(ir, kind):
@@ -3340,7 +3392,7 @@ def _retry_simple_fail(ir, message):
 _RETRY_RUNNERS = {
     "LLM": _rerun_llm, "STT": _rerun_stt, "TTS": _rerun_tts,
     "IMAGE": _rerun_image, "MESH": _rerun_mesh, "MUSIC": _rerun_music,
-    "VIDEO": _rerun_video, "SCRAPE": _rerun_scrape,
+    "VIDEO": _rerun_video, "SCRAPE": _rerun_scrape, "RENDER": _rerun_render,
 }
 
 

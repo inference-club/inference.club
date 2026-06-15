@@ -38,7 +38,7 @@ _STATUS_ORDER = {
 ROADMAP_META = {
     "title": "Media Pipeline & Narration Studio",
     "prd": "docs/prd/12-media-pipeline-and-narration-studio.md",
-    "updated": "2026-06-14",
+    "updated": "2026-06-15",
     "summary": (
         "Adapt two of Brian's repos — hn.fm (URL→narrated/subtitled/illustrated "
         "video pipeline) and inference-club-studio (the Narrations review app) — "
@@ -72,8 +72,8 @@ PHASES = [
             {"id": "steps-emit-assets", "title": "Workflow steps emit MediaAsset ids + record provenance edges (vs transient results)", "status": STATUS_DONE, "note": "on_job_finished resolves a step's `derive_from` refs and links produced assets via record_derivation(); builder has a Derived-from field. _extract_asset_ids + integration tests green."},
             {"id": "scrape-node", "title": "`scrape` node kind + `scrape` manifest service type (Firecrawl via agent)", "status": STATUS_DONE, "note": "FULL STACK: Firecrawl deployed+proven in k3s (uses cluster vLLM); agent serveScrape (3 tests); inference.club SCRAPE modality — ScrapeView /v1/scrape + _run_scrape/_rerun_scrape storing OUTPUT_DOC + _job_output exposing markdown as text + async/queue support (6 tests); playground page /dashboard/playground/scrape. Goes live once the agent is rebuilt/redeployed (or run locally) so it routes /v1/scrape."},
             {"id": "transcribe-node", "title": "`transcribe` node wrapping existing STT → text + word timestamps", "status": STATUS_IN_PROGRESS, "note": "Routes to existing STT (transcribe→STT/stt, /v1/audio/transcriptions). Authorable + validates; the JSON/asset-ref word-timestamp runner is the remaining agent work."},
-            {"id": "compose-node", "title": "`compose` node + `render` service: FFmpeg slideshow (images+audio) → MP4", "status": STATUS_IN_PROGRESS, "note": "Vocabulary registered (RENDER/render, /v1/videos/compose). Authorable + validates; agent-side FFmpeg renderer deferred."},
-            {"id": "v0-tests", "title": "End-to-end test: URL → doc → canned audio → MP4, per-node rerun", "status": STATUS_PLANNED},
+            {"id": "compose-node", "title": "`compose` node + `render` service: FFmpeg slideshow (images+audio) → MP4", "status": STATUS_DONE, "note": "DONE: render.py renders centrally on the worker (no provider) — pairs per-section image+audio, builds a 720p narrated slideshow MP4 (each still held for its audio's length), stores OUTPUT_VIDEO + records provenance. New CENTRAL_TYPES dispatch path in jobs.py (RENDER claimed provider-free under RENDER_MAX_CONCURRENT), ComposeView POST /v1/videos/compose (always async), _rerun_render runner. 6 tests in test_compose.py (real ffmpeg). ffmpeg already in the runtime image."},
+            {"id": "v0-tests", "title": "End-to-end test: URL → doc → canned audio → MP4, per-node rerun", "status": STATUS_IN_PROGRESS, "note": "Per-node runners now exist end to end (scrape/LLM/tts/image/compose); test_compose.py covers the compose runner + central dispatch. A single full-graph URL→MP4 integration test is the remaining piece (needs canned/fake providers for the upstream nodes)."},
         ],
     },
     {
@@ -109,7 +109,7 @@ PHASES = [
             {"id": "subtitle-node", "title": "`subtitle` transform: word timestamps → ASS/VTT (word-synced)", "status": STATUS_IN_PROGRESS, "note": "VTT+ASS rendering shipped (`subtitle` op, 5 tests); persisting the result as an OUTPUT_SUBTITLE asset is pending the compose/agent path."},
             {"id": "image-prompt-node", "title": "Per-section image-prompt LLM node", "status": STATUS_PLANNED},
             {"id": "image-series-map", "title": "`image-series`: IMAGE map over sections, timeline-aligned to audio", "status": STATUS_PLANNED},
-            {"id": "compose-full", "title": "`compose` upgrade: images + audio + subtitles + timeline → final MP4", "status": STATUS_PLANNED},
+            {"id": "compose-full", "title": "`compose` upgrade: images + audio + subtitles + timeline → final MP4", "status": STATUS_IN_PROGRESS, "note": "Base compose (images + audio + per-section timeline → MP4) shipped in render.py (see compose-node). Remaining: burn the OUTPUT_SUBTITLE track (VTT/ASS already rendered by the `subtitle` op) into the final video."},
             {"id": "pipeline-template", "title": "Ship 'URL → video' workflow template in the gallery", "status": STATUS_DONE, "note": "`url-to-video` template (scrape→dialog→split_sections→tts+image maps→compose w/ derive_from); validates via validate_spec. A test now guards every template. Runs once media providers exist."},
         ],
     },
@@ -169,6 +169,23 @@ PHASES = [
 
 # Most recent first. Add a line whenever a task changes status.
 PROGRESS_LOG = [
+    {
+        "date": "2026-06-15",
+        "note": (
+            "Compose lands — the last executable node in the URL→video graph. "
+            "render.py renders centrally on the worker with FFmpeg (no provider): "
+            "pairs each section's image + audio into a 720p slideshow MP4 (still "
+            "held for its narration's length), stores OUTPUT_VIDEO + records "
+            "provenance. New RENDER central-dispatch path in jobs.py (claimed "
+            "provider-free under RENDER_MAX_CONCURRENT), ComposeView POST "
+            "/v1/videos/compose, _rerun_render. Found & fixed a real hang: a 1x1 "
+            "PNG fixture made FFmpeg's looped-image parser overflow and spin to "
+            "the 600s timeout — switched the test to a real Pillow image. 6 "
+            "compose tests + 39 regression green. The whole url-to-video template "
+            "is now executable end to end (subtitle burn-in into the video is the "
+            "one remaining compose enhancement)."
+        ),
+    },
     {
         "date": "2026-06-15",
         "note": (

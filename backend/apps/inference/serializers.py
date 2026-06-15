@@ -350,8 +350,9 @@ def _mesh_meta(obj) -> dict | None:
 
 def _video_url(obj, request) -> str | None:
     """Absolute URL to this request's generated video (the MP4), or None.
-    OUTPUT_VIDEO assets are public, like generated images."""
-    if obj.inference_type != "VIDEO":
+    OUTPUT_VIDEO assets are public, like generated images. Covers both
+    generated video (VIDEO) and composed slideshows (RENDER, PRD 12)."""
+    if obj.inference_type not in ("VIDEO", "RENDER"):
         return None
     urls = _asset_urls(obj, request, "OUTPUT_VIDEO")
     return urls[0] if urls else None

@@ -295,6 +295,9 @@ JOB_RUNNING_TIMEOUT_SECONDS = int(
 )
 # Max items a workflow `map` step may fan out to (bounds runaway fan-out).
 WORKFLOW_MAX_FANOUT = int(os.environ.get("WORKFLOW_MAX_FANOUT", "64"))
+# How many `compose`/RENDER jobs may run at once on the central worker (PRD 12
+# §5.5). FFmpeg is CPU/encode-heavy, so this is deliberately small.
+RENDER_MAX_CONCURRENT = int(os.environ.get("RENDER_MAX_CONCURRENT", "1"))
 
 CELERY_BEAT_SCHEDULE = {}
 if ASYNC_ENABLED:

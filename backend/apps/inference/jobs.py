@@ -27,13 +27,21 @@ logger = logging.getLogger("django")
 JOB_SERVICE_TYPE = {
     "LLM": "", "STT": "stt", "TTS": "tts",
     "IMAGE": "image", "MESH": "mesh", "MUSIC": "music", "VIDEO": "video",
-    "SCRAPE": "scrape",
+    "SCRAPE": "scrape", "RENDER": "render",
 }
 # Modalities accepted over the async API directly. File-input modalities
 # (STT/MESH/VOICE/image-edits) need an uploaded blob and stay synchronous for
 # now; workflows still drive them via stored input assets where applicable.
 # SCRAPE is JSON-bodied ({url}) and re-runnable, so it's async-submittable.
-ASYNC_SUBMIT_TYPES = {"LLM", "IMAGE", "VIDEO", "MUSIC", "TTS", "SCRAPE"}
+ASYNC_SUBMIT_TYPES = {"LLM", "IMAGE", "VIDEO", "MUSIC", "TTS", "SCRAPE", "RENDER"}
+
+# Modalities executed on the central worker, not forwarded to a provider agent
+# (PRD 12 §5.5). RENDER (compose / FFmpeg) is a deterministic transform over
+# assets we already store, so it needs no provider — the dispatcher claims it
+# under a central concurrency cap and run_job calls its runner with no pm.
+CENTRAL_TYPES = {"RENDER"}
+# Tally key for central jobs (provider_id is None; grouped by service type).
+_CENTRAL_PROVIDER_ID = None
 
 MAX_BACKOFF_SECONDS = 600
 
@@ -276,6 +284,28 @@ def dispatch_due_jobs(limit=50):
         tally = _running_counts()
         jobs = list(_claim_queryset(now)[:limit])
         for job in jobs:
+            # Central jobs (RENDER/compose) run on the worker — no provider.
+            # Gate them on a single central concurrency cap per type.
+            if job.inference_type in CENTRAL_TYPES:
+                stype = job.job_service_type or ""
+                cap = getattr(settings, "RENDER_MAX_CONCURRENT", 1)
+                if _service_load(tally, _CENTRAL_PROVIDER_ID, stype) >= cap:
+                    continue
+                job.status = "PROCESSING"
+                job.started_at = now
+                job.attempts = (job.attempts or 0) + 1
+                job.error = None
+                job.dispatch_meta = {"central": True, "service_type": stype}
+                job.save(update_fields=[
+                    "status", "started_at", "attempts", "error",
+                    "dispatch_meta", "modified_on",
+                ])
+                tally[(_CENTRAL_PROVIDER_ID, stype)] = (
+                    _service_load(tally, _CENTRAL_PROVIDER_ID, stype) + 1
+                )
+                claimed.append(job.id)
+                continue
+
             model_name = job.model_name or (job.payload or {}).get("model") or ""
             service_type = job.job_service_type or None
             provider_model = _find_provider_for_model(
@@ -356,6 +386,30 @@ def run_job(ir_id):
         _mark_failed(job, f"Async execution isn't supported for {job.inference_type}.",
                      kind="unsupported")
         _notify_step(job)
+        return
+
+    # Central jobs (RENDER) execute on the worker with no provider — call the
+    # runner directly (it ignores the provider_model argument).
+    if job.inference_type in CENTRAL_TYPES:
+        try:
+            ok, err = runner(job, None)
+        except Exception as e:
+            logger.exception("run_job %s (central) crashed", ir_id)
+            ok, err = False, str(e)
+        job.refresh_from_db()
+        if job.canceled_at is not None:
+            _finalize_canceled(job)
+            _notify_step(job)
+            return
+        if ok:
+            job.status = "PROCESSED"
+            job.finished_at = timezone.now()
+            job.error = None
+            job.save(update_fields=["status", "finished_at", "error", "modified_on"])
+        else:
+            _requeue_or_fail(job, err or "Compose failed.", kind="render")
+        _notify_step(job)
+        kick_dispatch()
         return
 
     # Bind to the deployment chosen at dispatch; re-resolve if it vanished.
