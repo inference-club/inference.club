@@ -683,6 +683,7 @@ class InferenceRequestListSerializer(
         model = InferenceRequest
         fields = [
             "id",
+            "public_id",
             "inference_type",
             "status",
             "model_name",
@@ -802,6 +803,7 @@ class InferenceRequestDetailSerializer(
         model = InferenceRequest
         fields = [
             "id",
+            "public_id",
             "user",
             "inference_type",
             "status",

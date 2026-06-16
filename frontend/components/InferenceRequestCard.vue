@@ -54,7 +54,11 @@ const showStatus = computed(
 )
 
 const onClick = () => {
-  if (props.linkable) navigateTo(`/dashboard/inference/requests/${props.request.id}`)
+  if (props.linkable) {
+    // Prefer the opaque public_id so the URL never exposes the sequential PK.
+    const ref = props.request.public_id || props.request.id
+    navigateTo(`/dashboard/inference/requests/${ref}`)
+  }
 }
 
 // Local copy of the visibility so the badge updates instantly when the owner
@@ -153,8 +157,8 @@ const queueTrack = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this inference request?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes request #{{ props.request.id }} and its stored
-              prompt and response. This can't be undone.
+              This permanently removes this request and its stored prompt and
+              response. This can't be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

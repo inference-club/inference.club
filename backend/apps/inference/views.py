@@ -181,7 +181,15 @@ class RetrieveInferenceRequestView(generics.RetrieveUpdateDestroyAPIView):
         return _annotate_viewer_flags(_requests_with_owner(), self.request.user)
 
     def get_object(self):
-        obj = super().get_object()
+        # Resolve by opaque public_id first; fall back to the numeric PK so old
+        # /requests/<int>/ links keep working.
+        raw = str(self.kwargs.get(self.lookup_field, ""))
+        qs = self.filter_queryset(self.get_queryset())
+        obj = qs.filter(public_id=raw).first()
+        if obj is None and raw.isdigit():
+            obj = qs.filter(pk=int(raw)).first()
+        if obj is None:
+            raise Http404("no such inference request")
         # Writes are owner-only; reads enforce the request's visibility.
         if self.request.method in ("PATCH", "PUT", "DELETE"):
             if obj.user_id != self.request.user.id:

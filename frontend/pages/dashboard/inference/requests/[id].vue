@@ -134,7 +134,7 @@ onMounted(() => {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this inference request?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes request #{{ id }} and its stored prompt and
+              This permanently removes this request and its stored prompt and
               response. This can't be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -166,7 +166,10 @@ onMounted(() => {
     <template v-else-if="req">
       <!-- Title + status badges -->
       <div class="mb-4">
-        <h1 class="text-2xl font-bold">Request #{{ req.id }}</h1>
+        <h1 class="text-2xl font-bold">
+          Request
+          <code v-if="req.public_id" class="ml-1 align-middle text-sm font-normal text-muted-foreground">{{ req.public_id }}</code>
+        </h1>
         <div class="flex items-center gap-2 flex-wrap mt-2">
           <Badge variant="outline">{{ req.inference_type }}</Badge>
           <Badge :variant="statusVariant(req.status)">{{ req.status }}</Badge>

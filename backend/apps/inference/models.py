@@ -44,6 +44,14 @@ def generate_share_token() -> str:
     return secrets.token_urlsafe(16)
 
 
+def generate_public_id() -> str:
+    """Short, opaque, URL-safe public identifier shown in the UI/URLs instead
+    of the sequential PK, so users never see "the Nth request". Unlike
+    share_token this is *not* a capability — visibility is still enforced — it
+    just hides the auto-increment ordering."""
+    return secrets.token_urlsafe(8)
+
+
 def _is_member_viewer(user) -> bool:
     """Authenticated full member. Guest/passcode accounts don't qualify for
     the PRIVATE ("members only") tier — they see what the public sees, plus
@@ -622,6 +630,12 @@ class InferenceRequest(BaseModel):
     # makes postgres build a duplicate varchar_pattern_ops "_like" index whose
     # name collides during the add→alter migration step, so keep just unique.
     share_token = models.CharField(max_length=32, unique=True, editable=False)
+    # Opaque public id shown in URLs instead of the sequential PK. Nullable +
+    # unique so the add migration can backfill existing rows (Postgres allows
+    # many NULLs under a unique constraint); always populated on save.
+    public_id = models.CharField(
+        max_length=24, unique=True, null=True, blank=True, editable=False
+    )
     # Denormalized star total, for cheap "most popular" sorting.
     star_count = models.PositiveIntegerField(default=0, db_index=True)
     # Optional cover art — a linked IMAGE request whose output renders as this
@@ -685,6 +699,8 @@ class InferenceRequest(BaseModel):
                 self.visibility = VISIBILITY_UNLISTED
             if not self.share_token:
                 self.share_token = generate_share_token()
+        if not self.public_id:
+            self.public_id = generate_public_id()
         super().save(*args, **kwargs)
 
     def is_visible_to(self, user) -> bool:

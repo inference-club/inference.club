@@ -62,7 +62,9 @@ urlpatterns = [
         name="inference-requests-bookmarked",
     ),
     path(
-        "requests/<int:id>/",
+        # <str:> so the opaque public_id resolves here; numeric PKs still match
+        # (the view falls back to pk). Static routes above take precedence.
+        "requests/<str:id>/",
         RetrieveInferenceRequestView.as_view(),
         name="inference-detail",
     ),

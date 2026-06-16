@@ -78,6 +78,8 @@ export interface ChatMessage {
 
 export interface InferenceRequest {
   id: string
+  // Opaque public id used in URLs instead of the sequential PK.
+  public_id?: string | null
   inference_type: InferenceType
   status: InferenceStatus
   model_name?: string
