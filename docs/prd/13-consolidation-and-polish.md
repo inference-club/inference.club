@@ -16,6 +16,29 @@ content here."
 
 ---
 
+## Status (2026-06-16) — first pass complete
+
+All six concrete items below shipped as verified, committed changes (local
+checkpoints, not yet pushed). Each was checked in the running app via the
+Playwright harness in `.captures/` (before/after screenshots + video).
+
+| # | Item | Commit | State |
+|---|------|--------|-------|
+| 1 | Mobile music player (scrub bar + compact bar) | d66a2e5 | done |
+| 2 | Hide stale/offline models from catalog | 269694c | done |
+| 3 | Pulsing readiness dot (catalog + playground) | d1ab552 | done |
+| 4 | Request → node/owner/GPU links | 453e455 | done |
+| 6 | Opaque public_id for InferenceRequest URLs | 22fba01 | done (1 model) |
+| 5 | Fold Models into Compute nav group | a343a06 | first step |
+
+**Follow-ups carried forward:** extend public_id (#6) to Workflow / Episode /
+Segment / Batch (same additive pattern, one model at a time); deeper #5 —
+merge my-nodes + all-nodes into one "Nodes" page with a mine/all toggle (the
+two backend list views are near-identical) and add a provider/node detail
+page (request cards now link to `/{owner}` + `/{owner}/cluster`, but a
+dedicated node page would be richer). Extend the readiness dot to the other
+playground pages (images/video/tts/etc.) using the shared `ReadinessDot`.
+
 ## Tonight's execution queue (concrete, user-requested)
 
 Each ships as a focused change, verified in the running app and captured on video
