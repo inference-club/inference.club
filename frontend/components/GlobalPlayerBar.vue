@@ -100,7 +100,28 @@ const toggleMute = () => {
       class="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
       data-testid="global-player-bar"
     >
-      <div class="mx-auto flex h-20 max-w-7xl items-center gap-3 px-3 sm:gap-4 sm:px-6">
+      <div class="mx-auto flex h-20 max-w-7xl flex-col justify-center gap-1.5 px-3 sm:flex-row sm:items-center sm:gap-4 sm:px-6">
+        <!-- Mobile scrub bar (full width; phones can't reach the sm seek row) -->
+        <div class="flex items-center gap-2 sm:hidden" data-testid="player-seek-mobile">
+          <span class="w-8 shrink-0 text-right text-2xs tabular-nums text-muted-foreground">
+            {{ formatTrackTime(player.currentTime) }}
+          </span>
+          <Slider
+            :model-value="sliderValue"
+            :max="Math.max(player.duration, 1)"
+            :step="1"
+            class="flex-1"
+            @update:model-value="onSliderInput"
+            @value-commit="onSliderCommit"
+          />
+          <span class="w-8 shrink-0 text-2xs tabular-nums text-muted-foreground">
+            {{ formatTrackTime(player.duration) }}
+          </span>
+        </div>
+
+        <!-- On sm+ this wrapper dissolves (display:contents) so the three
+             children lay out exactly as before; on mobile it's one tidy row. -->
+        <div class="flex min-w-0 items-center gap-3 sm:contents">
         <!-- Track identity -->
         <NuxtLink
           v-if="current"
@@ -290,6 +311,7 @@ const toggleMute = () => {
           >
             <X class="size-4" />
           </Button>
+        </div>
         </div>
       </div>
     </div>

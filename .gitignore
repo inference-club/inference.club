@@ -5,3 +5,6 @@
 backend/test.db
 # compose-only interpolation values (see scripts/dev-mobile.sh)
 .env
+
+# local Playwright capture workspace (screenshots / videos)
+.captures/
