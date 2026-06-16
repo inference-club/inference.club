@@ -102,7 +102,16 @@ const queueTrack = () => {
           <Cpu class="size-3 shrink-0" />
           <span class="min-w-0 truncate">{{ props.request.model_name }}</span>
         </Badge>
-        <Badge v-if="props.request.provider" variant="outline">
+        <NuxtLink
+          v-if="props.request.provider?.owner_handle"
+          :to="`/${props.request.provider.owner_handle}`"
+          @click.stop
+        >
+          <Badge variant="outline" class="cursor-pointer hover:bg-accent">
+            <Server class="size-3" /> {{ props.request.provider.name }}
+          </Badge>
+        </NuxtLink>
+        <Badge v-else-if="props.request.provider" variant="outline">
           <Server class="size-3" /> {{ props.request.provider.name }}
         </Badge>
         <Badge v-if="props.request.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">

@@ -270,9 +270,15 @@ def _provider_gpus(provider) -> list[str]:
     for host in manifest.parsed.get("hosts") or []:
         if not isinstance(host, dict):
             continue
-        for gpu in host.get("gpus") or []:
-            if isinstance(gpu, dict) and gpu.get("model") and gpu["model"] not in out:
-                out.append(str(gpu["model"]))
+        # Manifests use a singular ``gpu`` (dict or string) per host or a
+        # ``gpus`` list of dicts — support both.
+        candidates = list(host.get("gpus") or [])
+        if host.get("gpu"):
+            candidates.append(host["gpu"])
+        for gpu in candidates:
+            model = gpu.get("model") if isinstance(gpu, dict) else gpu
+            if model and str(model) not in out:
+                out.append(str(model))
     return out
 
 

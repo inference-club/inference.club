@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge, Download, Loader2, SlidersHorizontal, Waves,
+  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge, Download, Loader2, SlidersHorizontal, Waves, HardDrive,
 } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
@@ -202,9 +202,41 @@ onMounted(() => {
           </div>
           <div>
             <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-              <Server class="size-3" /> Provider
+              <Server class="size-3" /> Node
             </dt>
-            <dd class="mt-0.5">{{ req.provider?.name || '—' }}</dd>
+            <dd class="mt-0.5 flex items-center gap-1.5">
+              <template v-if="req.provider">
+                <NuxtLink
+                  v-if="req.provider.owner_handle"
+                  :to="`/${req.provider.owner_handle}`"
+                  class="underline-offset-2 hover:underline"
+                >{{ req.provider.name }}</NuxtLink>
+                <span v-else>{{ req.provider.name }}</span>
+                <ReadinessDot v-if="req.provider.is_online" :online="true" />
+              </template>
+              <template v-else>—</template>
+            </dd>
+          </div>
+          <div v-if="req.host?.host_id || req.host?.gpus?.length">
+            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+              <HardDrive class="size-3" /> Ran on
+            </dt>
+            <dd class="mt-0.5 flex flex-wrap items-center gap-1.5">
+              <component
+                :is="req.provider?.owner_handle ? 'NuxtLink' : 'span'"
+                v-if="req.host?.host_id"
+                :to="req.provider?.owner_handle ? `/${req.provider.owner_handle}/cluster` : undefined"
+                class="font-mono text-xs"
+                :class="req.provider?.owner_handle ? 'underline-offset-2 hover:underline' : ''"
+              >{{ req.host.host_id }}</component>
+              <span
+                v-for="g in (req.host?.gpus || [])"
+                :key="g"
+                class="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-2xs"
+              >
+                <Cpu class="size-3" /> {{ g }}
+              </span>
+            </dd>
           </div>
           <div>
             <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">

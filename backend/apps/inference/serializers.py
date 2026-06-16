@@ -556,9 +556,75 @@ SHARING_FIELDS = [
 
 
 class InferenceProviderMiniSerializer(serializers.ModelSerializer):
+    """The node/agent a request ran on, plus enough about its owner (the
+    "provider" of the compute) to link to their public profile + cluster."""
+
+    owner_handle = serializers.SerializerMethodField()
+    is_online = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = Provider
-        fields = ["id", "name"]
+        fields = ["id", "name", "owner_handle", "is_online"]
+
+    def get_owner_handle(self, obj):
+        return getattr(getattr(obj, "user", None), "handle", None) or None
+
+
+def _gpus_for_host(provider, host_id):
+    """GPU model names declared for ``host_id`` in the provider's manifest;
+    falls back to every GPU the provider declares if the host can't be matched
+    (e.g. older manifests). Empty when there's no usable manifest."""
+    manifest = getattr(provider, "manifest", None)
+    if manifest is None or not isinstance(manifest.parsed, dict):
+        return []
+    hosts = manifest.parsed.get("hosts") or []
+
+    def host_gpus(h):
+        # Manifests use either a singular ``gpu`` (dict or string) per host or a
+        # ``gpus`` list of dicts — support both.
+        out = []
+        candidates = list(h.get("gpus") or [])
+        if h.get("gpu"):
+            candidates.append(h["gpu"])
+        for gpu in candidates:
+            model = gpu.get("model") if isinstance(gpu, dict) else gpu
+            if model and str(model) not in out:
+                out.append(str(model))
+        return out
+
+    if host_id:
+        for h in hosts:
+            if isinstance(h, dict) and (h.get("id") or h.get("host") or h.get("name")) == host_id:
+                return host_gpus(h)
+    out: list[str] = []
+    for h in hosts:
+        if isinstance(h, dict):
+            for g in host_gpus(h):
+                if g not in out:
+                    out.append(g)
+    return out
+
+
+def request_host_info(req):
+    """Where a request ran: ``{host_id, gpus}`` resolved from dispatch_meta's
+    ``provider_model_id`` (→ service host) and the provider manifest. Best
+    effort — historical requests whose deployment is gone resolve to what's
+    still known."""
+    meta = req.dispatch_meta or {}
+    provider = req.provider
+    host_id = None
+    pm_id = meta.get("provider_model_id")
+    if pm_id:
+        pm = (
+            ProviderModel.objects.filter(id=pm_id)
+            .select_related("service", "provider", "provider__manifest")
+            .first()
+        )
+        if pm:
+            provider = pm.provider
+            if pm.service_id and pm.service.host_id:
+                host_id = pm.service.host_id
+    return {"host_id": host_id, "gpus": _gpus_for_host(provider, host_id) if provider else []}
 
 
 class InferenceRequestSerializer(serializers.ModelSerializer):
@@ -714,6 +780,7 @@ class InferenceRequestDetailSerializer(
     payload/results so the dashboard can show everything, fully expanded."""
 
     provider = InferenceProviderMiniSerializer(read_only=True)
+    host = serializers.SerializerMethodField()
     usage = serializers.SerializerMethodField()
     messages = serializers.SerializerMethodField()
     response_text = serializers.SerializerMethodField()
@@ -740,6 +807,7 @@ class InferenceRequestDetailSerializer(
             "status",
             "model_name",
             "provider",
+            "host",
             "owner",
             "github_login",
             "is_owner",
@@ -807,6 +875,9 @@ class InferenceRequestDetailSerializer(
 
     def get_usage(self, obj):
         return _extract_usage(obj.results)
+
+    def get_host(self, obj):
+        return request_host_info(obj)
 
     def get_messages(self, obj) -> list[dict]:
         return _extract_messages(obj.payload)

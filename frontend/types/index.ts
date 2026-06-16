@@ -61,6 +61,14 @@ export interface TokenUsage {
 export interface ProviderMini {
   id: number
   name: string
+  owner_handle?: string | null
+  is_online?: boolean
+}
+
+// Where a request ran (detail view only), resolved from dispatch metadata.
+export interface RequestHost {
+  host_id?: string | null
+  gpus?: string[]
 }
 
 export interface ChatMessage {
@@ -74,6 +82,7 @@ export interface InferenceRequest {
   status: InferenceStatus
   model_name?: string
   provider?: ProviderMini | null
+  host?: RequestHost | null
   latency_ms?: number | null
   ttft_ms?: number | null
   tokens_per_second?: number | null
