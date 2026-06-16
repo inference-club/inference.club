@@ -688,7 +688,12 @@ onBeforeUnmount(() => {
       >
         <Card class="p-4 space-y-5">
           <div>
-            <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Model</Label>
+            <div class="flex items-center justify-between">
+              <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Model</Label>
+              <!-- Everything /v1/models returns is reachable, so a selected
+                   model is live & ready. -->
+              <ReadinessDot v-if="selected" :online="true" label="Ready" />
+            </div>
             <Select v-model="model" :disabled="loadingModels || !models.length">
               <SelectTrigger class="mt-1.5 w-full font-mono text-xs">
                 <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
@@ -696,6 +701,7 @@ onBeforeUnmount(() => {
               <SelectContent>
                 <SelectItem v-for="m in models" :key="m.id" :value="m.id" class="font-mono text-xs">
                   <span class="flex items-center gap-2">
+                    <ReadinessDot :online="true" />
                     <span class="truncate">{{ m.id }}</span>
                     <component
                       :is="MODALITY_META[mod]?.icon"
