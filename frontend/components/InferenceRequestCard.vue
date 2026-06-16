@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box, Clapperboard, Star, Gauge, Timer, Play, Pause, ListPlus, Music,
+  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box, Clapperboard, Star, Gauge, Timer, Play, Pause, ListPlus, Music, Waves,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { statusVariant, statusLabel, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
@@ -43,6 +43,8 @@ const isTts = computed(
 const isMesh = computed(() => props.request.inference_type === 'MESH')
 const isMusic = computed(() => props.request.inference_type === 'MUSIC')
 const isVideo = computed(() => props.request.inference_type === 'VIDEO')
+// ENHANCE (StudioVoice): original audio in → cleaned audio out.
+const isEnhance = computed(() => props.request.inference_type === 'ENHANCE')
 const fmtSeconds = (s?: number | null) =>
   s == null ? null : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`
 
@@ -201,6 +203,36 @@ const queueTrack = () => {
       </div>
     </div>
 
+    <!-- ENHANCE: original audio → cleaned audio -->
+    <div v-else-if="isEnhance" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
+      <div class="min-w-0">
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Original</p>
+        <audio
+          v-if="props.request.audio_url"
+          :src="whenInView(props.request.audio_url)"
+          preload="metadata"
+          controls
+          class="w-full h-9"
+          @click.stop
+        />
+        <p v-else class="text-sm text-muted-foreground">—</p>
+      </div>
+      <div class="min-w-0">
+        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5 flex items-center gap-1">
+          <Waves class="size-3 text-cyan-500" /> Enhanced
+        </p>
+        <audio
+          v-if="props.request.output_audio_url"
+          :src="whenInView(props.request.output_audio_url)"
+          preload="metadata"
+          controls
+          class="w-full h-9"
+          @click.stop
+        />
+        <p v-else class="text-sm text-muted-foreground">—</p>
+      </div>
+    </div>
+
     <!-- MUSIC: prompt → generated song (plays via the global player bar) -->
     <div v-else-if="isMusic" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
       <div class="min-w-0">
@@ -329,7 +361,7 @@ const queueTrack = () => {
     <!-- Footer metadata -->
     <div class="mt-3 pt-3 border-t flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
       <span
-        v-if="isStt || isTts || isMusic"
+        v-if="isStt || isTts || isMusic || isEnhance"
         class="inline-flex items-center gap-1"
         title="Audio duration"
       >

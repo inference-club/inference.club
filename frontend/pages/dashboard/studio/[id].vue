@@ -8,6 +8,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Loader2, Mic, Plus, Wand2, CheckCircle2 } from 'lucide-vue-next'
 import SegmentCard from '@/components/studio/SegmentCard.vue'
+import EpisodeTimeline from '@/components/studio/EpisodeTimeline.vue'
 import { useStudio, type Episode, type StudioVoices } from '@/composables/useStudio'
 
 definePageMeta({ layout: 'app' })
@@ -65,7 +66,13 @@ async function setVoiceSample(e: Event) {
 const segments = computed(() => episode.value?.segments || [])
 const readyCount = computed(() => segments.value.filter((s) => s.status === 'ready').length)
 const allReady = computed(() => segments.value.length > 0 && readyCount.value === segments.value.length)
-const anyWorking = computed(() => segments.value.some((s) => s.status === 'generating'))
+const queuedCount = computed(() => segments.value.filter((s) => s.status === 'queued').length)
+const generatingCount = computed(() => segments.value.filter((s) => s.status === 'generating').length)
+// Keep polling while anything is queued or generating so statuses advance live.
+const anyWorking = computed(() => queuedCount.value > 0 || generatingCount.value > 0)
+// Segments that still need a voice take generated (fresh from a text split).
+const needTake = computed(() => segments.value.filter((s) => !(s.variants && s.variants.length)))
+const hasAnyTake = computed(() => segments.value.some((s) => s.variants?.length))
 
 async function load() {
   try {
@@ -82,6 +89,14 @@ async function addSegment() {
   busy.value = true
   try {
     await studio.addSegment(id, 'New line…')
+    await load()
+  } finally { busy.value = false }
+}
+
+async function generateAll() {
+  busy.value = true
+  try {
+    await Promise.all(needTake.value.map((s) => studio.regenerateSegment(s.id)))
     await load()
   } finally { busy.value = false }
 }
@@ -124,7 +139,8 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
             <span :class="allReady ? 'text-emerald-600 dark:text-emerald-400' : ''">
               {{ readyCount }}/{{ segments.length }} ready
             </span>
-            <span v-if="anyWorking"> · <Loader2 class="inline size-3 animate-spin" /> working…</span>
+            <span v-if="generatingCount"> · <Loader2 class="inline size-3 animate-spin" /> generating…</span>
+            <span v-if="queuedCount"> · {{ queuedCount }} queued</span>
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -132,9 +148,16 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
             <CheckCircle2 class="size-3.5" /> All segments ready
           </span>
           <button
-type="button" :disabled="busy || !segments.length"
-                  class="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
-                  title="Run the pipeline on every segment that has a take" @click="processAll">
+            type="button" :disabled="busy || !needTake.length"
+            class="flex items-center gap-1 rounded-md bg-fuchsia-500 px-2.5 py-1.5 text-sm font-medium text-white hover:bg-fuchsia-600 disabled:opacity-50"
+            :title="needTake.length ? `Generate the voice take for ${needTake.length} segment(s) that don't have one yet` : 'Every segment already has a take'"
+            @click="generateAll">
+            <Mic class="size-4" /> Generate all<span v-if="needTake.length"> ({{ needTake.length }})</span>
+          </button>
+          <button
+            type="button" :disabled="busy || !hasAnyTake"
+            class="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+            title="Re-run clean → trim → grade on every segment that has a take" @click="processAll">
             <Wand2 class="size-4" /> Process all
           </button>
         </div>
@@ -173,6 +196,9 @@ type="button" :disabled="busy || !segments.length"
           <Loader2 v-if="savingVoice" class="size-3.5 animate-spin text-muted-foreground" />
         </template>
       </div>
+
+      <!-- whole-episode preview timeline -->
+      <EpisodeTimeline :segments="segments" />
 
       <div class="space-y-3">
         <SegmentCard v-for="s in segments" :key="s.id" :segment="s" @changed="load" />

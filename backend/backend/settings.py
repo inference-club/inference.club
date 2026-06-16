@@ -266,6 +266,14 @@ CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "") or _redis_db(_REDIS_
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "") or _redis_db(
     _REDIS_URL, 2
 )
+# Cross-process device locks (apps.inference.locks): never hit a single-threaded
+# model/device with more than one request at once. Shares the Redis instance on a
+# dedicated logical DB; without Redis the lock degrades to a no-op (dev/test).
+DEVICE_LOCK_REDIS_URL = (
+    os.environ.get("DEVICE_LOCK_REDIS_URL", "")
+    or (_redis_db(_REDIS_URL, 3) if _REDIS_URL else (CELERY_BROKER_URL or ""))
+)
+DEVICE_LOCK_DEFAULT_TTL = int(os.environ.get("DEVICE_LOCK_DEFAULT_TTL", "900"))
 # Master switch the API/dispatcher read. True only when a broker exists, unless
 # explicitly forced (e.g. CELERY_TASK_ALWAYS_EAGER in tests).
 ASYNC_ENABLED = _env_bool("ASYNC_ENABLED", default=bool(CELERY_BROKER_URL))

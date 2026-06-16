@@ -14,12 +14,16 @@ class VariantSerializer(serializers.ModelSerializer):
 
     audio_url = serializers.SerializerMethodField()
     cleaned_audio_url = serializers.SerializerMethodField()
+    enhanced_audio_url = serializers.SerializerMethodField()
+    enhanced_duration = serializers.SerializerMethodField()
 
     class Meta:
         model = Variant
         fields = [
             "id", "text", "duration_seconds", "words",
             "audio_url", "cleaned_audio_url", "clean_status",
+            "enhanced_audio_url", "enhanced_duration", "enhanced_words",
+            "trim_intervals",
             "transcript", "grade",
             "inference_request_id", "created_on",
         ]
@@ -31,6 +35,14 @@ class VariantSerializer(serializers.ModelSerializer):
         if not obj.cleaned_audio_id:
             return None
         return asset_url(obj.cleaned_audio, self.context.get("request"))
+
+    def get_enhanced_audio_url(self, obj):
+        if not obj.enhanced_audio_id:
+            return None
+        return asset_url(obj.enhanced_audio, self.context.get("request"))
+
+    def get_enhanced_duration(self, obj):
+        return obj.enhanced_audio.duration_seconds if obj.enhanced_audio_id else None
 
 
 class SegmentSerializer(serializers.ModelSerializer):

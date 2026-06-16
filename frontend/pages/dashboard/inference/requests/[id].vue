@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge, Download, Loader2, SlidersHorizontal,
+  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge, Download, Loader2, SlidersHorizontal, Waves,
 } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
@@ -26,6 +26,7 @@ const isTts = computed(() => req.value?.inference_type === 'TTS')
 const isMesh = computed(() => req.value?.inference_type === 'MESH')
 const isMusic = computed(() => req.value?.inference_type === 'MUSIC')
 const isVideo = computed(() => req.value?.inference_type === 'VIDEO')
+const isEnhance = computed(() => req.value?.inference_type === 'ENHANCE')
 const lightbox = useImageLightbox()
 const { downloading: downloadingModel, download } = useFileDownload()
 
@@ -292,6 +293,36 @@ onMounted(() => {
         <div v-else class="text-sm text-muted-foreground">No audio stored for this request.</div>
       </Card>
 
+      <!-- Audio enhancement (StudioVoice): original → cleaned -->
+      <Card v-if="isEnhance" class="p-4 mb-4">
+        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+          <Waves class="size-5 text-cyan-500" /> Audio enhancement
+          <Badge v-if="req.audio_seconds != null" variant="outline">{{ req.audio_seconds.toFixed(1) }}s</Badge>
+        </h2>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="min-w-0">
+            <p class="text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Original</p>
+            <audio v-if="req.audio_url" :src="req.audio_url" controls preload="metadata" class="w-full h-10" />
+            <div v-else class="text-sm text-muted-foreground">Original audio wasn't stored.</div>
+          </div>
+          <div class="min-w-0">
+            <p class="text-xs uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
+              <Waves class="size-3.5 text-cyan-500" /> Enhanced
+            </p>
+            <audio v-if="req.output_audio_url" :src="req.output_audio_url" controls preload="metadata" class="w-full h-10" />
+            <div v-else class="text-sm text-muted-foreground">No enhanced audio stored for this request.</div>
+          </div>
+        </div>
+        <a
+          v-if="req.output_audio_url"
+          :href="req.output_audio_url"
+          download
+          class="mt-3 inline-flex items-center gap-1.5 text-sm text-cyan-600 hover:underline dark:text-cyan-400"
+        >
+          <Download class="size-4" /> Download enhanced audio
+        </a>
+      </Card>
+
       <!-- Image generation -->
       <Card v-if="isImage" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -414,7 +445,7 @@ onMounted(() => {
       </Card>
 
       <!-- Conversation -->
-      <Card v-if="!isStt && !isImage && !isTts && !isMesh && !isMusic && !isVideo" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage && !isTts && !isMesh && !isMusic && !isVideo && !isEnhance" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3">
           Conversation
           <span class="text-sm font-normal text-muted-foreground">
@@ -464,7 +495,7 @@ onMounted(() => {
       </Card>
 
       <!-- Response -->
-      <Card v-if="!isStt && !isImage && !isTts && !isMusic && !isVideo" class="p-4 mb-4">
+      <Card v-if="!isStt && !isImage && !isTts && !isMusic && !isVideo && !isEnhance" class="p-4 mb-4">
         <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
           Response
           <Badge v-if="req.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">

@@ -29,6 +29,7 @@ from .studio_views import (
     SegmentProcessView,
     SegmentRegenerateView,
     SegmentReorderView,
+    SegmentRetrimView,
     StudioVoicesView,
     VariantSelectView,
 )
@@ -109,6 +110,8 @@ urlpatterns = [
     path("segments/<int:id>/process/", SegmentProcessView.as_view()),
     path("segments/<int:id>/regenerate", SegmentRegenerateView.as_view(), name="segment-regenerate"),
     path("segments/<int:id>/regenerate/", SegmentRegenerateView.as_view()),
+    path("segments/<int:id>/retrim", SegmentRetrimView.as_view(), name="segment-retrim"),
+    path("segments/<int:id>/retrim/", SegmentRetrimView.as_view()),
     # --- async jobs / batches / workflows (PRD 10) ---
     path("jobs", JobListView.as_view(), name="jobs"),
     path("jobs/", JobListView.as_view()),

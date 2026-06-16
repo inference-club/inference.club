@@ -1309,12 +1309,14 @@ class Segment(BaseModel):
     new Variant (non-destructive retakes, à la inference-club-studio)."""
 
     STATUS_PENDING = "pending"
+    STATUS_QUEUED = "queued"     # dispatched, waiting for the device (per-device serialized)
     STATUS_GENERATING = "generating"
     STATUS_READY = "ready"
     STATUS_FLAGGED = "flagged"   # audio produced, but grading flagged the take
     STATUS_ERROR = "error"
     STATUS_CHOICES = (
         (STATUS_PENDING, "Pending"),
+        (STATUS_QUEUED, "Queued"),
         (STATUS_GENERATING, "Generating"),
         (STATUS_READY, "Ready"),
         (STATUS_FLAGGED, "Flagged"),
@@ -1388,6 +1390,20 @@ class Variant(BaseModel):
         MediaAsset, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="+",
     )
+    # The StudioVoice-cleaned audio *before* trimming — the canonical timeline the
+    # Studio waveform editor draws and places trim regions against. ``cleaned_audio``
+    # is this minus ``trim_intervals``; keeping both lets the editor show the diff
+    # (what was clipped) and re-cut from scratch on a manual re-trim.
+    enhanced_audio = models.ForeignKey(
+        MediaAsset, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    # Word timestamps on the *enhanced* (untrimmed) timeline: [{word, start, end}].
+    enhanced_words = models.JSONField(default=list, blank=True)
+    # Keep-ranges [[start, end], …] (seconds, on the enhanced timeline) that were
+    # kept to produce ``cleaned_audio``. The removed regions are the gaps between
+    # them — that's the trim "diff" the editor renders and the user can edit.
+    trim_intervals = models.JSONField(default=list, blank=True)
     clean_status = models.CharField(
         max_length=12, choices=CLEAN_CHOICES, default=CLEAN_NOT
     )

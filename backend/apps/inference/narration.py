@@ -145,30 +145,45 @@ def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHO
                max_gap=TRIM_MAX_GAP, inference_request=None):
     """Trim silence/pauses from ``src`` (a MediaAsset) using ``words``; store the
     result as a new OUTPUT_AUDIO (original untouched) and return
-    ``(asset, remapped_words, src_duration, out_duration)``. If there are no
-    words to trim on, returns the source unchanged."""
-    from django.core.files.base import ContentFile
-
-    from .models import MediaAsset
-
+    ``(asset, remapped_words, src_duration, out_duration, keep_intervals)``. If
+    there are no words to trim on, returns the source unchanged with a single
+    full-length keep interval."""
     words = normalize_words(words)
     with tempfile.TemporaryDirectory() as td:
-        ext = (src.content_type or "audio/wav").rsplit("/", 1)[-1] or "wav"
-        in_path = os.path.join(td, f"in.{ext}")
-        with src.file.open("rb") as f, open(in_path, "wb") as dst:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                dst.write(chunk)
+        in_path = _download_asset(src, td)
         src_dur = _probe_duration(in_path)
         intervals = plan_trim_intervals(words, src_dur, pad=pad,
                                         gap_threshold=gap_threshold, max_gap=max_gap)
         if not intervals:
-            return src, words, src_dur, src_dur  # nothing to trim on
-        out_path = os.path.join(td, "trimmed.wav")
-        trim_audio(in_path, out_path, intervals)
-        out_dur = _probe_duration(out_path)
-        with open(out_path, "rb") as fh:
-            audio = fh.read()
+            return src, words, src_dur, src_dur, [[0.0, round(src_dur, 3)]]
+        asset, out_dur = _cut_asset(user, src, in_path, td, intervals,
+                                    inference_request=inference_request)
+    return asset, remap_words(words, intervals), src_dur, out_dur, intervals
 
+
+def _download_asset(src, td) -> str:
+    """Stream a MediaAsset's bytes to a temp file and return the path."""
+    ext = (src.content_type or "audio/wav").rsplit("/", 1)[-1] or "wav"
+    in_path = os.path.join(td, f"in.{ext}")
+    with src.file.open("rb") as f, open(in_path, "wb") as dst:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            dst.write(chunk)
+    return in_path
+
+
+def _cut_asset(user, src, in_path, td, intervals, *, inference_request=None):
+    """Run the keep-``intervals`` cut over ``in_path`` and store the result as a
+    new OUTPUT_AUDIO derived from ``src``. Returns ``(asset, out_duration)``."""
+    from django.core.files.base import ContentFile
+
+    from .models import MediaAsset
+
+    src_dur = _probe_duration(in_path)
+    out_path = os.path.join(td, "trimmed.wav")
+    trim_audio(in_path, out_path, [tuple(i) for i in intervals])
+    out_dur = _probe_duration(out_path)
+    with open(out_path, "rb") as fh:
+        audio = fh.read()
     asset = MediaAsset(
         user=user, inference_request=inference_request, kind=MediaAsset.OUTPUT_AUDIO,
         content_type="audio/wav", size_bytes=len(audio), duration_seconds=out_dur,
@@ -177,7 +192,7 @@ def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHO
     asset.file.save("trimmed.wav", ContentFile(audio), save=False)
     asset.save()
     asset.record_derivation([src])
-    return asset, remap_words(words, intervals), src_dur, out_dur
+    return asset, out_dur
 
 
 def run_trim_job(ir):
@@ -199,7 +214,7 @@ def run_trim_job(ir):
 
     started = time.monotonic()
     try:
-        asset, words_out, src_dur, out_dur = trim_asset(
+        asset, words_out, src_dur, out_dur, _intervals = trim_asset(
             ir.user, src, payload.get("words"), pad=_f("pad", TRIM_PAD),
             gap_threshold=_f("gap_threshold", TRIM_GAP_THRESHOLD),
             max_gap=_f("max_gap", TRIM_MAX_GAP), inference_request=ir,
@@ -305,10 +320,12 @@ def grade_transcription(user, original: str, transcript: str) -> dict:
             ],
             "max_tokens": 256, "temperature": 0.1, "stream": False,
         }
-        r = requests.post(
-            _retry_endpoint(pm.provider, "/chat/completions"), json=body,
-            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
-        )
+        from .locks import device_lock, provider_device_key
+        with device_lock(provider_device_key(pm), ttl=UPSTREAM_TIMEOUT_SECONDS + 60):
+            r = requests.post(
+                _retry_endpoint(pm.provider, "/chat/completions"), json=body,
+                timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+            )
         if not r.ok:
             return fallback_grade(original, transcript)
         content = r.json()["choices"][0]["message"].get("content") or ""
@@ -361,10 +378,35 @@ def _synthesize_words(text: str, duration: float) -> list[dict]:
             for i, t in enumerate(toks)]
 
 
+def _words_from_segments(segments, text, duration):
+    """Best-effort word timings when the ASR gives only *segment* timing (e.g.
+    Qwen3-ASR). Distribute each segment's words across its real ``[start, end]``
+    span — far better than spreading uniformly over the whole clip, which would
+    drop words into leading/trailing silence and inter-segment pauses."""
+    out = []
+    for s in segments or []:
+        if not isinstance(s, dict):
+            continue
+        try:
+            start, end = float(s.get("start") or 0), float(s.get("end") or 0)
+        except (TypeError, ValueError):
+            continue
+        toks = str(s.get("text") or "").split()
+        if not toks or end <= start:
+            continue
+        step = (end - start) / len(toks)
+        for i, t in enumerate(toks):
+            out.append({"word": t, "start": round(start + i * step, 3),
+                        "end": round(start + (i + 1) * step, 3)})
+    return out or _synthesize_words(text, duration)
+
+
 def transcribe_asset(user, audio_asset):
-    """ASR an audio MediaAsset → ``(text, words)`` with word timestamps. Forwards
-    to the user's STT provider (verbose_json); synthesizes uniform timestamps if
-    the engine returns only text. Returns ``("", [])`` if no STT is reachable."""
+    """ASR an audio MediaAsset → ``(text, words)`` with word timestamps. Asks the
+    STT provider for **word-level** timing (verbose_json + word granularity); if
+    the engine only returns segments, distributes words across each segment's
+    real span; only as a last resort spreads them uniformly. ``("", [])`` if no
+    STT is reachable."""
     import requests
 
     from . import jobs
@@ -382,13 +424,22 @@ def transcribe_asset(user, audio_asset):
         return "", []
     ct = audio_asset.content_type or "audio/wav"
     ext = ct.rsplit("/", 1)[-1] or "wav"
+    from .locks import device_lock, provider_device_key
     try:
-        r = requests.post(
-            _retry_endpoint(pm.provider, "/audio/transcriptions"),
-            files={"file": (f"audio.{ext}", data, ct)},
-            data=[("model", pm.name or model), ("response_format", "verbose_json")],
-            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
-        )
+        with device_lock(provider_device_key(pm), ttl=UPSTREAM_TIMEOUT_SECONDS + 60):
+            r = requests.post(
+                _retry_endpoint(pm.provider, "/audio/transcriptions"),
+                files={"file": (f"audio.{ext}", data, ct)},
+                data=[
+                    ("model", pm.name or model),
+                    ("response_format", "verbose_json"),
+                    # Ask for real per-word timestamps — without this the engine
+                    # returns only segments and we'd have to fake the cadence.
+                    ("timestamp_granularities[]", "word"),
+                    ("timestamp_granularities[]", "segment"),
+                ],
+                timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+            )
     except requests.RequestException:
         logger.warning("transcribe_asset: STT request failed", exc_info=True)
         return "", []
@@ -399,10 +450,27 @@ def transcribe_asset(user, audio_asset):
     except ValueError:
         return r.text or "", []
     text = (payload.get("text") or "").strip()
+    segments = payload.get("segments") or []
+    # Prefer real word timings: top-level `words`, else nested `segments[].words`.
     words = normalize_words(payload.get("words"))
+    if not words:
+        nested = [w for s in segments if isinstance(s, dict) for w in (s.get("words") or [])]
+        words = normalize_words(nested)
     if not words and text:
-        words = _synthesize_words(text, audio_asset.duration_seconds or 0)
+        # No per-word timing — distribute within each segment's real span (or,
+        # failing even that, uniformly).
+        words = _words_from_segments(segments, text, audio_asset.duration_seconds or 0)
     return text, words
+
+
+def _mark_generating(segment):
+    """Flip a queued segment to 'generating' the moment its device work starts
+    (i.e. when the device lock is acquired). Idempotent."""
+    from .models import Segment
+
+    if segment.status != Segment.STATUS_GENERATING:
+        segment.status = Segment.STATUS_GENERATING
+        segment.save(update_fields=["status", "modified_on"])
 
 
 def process_segment(segment):
@@ -421,12 +489,12 @@ def process_segment(segment):
     if variant is None or variant.audio_id is None:
         return {"ok": False, "error": "Segment has no audio take to process."}
     user = segment.episode.user
-    segment.status = Segment.STATUS_GENERATING
-    segment.save(update_fields=["status", "modified_on"])
 
     base = variant.audio
 
-    # 1) Clean (StudioVoice). Reuses the ENHANCE runner (reads by asset id).
+    # 1) Clean (StudioVoice). Reuses the ENHANCE runner (reads by asset id). The
+    #    segment stays 'queued' until we hold the clean device (on_acquire flips
+    #    it to 'generating'); with no clean provider we flip right away.
     cleaned = base
     enh_model = jobs.auto_model_for(user, "audio-enhance")
     pm = _find_provider_for_model(user, enh_model, service_type="audio-enhance") if enh_model else None
@@ -436,7 +504,9 @@ def process_segment(segment):
             status="PROCESSING", model_name=enh_model,
             payload={"audio_asset_id": base.id, "model": enh_model},
         )
-        ok, _err = _rerun_enhance(ir, pm)
+        from .locks import device_lock, provider_device_key
+        with device_lock(provider_device_key(pm), on_acquire=lambda: _mark_generating(segment)):
+            ok, _err = _rerun_enhance(ir, pm)
         cid = (ir.results or {}).get("audio_asset_id") if ok else None
         if cid:
             cleaned = MediaAsset.objects.get(id=cid)
@@ -446,17 +516,27 @@ def process_segment(segment):
     else:
         variant.clean_status = Variant.CLEAN_UNAVAILABLE
 
+    _mark_generating(segment)  # past the queue: this take is now actively processing
+
     # 2) ASR the cleaned audio for word timestamps + transcript.
     text, words = transcribe_asset(user, cleaned)
 
-    # 3) Trim silence + long pauses (central FFmpeg), remapping words.
+    # 3) Trim silence + long pauses (central FFmpeg), remapping words. We keep
+    #    the untrimmed cleaned audio + its words + the keep-intervals so the
+    #    Studio editor can show the trim diff and re-cut from manual regions.
+    enhanced_words = words
+    enhanced_dur = cleaned.duration_seconds or 0.0
     try:
-        final, words_out, _src_dur, out_dur = trim_asset(user, cleaned, words)
+        final, words_out, _src_dur, out_dur, intervals = trim_asset(user, cleaned, words)
     except Exception:
         logger.exception("process_segment: trim failed for segment %s", segment.id)
-        final, words_out, out_dur = cleaned, words, cleaned.duration_seconds
+        final, words_out, out_dur = cleaned, words, enhanced_dur
+        intervals = [[0.0, round(enhanced_dur, 3)]] if enhanced_dur else []
 
     variant.cleaned_audio = final
+    variant.enhanced_audio = cleaned
+    variant.enhanced_words = enhanced_words
+    variant.trim_intervals = [[round(float(a), 3), round(float(b), 3)] for a, b in intervals]
     variant.words = words_out
     variant.duration_seconds = out_dur
     variant.transcript = text
@@ -465,7 +545,8 @@ def process_segment(segment):
     grade = grade_transcription(user, strip_speaker_tags(variant.text or segment.text), text)
     variant.grade = grade
     variant.save(update_fields=[
-        "cleaned_audio", "words", "duration_seconds", "transcript", "grade",
+        "cleaned_audio", "enhanced_audio", "enhanced_words", "trim_intervals",
+        "words", "duration_seconds", "transcript", "grade",
         "clean_status", "modified_on",
     ])
 
@@ -474,6 +555,71 @@ def process_segment(segment):
     segment.save(update_fields=["status", "modified_on"])
     return {"ok": True, "status": segment.status, "grade": grade,
             "duration": out_dur, "audio_asset_id": final.id if final else None}
+
+
+def _complement_intervals(remove, total):
+    """Keep-ranges = ``[0, total]`` minus the ``remove`` ranges (seconds). Clamps
+    to bounds, drops slivers, merges overlaps, then returns the gaps to keep."""
+    total = float(total or 0)
+    rem = []
+    for r in remove or []:
+        try:
+            a, b = float(r[0]), float(r[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        a, b = max(0.0, min(a, b)), min(total, max(a, b))
+        if b - a > 0.001:
+            rem.append((a, b))
+    rem.sort()
+    merged = []
+    for a, b in rem:
+        if merged and a <= merged[-1][1] + 1e-6:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    keep, cursor = [], 0.0
+    for a, b in merged:
+        if a - cursor > 0.01:
+            keep.append((round(cursor, 3), round(a, 3)))
+        cursor = max(cursor, b)
+    if total - cursor > 0.01:
+        keep.append((round(cursor, 3), round(total, 3)))
+    return keep
+
+
+def retrim_variant(variant, remove_ranges):
+    """Re-cut a variant's output from manually-chosen *remove* ranges (seconds,
+    on the enhanced/untrimmed timeline). Rebuilds ``cleaned_audio``, remaps the
+    words, and records the new ``trim_intervals``. Non-destructive: the enhanced
+    and original audio are untouched, so the user can keep adjusting. Returns a
+    summary dict."""
+    from .models import Segment
+
+    segment = variant.segment
+    user = segment.episode.user
+    base = variant.enhanced_audio or variant.audio
+    if base is None or not base.file:
+        return {"ok": False, "error": "No cleaned audio to trim — process the take first."}
+
+    with tempfile.TemporaryDirectory() as td:
+        in_path = _download_asset(base, td)
+        total = _probe_duration(in_path) or (base.duration_seconds or 0.0)
+        keep = _complement_intervals(remove_ranges, total)
+        if not keep:
+            return {"ok": False, "error": "That would remove the entire clip."}
+        asset, out_dur = _cut_asset(user, base, in_path, td, keep)
+
+    variant.cleaned_audio = asset
+    variant.trim_intervals = [[round(a, 3), round(b, 3)] for a, b in keep]
+    variant.words = remap_words(normalize_words(variant.enhanced_words), [tuple(i) for i in keep])
+    variant.duration_seconds = out_dur
+    variant.save(update_fields=[
+        "cleaned_audio", "trim_intervals", "words", "duration_seconds", "modified_on",
+    ])
+    segment.status = Segment.STATUS_READY
+    segment.save(update_fields=["status", "modified_on"])
+    return {"ok": True, "duration": out_dur, "trim_intervals": variant.trim_intervals,
+            "audio_asset_id": asset.id}
 
 
 # --- take generation + regenerate (PRD 12 V3) --------------------------------
@@ -562,10 +708,16 @@ def generate_take(segment, *, text_override=None, seed=None):
                 "encoding": (None, encoding),
             }
             endpoint = "/audio/synthesize"
-        up = requests.post(
-            provider.tailnet_base_url.rstrip("/") + endpoint, files=fields,
-            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
-        )
+        # Serialize per device: the voice server (Dia) handles one request at a
+        # time, so concurrent takes queue here rather than piling onto it. The
+        # segment shows 'queued' until we actually hold the lock (on_acquire).
+        from .locks import device_lock, provider_device_key
+        with device_lock(provider_device_key(pm), ttl=UPSTREAM_TIMEOUT_SECONDS + 60,
+                         on_acquire=lambda: _mark_generating(segment)):
+            up = requests.post(
+                provider.tailnet_base_url.rstrip("/") + endpoint, files=fields,
+                timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+            )
     except requests.RequestException as e:
         ir.status = "REQUESTED"
         ir.results = {"error": str(e)}

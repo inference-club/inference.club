@@ -415,3 +415,81 @@ def test_plain_gate_still_awaits_for_a_human(user, settings):
     run = workflows.start_run(user, {"steps": [{"id": "g", "kind": "gate"}]})
     run.refresh_from_db()
     assert run.status == "AWAITING"                   # no review spec → human gate
+
+
+# --- manual re-trim (waveform editor) ----------------------------------------
+
+
+def test_complement_intervals_inverts_and_merges():
+    c = narration._complement_intervals
+    assert c([[0.5, 1.0]], 2.0) == [(0.0, 0.5), (1.0, 2.0)]
+    assert c([], 2.0) == [(0.0, 2.0)]                       # nothing removed → keep all
+    assert c([[0.5, 1.0], [0.8, 1.2]], 2.0) == [(0.0, 0.5), (1.2, 2.0)]  # overlaps merge
+    assert c([[0.0, 2.0]], 2.0) == []                       # everything removed
+
+
+def _processed_variant(user):
+    """A variant primed as if it had been through the pipeline: enhanced
+    (untrimmed) audio + words + a full-length keep interval."""
+    seg, v, _orig = _segment_with_audio(user, "x")  # 1.4s, speech 0.4–1.0
+    enhanced = _audio_asset(user, _wav([(0.4, 0), (0.6, 440), (0.4, 0)]))
+    v.enhanced_audio = enhanced
+    v.cleaned_audio = enhanced
+    v.enhanced_words = [{"word": "x", "start": 0.4, "end": 1.0}]
+    v.trim_intervals = [[0.0, 1.4]]
+    v.duration_seconds = 1.4
+    v.save()
+    return seg, v
+
+
+def test_retrim_variant_recuts_from_manual_regions(user):
+    seg, v = _processed_variant(user)
+    res = narration.retrim_variant(v, [[0.0, 0.4], [1.0, 1.4]])  # cut both silences
+    assert res["ok"], res
+    v.refresh_from_db(); seg.refresh_from_db()
+    assert v.trim_intervals == [[0.4, 1.0]]                 # the spoken middle kept
+    assert 0.4 < v.duration_seconds < 0.9                   # ~0.6s vs 1.4s
+    assert v.cleaned_audio_id and v.cleaned_audio.duration_seconds < 1.4
+    assert v.words and v.words[0]["start"] == pytest.approx(0.0, abs=0.05)  # remapped
+    assert seg.status == Segment.STATUS_READY
+
+
+def test_retrim_rejects_removing_everything(user):
+    _seg, v = _processed_variant(user)
+    res = narration.retrim_variant(v, [[0.0, 1.4]])
+    assert not res["ok"] and "entire" in res["error"]
+
+
+def test_retrim_endpoint_returns_updated_segment(user):
+    from rest_framework.test import APIClient
+    seg, _v = _processed_variant(user)
+    c = APIClient(); c.force_authenticate(user)
+    r = c.post(f"/v1/segments/{seg.id}/retrim", {"remove": [[0.0, 0.4]]}, format="json")
+    assert r.status_code == 200, r.content
+    variant = r.json()["variants"][0]
+    assert variant["trim_intervals"][0][0] == pytest.approx(0.4, abs=0.05)
+
+
+# --- queued vs generating display (per-device serialization) ------------------
+
+
+def test_regenerate_endpoint_marks_queued_when_async(user, settings):
+    settings.ASYNC_ENABLED = True
+    settings.CELERY_TASK_ALWAYS_EAGER = False
+    from rest_framework.test import APIClient
+    ep = Episode.objects.create(user=user, title="ep")
+    seg = Segment.objects.create(episode=ep, position=0, text="hi there")
+    c = APIClient(); c.force_authenticate(user)
+    with patch("apps.inference.tasks.regenerate_segment.delay") as delay:
+        r = c.post(f"/v1/segments/{seg.id}/regenerate", {}, format="json")
+    assert r.status_code == 202, r.content
+    assert r.json()["status"] == Segment.STATUS_QUEUED   # waits for the voice device
+    delay.assert_called_once()
+
+
+def test_mark_generating_flips_from_queued(user):
+    ep = Episode.objects.create(user=user, title="ep")
+    seg = Segment.objects.create(episode=ep, position=0, text="x", status=Segment.STATUS_QUEUED)
+    narration._mark_generating(seg)
+    seg.refresh_from_db()
+    assert seg.status == Segment.STATUS_GENERATING

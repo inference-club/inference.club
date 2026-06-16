@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Github, Cpu, Server, ExternalLink } from 'lucide-vue-next'
+import { Github, Cpu, Server, ExternalLink, Waves } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { useContentSharing } from '@/composables/useContentSharing'
 import { roleClasses } from '@/utils/inference'
@@ -22,6 +22,7 @@ const isTts = computed(() => req.value?.inference_type === 'TTS')
 const isMesh = computed(() => req.value?.inference_type === 'MESH')
 const isMusic = computed(() => req.value?.inference_type === 'MUSIC')
 const isVideo = computed(() => req.value?.inference_type === 'VIDEO')
+const isEnhance = computed(() => req.value?.inference_type === 'ENHANCE')
 const lightbox = useImageLightbox()
 
 // The shared endpoint uses the detail serializer, which carries `payload` but
@@ -173,6 +174,26 @@ useSeoMeta({
         <div v-if="req.payload?.lyrics" class="mt-3 text-sm">
           <span class="text-muted-foreground">Lyrics:</span>
           <pre class="mt-1 whitespace-pre-wrap font-sans text-sm">{{ req.payload.lyrics }}</pre>
+        </div>
+      </Card>
+
+      <!-- Audio enhancement: original → cleaned -->
+      <Card v-else-if="isEnhance" class="p-4 mb-4">
+        <h2 class="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Waves class="size-4 text-cyan-500" /> Audio enhancement
+        </h2>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div v-if="req.audio_url" class="min-w-0">
+            <p class="text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Original</p>
+            <audio :src="req.audio_url" controls preload="metadata" class="w-full h-10" />
+          </div>
+          <div class="min-w-0">
+            <p class="text-xs uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
+              <Waves class="size-3.5 text-cyan-500" /> Enhanced
+            </p>
+            <audio v-if="req.output_audio_url" :src="req.output_audio_url" controls preload="metadata" class="w-full h-10" />
+            <p v-else class="text-sm text-muted-foreground">—</p>
+          </div>
         </div>
       </Card>
 

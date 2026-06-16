@@ -1370,6 +1370,22 @@ class AudioEnhanceView(_RateLimitHeadersMixin, APIView):
                 ir.payload["input_asset_id"] = in_asset.id
                 ir.save(update_fields=["payload", "modified_on"])
 
+        # Maxine Studio Voice only accepts PCM WAV — webm/opus (the browser mic
+        # recorder's default), ogg, m4a, etc. fail upstream with INVALID_ARGUMENT.
+        # Normalize any non-WAV input to WAV before forwarding; the stored
+        # INPUT_AUDIO keeps the user's original bytes for replay.
+        fwd_bytes = audio_bytes
+        fwd_ct = ctype or "application/octet-stream"
+        fwd_name = getattr(upload, "name", "audio") or "audio"
+        if ctype not in ("audio/wav", "audio/x-wav", "audio/wave"):
+            wav = _ffmpeg_to_wav(audio_bytes)
+            if wav:
+                fwd_bytes, fwd_ct, fwd_name = wav, "audio/wav", "audio.wav"
+            else:
+                logger.warning(
+                    "audio/enhance: could not transcode %r to wav; forwarding as-is", ctype
+                )
+
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
         data_fields = [("model", served_name or canonical or model_name or "")]
         if requested_format:
@@ -1378,7 +1394,7 @@ class AudioEnhanceView(_RateLimitHeadersMixin, APIView):
         try:
             upstream = requests.post(
                 endpoint,
-                files={"file": (getattr(upload, "name", "audio"), audio_bytes, ctype or "application/octet-stream")},
+                files={"file": (fwd_name, fwd_bytes, fwd_ct)},
                 data=data_fields,
                 timeout=UPSTREAM_TIMEOUT_SECONDS,
                 verify=False,
@@ -3427,11 +3443,15 @@ def _rerun_voice(ir, provider_model):
     }
     endpoint = provider.tailnet_base_url.rstrip("/") + "/voice/generations"
     started = time.monotonic()
+    # Serialize on the voice device so the Studio and workflow paths never hit
+    # the single-threaded server at the same time (one model per device).
+    from .locks import device_lock, provider_device_key
     try:
-        upstream = requests.post(
-            endpoint, files=fields, timeout=UPSTREAM_TIMEOUT_SECONDS,
-            verify=False, proxies=_tailnet_proxies(),
-        )
+        with device_lock(provider_device_key(provider_model), ttl=UPSTREAM_TIMEOUT_SECONDS + 60):
+            upstream = requests.post(
+                endpoint, files=fields, timeout=UPSTREAM_TIMEOUT_SECONDS,
+                verify=False, proxies=_tailnet_proxies(),
+            )
     except requests.RequestException as e:
         return _retry_store_exc(ir, started, e)
     if not upstream.ok:

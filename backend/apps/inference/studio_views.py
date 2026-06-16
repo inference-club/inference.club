@@ -264,7 +264,9 @@ class SegmentProcessView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
         if jobs.async_enabled() and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-            seg.status = Segment.STATUS_GENERATING
+            # Queued until the worker actually acquires the (single) clean device;
+            # narration flips it to 'generating' the moment work starts.
+            seg.status = Segment.STATUS_QUEUED
             seg.save(update_fields=["status", "modified_on"])
             process_segment_task.delay(seg.id)
         else:
@@ -303,7 +305,9 @@ class SegmentRegenerateView(APIView):
             return Response({"detail": "`seed` must be an integer."}, status=400)
 
         if jobs.async_enabled() and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-            seg.status = Segment.STATUS_GENERATING
+            # Queued until the worker acquires the (single) voice device; narration
+            # flips it to 'generating' the moment the Dia call starts.
+            seg.status = Segment.STATUS_QUEUED
             seg.save(update_fields=["status", "modified_on"])
             regenerate_task.delay(seg.id, text_override=text_override, seed=seed)
         else:
@@ -313,6 +317,38 @@ class SegmentRegenerateView(APIView):
             SegmentSerializer(seg, context={"request": request}).data,
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class SegmentRetrimView(APIView):
+    """POST /v1/segments/<id>/retrim — re-cut the segment's selected take from
+    manual *remove* ranges. Body: ``{remove: [[start, end], …]}`` (seconds, on
+    the enhanced/untrimmed timeline). Rebuilds the trimmed audio + words and
+    returns the segment. Runs inline — it's a fast central FFmpeg cut."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id):
+        from . import narration
+
+        seg = get_object_or_404(
+            Segment.objects.filter(episode__user=request.user)
+            .select_related("episode", "selected_variant"),
+            id=id,
+        )
+        variant = seg.selected_variant
+        if variant is None:
+            return Response({"detail": "Segment has no take to trim."}, status=409)
+
+        body = request.data if isinstance(request.data, dict) else {}
+        remove = body.get("remove") or []
+        if not isinstance(remove, list):
+            return Response({"detail": "`remove` must be a list of [start, end] ranges."}, status=400)
+
+        result = narration.retrim_variant(variant, remove)
+        if not result.get("ok"):
+            return Response({"detail": result.get("error") or "Re-trim failed."}, status=400)
+        seg.refresh_from_db()
+        return Response(SegmentSerializer(seg, context={"request": request}).data)
 
 
 class StudioVoicesView(APIView):

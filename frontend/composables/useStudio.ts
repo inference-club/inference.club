@@ -20,13 +20,19 @@ export interface Variant {
   audio_url: string | null
   cleaned_audio_url: string | null
   clean_status: 'not_cleaned' | 'cleaned' | 'unavailable' | 'error'
+  // The StudioVoice-cleaned, *untrimmed* audio the waveform editor draws against.
+  enhanced_audio_url: string | null
+  enhanced_duration: number | null
+  enhanced_words: Word[]
+  // Keep-ranges [[start, end], …] on the enhanced timeline; gaps are what was cut.
+  trim_intervals: [number, number][]
   transcript: string
   grade: Grade | null
   inference_request_id: number | null
   created_on: string
 }
 
-export type SegmentStatus = 'pending' | 'generating' | 'ready' | 'flagged' | 'error'
+export type SegmentStatus = 'pending' | 'queued' | 'generating' | 'ready' | 'flagged' | 'error'
 
 export interface Segment {
   id: number
@@ -124,6 +130,8 @@ export function useStudio() {
     processSegment: (id: number) => send<Segment>('POST', `/v1/segments/${id}/process`),
     regenerateSegment: (id: number, body: { text?: string; seed?: number } = {}) =>
       send<Segment>('POST', `/v1/segments/${id}/regenerate`, body),
+    retrimSegment: (id: number, remove: [number, number][]) =>
+      send<Segment>('POST', `/v1/segments/${id}/retrim`, { remove }),
     selectVariant: (segId: number, variantId: number) =>
       send<Segment>('POST', `/v1/segments/${segId}/variants/${variantId}/select`),
   }
