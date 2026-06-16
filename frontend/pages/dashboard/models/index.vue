@@ -44,7 +44,15 @@ const fmtCtx = (n: number | null) => {
   if (n >= 1000) return `${Math.round(n / 1024)}K ctx`
   return `${n} ctx`
 }
-onMounted(fetchModels)
+
+// Offline/retired deployments are hidden by default (data quality); the toggle
+// brings them back, marked with a gray dot.
+const showOffline = ref(false)
+const toggleOffline = () => {
+  showOffline.value = !showOffline.value
+  fetchModels(showOffline.value)
+}
+onMounted(() => fetchModels(false))
 </script>
 
 <template>
@@ -60,7 +68,19 @@ onMounted(fetchModels)
           <NuxtLink to="/dashboard/playground" class="underline">playground</NuxtLink>.
         </p>
       </div>
-      <Input v-model="search" placeholder="Filter models…" class="w-full sm:w-64" />
+      <div class="flex w-full items-center gap-3 sm:w-auto">
+        <button
+          type="button"
+          class="inline-flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
+          :class="showOffline ? 'bg-accent text-foreground' : ''"
+          :title="showOffline ? 'Hide offline / retired nodes' : 'Show offline / retired nodes'"
+          @click="toggleOffline"
+        >
+          <span class="size-2 rounded-full" :class="showOffline ? 'bg-muted-foreground/50' : 'bg-green-500'" />
+          {{ showOffline ? 'Showing offline' : 'Online only' }}
+        </button>
+        <Input v-model="search" placeholder="Filter models…" class="w-full sm:w-64" />
+      </div>
     </div>
 
     <div v-if="loading && !models.length" class="grid gap-3 sm:grid-cols-2">
@@ -127,10 +147,16 @@ onMounted(fetchModels)
         <div class="text-xs text-muted-foreground space-y-1 mt-auto">
           <div class="flex items-center gap-3">
             <span class="inline-flex items-center gap-1.5">
-              <span
-                class="size-2 rounded-full"
-                :class="m.online_provider_count > 0 ? 'bg-green-500' : 'bg-muted-foreground/40'"
-              />
+              <span class="relative flex size-2" aria-hidden="true">
+                <span
+                  v-if="m.online_provider_count > 0"
+                  class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75"
+                />
+                <span
+                  class="relative inline-flex size-2 rounded-full"
+                  :class="m.online_provider_count > 0 ? 'bg-green-500' : 'bg-muted-foreground/40'"
+                />
+              </span>
               {{ m.online_provider_count }}/{{ m.provider_count }}
               node{{ m.provider_count === 1 ? '' : 's' }} online
             </span>

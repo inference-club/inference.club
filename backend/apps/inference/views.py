@@ -785,17 +785,25 @@ class ProviderModelsCatalogView(APIView):
         return Response({"data": list(seen.values())})
 
 
-def serialize_catalog_entry(catalog, deployments) -> dict:
+def serialize_catalog_entry(catalog, deployments, include_offline=True):
     """Build the public catalog dict for one CatalogModel given an iterable of
     its active deployments. Shared by ModelCatalogView (network-wide) and the
-    public profile (scoped to one user's deployments)."""
+    public profile (scoped to one user's deployments).
+
+    When ``include_offline`` is False, deployments on offline nodes are dropped
+    and a model with no online deployment returns ``None`` — so the catalog
+    reflects what's actually runnable right now (no stale, retired services)."""
     providers = {}
     served = []
     for d in deployments:
         p = d.provider
+        if not include_offline and not p.is_online:
+            continue
         providers[p.id] = {"name": p.name, "online": p.is_online}
         if d.served_context_len:
             served.append(d.served_context_len)
+    if not include_offline and not providers:
+        return None
     # The real, usable context (largest served across online nodes) takes
     # precedence over the declared ceiling.
     context_length = (max(served) if served else None) or catalog.native_context_length
@@ -826,6 +834,12 @@ class ModelCatalogView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        # Default to "runnable right now": models with at least one online
+        # deployment. ``?include_offline=1`` returns everything (incl. retired
+        # nodes) for completeness/debugging.
+        include_offline = request.query_params.get("include_offline") in (
+            "1", "true", "yes",
+        )
         active_deploys = ProviderModel.objects.filter(
             is_active=True, provider__is_active=True
         ).select_related("provider")
@@ -841,8 +855,14 @@ class ModelCatalogView(APIView):
         )
 
         data = [
-            serialize_catalog_entry(c, getattr(c, "active_deployments", []))
+            entry
             for c in catalogs
+            if (
+                entry := serialize_catalog_entry(
+                    c, getattr(c, "active_deployments", []), include_offline=include_offline
+                )
+            )
+            is not None
         ]
         return Response({"models": data})
 

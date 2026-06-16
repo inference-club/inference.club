@@ -30,11 +30,14 @@ export function useModelCatalog() {
   const loading = ref(true)
   const error = ref('')
 
-  const fetchModels = async () => {
+  // By default the catalog shows only models runnable right now (≥1 online
+  // node). Pass true to also include offline/retired deployments.
+  const fetchModels = async (includeOffline = false) => {
     loading.value = true
     error.value = ''
     try {
-      const res = await fetch(`${config.public.apiBase}/api/inference/models/`, {
+      const qs = includeOffline ? '?include_offline=1' : ''
+      const res = await fetch(`${config.public.apiBase}/api/inference/models/${qs}`, {
         credentials: 'include',
       })
       if (!res.ok) throw new Error(`Failed to load models (HTTP ${res.status})`)
