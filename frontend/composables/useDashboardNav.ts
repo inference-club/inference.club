@@ -1,4 +1,4 @@
-import { BookOpen, Boxes, Cpu, Play, Send, Settings2, ShieldCheck, Sparkles, Trophy } from 'lucide-vue-next'
+import { BookOpen, Cpu, Play, Send, Settings2, ShieldCheck, Sparkles, Trophy } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
 export interface DashboardNavItem {
@@ -51,13 +51,6 @@ export const dashboardNav: DashboardNavGroup[] = [
     ],
   },
   {
-    titleKey: 'dashboard.groups.models',
-    icon: Boxes,
-    items: [
-      { titleKey: 'dashboard.items.catalog', url: '/dashboard/models' },
-    ],
-  },
-  {
     titleKey: 'dashboard.groups.inferenceRequests',
     icon: Send,
     items: [
@@ -76,9 +69,13 @@ export const dashboardNav: DashboardNavGroup[] = [
     ],
   },
   {
+    // "Network" — one place for everything about what runs and where: the
+    // model catalog plus the nodes/cluster serving it (consolidated from the
+    // former standalone Models group).
     titleKey: 'dashboard.groups.compute',
     icon: Cpu,
     items: [
+      { titleKey: 'dashboard.items.catalog', url: '/dashboard/models' },
       { titleKey: 'dashboard.items.myNodes', url: '/dashboard/providers/my-nodes' },
       { titleKey: 'dashboard.items.allNodes', url: '/dashboard/providers/all-nodes' },
       { titleKey: 'dashboard.items.manifests', url: '/dashboard/manifest' },
