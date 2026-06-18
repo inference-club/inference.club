@@ -429,7 +429,19 @@ onMounted(() => {
           <span class="text-muted-foreground">Lyrics:</span>
           <pre class="mt-1 whitespace-pre-wrap font-sans text-sm">{{ req.payload.lyrics }}</pre>
         </div>
-        <MusicVisualizer v-if="req.output_audio_url" :src="req.output_audio_url" />
+        <img
+          v-if="req.cover_image_url"
+          :src="req.cover_image_url"
+          :alt="req.payload?.prompt || 'Song cover'"
+          class="mb-3 aspect-square w-full max-w-xs rounded-lg border object-cover"
+        />
+        <audio
+          v-if="req.output_audio_url"
+          :src="req.output_audio_url"
+          controls
+          preload="metadata"
+          class="w-full h-10"
+        />
         <div v-else class="text-sm text-muted-foreground">No audio stored for this request.</div>
       </Card>
 

@@ -1,4 +1,5 @@
-// One AudioContext shared across every MusicVisualizer on the page. Browsers
+// One AudioContext shared across the app (the global player bar's visualizer).
+// Browsers
 // cap the number of live contexts, so a module-level singleton (created lazily
 // on first playback) keeps us to one regardless of how many song cards mount.
 let ctx: AudioContext | null = null

@@ -169,7 +169,19 @@ useSeoMeta({
         <p v-if="promptText" class="text-sm mb-3">
           <span class="text-muted-foreground">Prompt:</span> {{ promptText }}
         </p>
-        <MusicVisualizer v-if="req.output_audio_url" :src="req.output_audio_url" />
+        <img
+          v-if="req.cover_image_url"
+          :src="req.cover_image_url"
+          :alt="promptText || 'Song cover'"
+          class="mb-3 aspect-square w-full max-w-xs rounded-lg border object-cover"
+        />
+        <audio
+          v-if="req.output_audio_url"
+          :src="req.output_audio_url"
+          controls
+          preload="metadata"
+          class="w-full h-10"
+        />
         <div v-if="req.payload?.lyrics" class="mt-3 text-sm">
           <span class="text-muted-foreground">Lyrics:</span>
           <pre class="mt-1 whitespace-pre-wrap font-sans text-sm">{{ req.payload.lyrics }}</pre>
