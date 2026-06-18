@@ -44,16 +44,15 @@ const navMainWithActive = computed(() =>
     <SidebarHeader>
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton
-            size="lg"
-            class="cursor-default hover:bg-transparent active:bg-transparent"
-          >
-            <div class="flex aspect-square size-9 items-center justify-center">
-              <LogoJack3D :size="34" :speed="0.7" pose="upright" />
-            </div>
-            <div class="grid min-w-0 flex-1 text-left leading-tight">
-              <span class="truncate text-lg font-semibold">inference.club</span>
-            </div>
+          <SidebarMenuButton size="lg" as-child>
+            <NuxtLink :to="localePath('/')">
+              <div class="flex aspect-square size-9 items-center justify-center">
+                <LogoJack3D :size="34" :speed="0.7" pose="upright" />
+              </div>
+              <div class="grid min-w-0 flex-1 text-left leading-tight">
+                <span class="truncate text-lg font-semibold">inference.club</span>
+              </div>
+            </NuxtLink>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>

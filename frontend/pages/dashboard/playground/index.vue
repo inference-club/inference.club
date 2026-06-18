@@ -494,6 +494,23 @@ const setSlider = (
   if (v && v.length) params[key] = v[0]
 }
 
+// Restore the sampling/advanced params to their defaults (leaves the system
+// prompt and the behaviour toggles alone — those feel more like preferences).
+const resetParams = () => {
+  Object.assign(params, {
+    temperature: 0.7,
+    top_p: 1,
+    frequency_penalty: 0,
+    presence_penalty: 0,
+    max_tokens: '',
+    top_k: '',
+    min_p: '',
+    repetition_penalty: '',
+    seed: '',
+    stop: '',
+  })
+}
+
 onMounted(async () => {
   window.addEventListener('scroll', onScroll, { passive: true })
   micSupported.value = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
@@ -567,7 +584,7 @@ onBeforeUnmount(() => {
       show-label
     />
 
-    <div class="flex flex-col lg:flex-row gap-4 lg:items-start">
+    <div class="flex flex-col">
       <!-- Chat column -->
       <div class="flex-1 min-w-0 flex flex-col">
         <div class="flex-1 space-y-4">
@@ -783,104 +800,130 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- Parameters panel — hidden by default; toggled by the options button
-           in the composer (the model picker now lives there too). -->
-      <aside
-        v-show="showParams"
-        class="w-full lg:w-80 shrink-0 lg:sticky lg:top-4 lg:self-start"
-      >
-        <Card class="p-4 space-y-5">
-          <div>
+    </div>
+
+    <!-- Settings — a modal on every breakpoint, opened by the composer's
+         options button. Applies to the next message you send. -->
+    <Dialog :open="showParams" @update:open="showParams = $event">
+      <DialogContent class="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader class="border-b px-6 py-4 text-left">
+          <DialogTitle class="flex items-center gap-2 text-base">
+            <SlidersHorizontal class="size-4 text-muted-foreground" />
+            Settings
+          </DialogTitle>
+          <DialogDescription class="text-xs">
+            Tune how the model responds — applied to your next message.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+          <!-- System prompt -->
+          <div class="space-y-2">
             <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">System prompt</Label>
-            <Textarea v-model="system" rows="3" placeholder="You are a helpful assistant…" class="mt-1.5 resize-none text-sm" />
+            <Textarea v-model="system" rows="3" placeholder="You are a helpful assistant…" class="resize-none text-sm" />
           </div>
 
-          <div class="flex items-center justify-between">
-            <Label for="stream-toggle" class="text-sm">Stream response</Label>
-            <Switch id="stream-toggle" v-model="stream" />
-          </div>
-
-          <div class="flex items-center justify-between gap-3">
-            <div class="min-w-0">
-              <Label for="thinking-toggle" class="text-sm">Thinking</Label>
-              <p class="text-[11px] text-muted-foreground leading-snug">
-                Let reasoning models think before replying. Turn off for faster,
-                shorter answers.
-              </p>
+          <!-- Behaviour toggles -->
+          <div class="space-y-2">
+            <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Behaviour</Label>
+            <div class="divide-y rounded-lg border">
+              <div class="flex items-center justify-between gap-3 px-3.5 py-3">
+                <Label for="stream-toggle" class="cursor-pointer text-sm font-normal">Stream response</Label>
+                <Switch id="stream-toggle" v-model="stream" />
+              </div>
+              <div class="flex items-center justify-between gap-3 px-3.5 py-3">
+                <div class="min-w-0">
+                  <Label for="thinking-toggle" class="cursor-pointer text-sm font-normal">Thinking</Label>
+                  <p class="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    Let reasoning models think before replying. Turn off for faster, shorter answers.
+                  </p>
+                </div>
+                <Switch id="thinking-toggle" v-model="thinking" />
+              </div>
+              <div class="flex items-center justify-between gap-3 px-3.5 py-3">
+                <div class="min-w-0">
+                  <Label for="logprobs-toggle" class="cursor-pointer text-sm font-normal">Show logprobs</Label>
+                  <p class="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    Colour the reply by token confidence; hover to inspect. Needs a model that returns logprobs (e.g. vLLM).
+                  </p>
+                </div>
+                <Switch id="logprobs-toggle" v-model="showLogprobs" />
+              </div>
             </div>
-            <Switch id="thinking-toggle" v-model="thinking" />
           </div>
 
-          <div class="flex items-center justify-between gap-3">
-            <div class="min-w-0">
-              <Label for="logprobs-toggle" class="text-sm">Show logprobs</Label>
-              <p class="text-[11px] text-muted-foreground leading-snug">
-                Colour the reply by token confidence; hover to inspect. Needs a model that
-                returns logprobs (e.g. vLLM).
-              </p>
-            </div>
-            <Switch id="logprobs-toggle" v-model="showLogprobs" />
-          </div>
-
-          <div class="space-y-4 border-t pt-4">
+          <!-- Sampling -->
+          <div class="space-y-4">
+            <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sampling</Label>
             <div>
-              <div class="flex justify-between text-sm mb-1.5">
-                <Label>Temperature</Label>
-                <span class="text-muted-foreground tabular-nums">{{ params.temperature.toFixed(2) }}</span>
+              <div class="mb-1.5 flex justify-between text-sm">
+                <Label class="font-normal">Temperature</Label>
+                <span class="tabular-nums text-muted-foreground">{{ params.temperature.toFixed(2) }}</span>
               </div>
               <Slider :model-value="[params.temperature]" :min="0" :max="2" :step="0.01" @update:model-value="(v) => setSlider('temperature', v)" />
             </div>
             <div>
-              <div class="flex justify-between text-sm mb-1.5">
-                <Label>Top P</Label>
-                <span class="text-muted-foreground tabular-nums">{{ params.top_p.toFixed(2) }}</span>
+              <div class="mb-1.5 flex justify-between text-sm">
+                <Label class="font-normal">Top P</Label>
+                <span class="tabular-nums text-muted-foreground">{{ params.top_p.toFixed(2) }}</span>
               </div>
               <Slider :model-value="[params.top_p]" :min="0" :max="1" :step="0.01" @update:model-value="(v) => setSlider('top_p', v)" />
             </div>
             <div>
-              <div class="flex justify-between text-sm mb-1.5">
-                <Label>Frequency penalty</Label>
-                <span class="text-muted-foreground tabular-nums">{{ params.frequency_penalty.toFixed(1) }}</span>
+              <div class="mb-1.5 flex justify-between text-sm">
+                <Label class="font-normal">Frequency penalty</Label>
+                <span class="tabular-nums text-muted-foreground">{{ params.frequency_penalty.toFixed(1) }}</span>
               </div>
               <Slider :model-value="[params.frequency_penalty]" :min="-2" :max="2" :step="0.1" @update:model-value="(v) => setSlider('frequency_penalty', v)" />
             </div>
             <div>
-              <div class="flex justify-between text-sm mb-1.5">
-                <Label>Presence penalty</Label>
-                <span class="text-muted-foreground tabular-nums">{{ params.presence_penalty.toFixed(1) }}</span>
+              <div class="mb-1.5 flex justify-between text-sm">
+                <Label class="font-normal">Presence penalty</Label>
+                <span class="tabular-nums text-muted-foreground">{{ params.presence_penalty.toFixed(1) }}</span>
               </div>
               <Slider :model-value="[params.presence_penalty]" :min="-2" :max="2" :step="0.1" @update:model-value="(v) => setSlider('presence_penalty', v)" />
             </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-3 border-t pt-4">
-            <div>
-              <Label class="text-xs text-muted-foreground">Max tokens</Label>
-              <Input v-model="params.max_tokens" type="number" min="1" placeholder="auto" class="mt-1 h-8 text-sm" />
-            </div>
-            <div>
-              <Label class="text-xs text-muted-foreground">Top K</Label>
-              <Input v-model="params.top_k" type="number" min="0" placeholder="off" class="mt-1 h-8 text-sm" />
-            </div>
-            <div>
-              <Label class="text-xs text-muted-foreground">Min P</Label>
-              <Input v-model="params.min_p" type="number" min="0" max="1" step="0.01" placeholder="off" class="mt-1 h-8 text-sm" />
-            </div>
-            <div>
-              <Label class="text-xs text-muted-foreground">Repetition penalty</Label>
-              <Input v-model="params.repetition_penalty" type="number" min="0" step="0.01" placeholder="off" class="mt-1 h-8 text-sm" />
-            </div>
-            <div>
-              <Label class="text-xs text-muted-foreground">Seed</Label>
-              <Input v-model="params.seed" type="number" placeholder="random" class="mt-1 h-8 text-sm" />
-            </div>
-            <div>
-              <Label class="text-xs text-muted-foreground">Stop</Label>
-              <Input v-model="params.stop" placeholder="a, b" class="mt-1 h-8 text-sm" />
+          <!-- Advanced -->
+          <div class="space-y-2">
+            <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Advanced</Label>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <Label class="text-xs text-muted-foreground">Max tokens</Label>
+                <Input v-model="params.max_tokens" type="number" min="1" placeholder="auto" class="h-8 text-sm" />
+              </div>
+              <div class="space-y-1">
+                <Label class="text-xs text-muted-foreground">Top K</Label>
+                <Input v-model="params.top_k" type="number" min="0" placeholder="off" class="h-8 text-sm" />
+              </div>
+              <div class="space-y-1">
+                <Label class="text-xs text-muted-foreground">Min P</Label>
+                <Input v-model="params.min_p" type="number" min="0" max="1" step="0.01" placeholder="off" class="h-8 text-sm" />
+              </div>
+              <div class="space-y-1">
+                <Label class="text-xs text-muted-foreground">Repetition penalty</Label>
+                <Input v-model="params.repetition_penalty" type="number" min="0" step="0.01" placeholder="off" class="h-8 text-sm" />
+              </div>
+              <div class="space-y-1">
+                <Label class="text-xs text-muted-foreground">Seed</Label>
+                <Input v-model="params.seed" type="number" placeholder="random" class="h-8 text-sm" />
+              </div>
+              <div class="space-y-1">
+                <Label class="text-xs text-muted-foreground">Stop</Label>
+                <Input v-model="params.stop" placeholder="a, b" class="h-8 text-sm" />
+              </div>
             </div>
           </div>
-        </Card>
-      </aside>
-    </div>
+        </div>
+
+        <DialogFooter class="flex-row items-center justify-between gap-2 border-t px-6 py-3 sm:justify-between">
+          <Button variant="ghost" size="sm" class="text-muted-foreground" @click="resetParams">
+            Reset to defaults
+          </Button>
+          <Button size="sm" @click="showParams = false">Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
