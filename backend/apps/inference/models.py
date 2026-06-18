@@ -728,6 +728,85 @@ class InferenceRequest(BaseModel):
         return self.star_count
 
 
+class ChatThread(BaseModel):
+    """A saved playground conversation (ChatGPT/Claude-style history).
+
+    Stores the full message list as JSON — including per-token ``logprobs``
+    when the user had that turned on — plus denormalized counters so the list
+    view never has to load the (potentially large) messages blob. Private to
+    its owner; deliberately outside the shared-content/visibility system.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="chat_threads",
+    )
+    # AI-generated once the first exchange lands; blank until then (the UI shows
+    # the first user message as a placeholder).
+    title = models.CharField(max_length=200, blank=True, default="")
+    # The model id the conversation primarily used (the latest turn's model).
+    model = models.CharField(max_length=255, blank=True, default="")
+    # The conversation: a list of {role, content, reasoning, usage, logprobs,
+    # model} dicts, mirroring the playground's message shape.
+    messages = models.JSONField(default=list, blank=True)
+    # Denormalized from ``messages`` on every save so the list view stays cheap.
+    message_count = models.PositiveIntegerField(default=0)
+    prompt_tokens = models.PositiveIntegerField(default=0)
+    completion_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
+    has_logprobs = models.BooleanField(default=False)
+    # Set once the async title task has run (success or give-up), so the UI can
+    # tell "no title yet" from "title intentionally empty".
+    title_generated = models.BooleanField(default=False)
+    # Opaque public id shown in URLs instead of the sequential PK. Created with
+    # the table so no backfill is needed; nullable+unique mirrors the
+    # InferenceRequest pattern. Always populated on save.
+    public_id = models.CharField(
+        max_length=24, unique=True, null=True, blank=True, editable=False
+    )
+
+    class Meta:
+        ordering = ["-modified_on"]
+        indexes = [
+            models.Index(fields=["user", "modified_on"], name="chatthread_user_mod_idx"),
+        ]
+
+    def __str__(self):
+        return f"ChatThread {self.public_id} ({self.title or 'untitled'})"
+
+    def recompute_stats(self):
+        """Derive the denormalized counters from ``messages`` so the list view
+        and usage display stay consistent without re-parsing the JSON."""
+        msgs = self.messages if isinstance(self.messages, list) else []
+        self.message_count = len(msgs)
+        self.has_logprobs = any(
+            isinstance(m, dict) and m.get("logprobs") for m in msgs
+        )
+        asst = [
+            m for m in msgs
+            if isinstance(m, dict)
+            and m.get("role") == "assistant"
+            and isinstance(m.get("usage"), dict)
+        ]
+        # Output tokens accumulate across turns; the prompt count is the latest
+        # turn's context size (summing prompts would wildly overcount a long
+        # chat, since each turn re-sends the whole history).
+        self.completion_tokens = sum(
+            int(m["usage"].get("completion_tokens") or 0) for m in asst
+        )
+        self.prompt_tokens = (
+            int(asst[-1]["usage"].get("prompt_tokens") or 0) if asst else 0
+        )
+        self.total_tokens = self.prompt_tokens + self.completion_tokens
+
+    def save(self, *args, **kwargs):
+        self.recompute_stats()
+        if not self.public_id:
+            self.public_id = generate_public_id()
+        super().save(*args, **kwargs)
+
+
 def media_asset_upload_to(instance, filename: str) -> str:
     """Storage key for a media asset: ``<kind>/<user_id>/<uuid>/<filename>``.
 

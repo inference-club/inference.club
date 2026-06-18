@@ -133,6 +133,7 @@
     },
     "items": {
       "chat": "Chat",
+      "chats": "Chats",
       "transcription": "Transcription",
       "scrape": "Web scrape",
       "images": "Images",

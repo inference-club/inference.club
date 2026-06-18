@@ -22,6 +22,16 @@ def run_job(ir_id):
     jobs.run_job(ir_id)
 
 
+@shared_task(name="apps.inference.tasks.generate_chat_title")
+def generate_chat_title(thread_id):
+    """Generate an AI title for a saved chat thread (off the request path)."""
+    from . import chat_threads
+    try:
+        chat_threads.generate_thread_title(thread_id)
+    except Exception:
+        logger.exception("generate_chat_title failed for thread %s", thread_id)
+
+
 @shared_task(name="apps.inference.tasks.dispatch_queued")
 def dispatch_queued(limit=50):
     """Claim queued jobs that can start now and fan a ``run_job`` task out for

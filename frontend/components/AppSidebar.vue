@@ -48,12 +48,11 @@ const navMainWithActive = computed(() =>
             size="lg"
             class="cursor-default hover:bg-transparent active:bg-transparent"
           >
-            <div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-              <AppLogo class="size-4" />
+            <div class="flex aspect-square size-9 items-center justify-center">
+              <LogoJack3D :size="34" :speed="0.7" pose="upright" />
             </div>
-            <div class="grid flex-1 text-left text-sm leading-tight">
-              <span class="truncate font-semibold">inference.club</span>
-              <span class="truncate text-xs text-muted-foreground">free account</span>
+            <div class="grid min-w-0 flex-1 text-left leading-tight">
+              <span class="truncate text-lg font-semibold">inference.club</span>
             </div>
           </SidebarMenuButton>
         </SidebarMenuItem>

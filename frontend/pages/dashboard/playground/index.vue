@@ -12,15 +12,14 @@ import {
   SlidersHorizontal,
   Sparkles,
   Square,
-  Trash2,
   User,
   Video,
   Volume2,
   X,
 } from 'lucide-vue-next'
-import { usePlayground, type ChatUsage, type ModelInfo } from '@/composables/usePlayground'
+import { usePlayground, type ChatUsage, type ModelInfo, type TokenLogprob } from '@/composables/usePlayground'
+import { useChatThreads, type StoredMessage } from '@/composables/useChatThreads'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
-import { MODALITY_META } from '@/utils/modelCapabilities'
 
 definePageMeta({ layout: 'app' })
 
@@ -39,12 +38,19 @@ interface Msg {
   attachments?: Attachment[]
   usage?: ChatUsage
   tps?: number
+  logprobs?: TokenLogprob[]
+  reasoningLogprobs?: TokenLogprob[]
   done: boolean
   error?: boolean
 }
 
 const { listModels, sendChat } = usePlayground()
+const { createThread, updateThread, getThread } = useChatThreads()
 const { listTtsModels, synthesize } = useTextToSpeech()
+
+// The saved chat thread this conversation persists to (null until the first
+// reply lands; reset by "New chat"). See /dashboard/chats.
+const threadId = ref<string | null>(null)
 
 const models = ref<ModelInfo[]>([])
 const model = ref('')
@@ -63,6 +69,14 @@ const acceptAttr = computed(() =>
 // --- generation params -----------------------------------------------------
 const system = ref('')
 const stream = ref(true)
+// Let reasoning models think before answering. On by default; turning it off
+// sends chat_template_kwargs.enable_thinking=false (verified to actually
+// suppress reasoning on the Nemotron build — the "detailed thinking off" system
+// prompt does not).
+const thinking = ref(true)
+// Ask the model to report per-token log-probabilities, and colour the reply by
+// confidence once it's done. Off by default so it stays out of the way.
+const showLogprobs = ref(false)
 const params = reactive({
   temperature: 0.7,
   top_p: 1,
@@ -252,7 +266,69 @@ const buildBody = (history: Msg[]) => {
   opt('seed', num(params.seed))
   const stops = params.stop.split(',').map((s) => s.trim()).filter(Boolean)
   if (stops.length) body.stop = stops
+  if (showLogprobs.value) {
+    body.logprobs = true
+    body.top_logprobs = 5
+  }
+  if (!thinking.value) {
+    body.chat_template_kwargs = { enable_thinking: false }
+  }
   return body
+}
+
+// --- thread persistence ----------------------------------------------------
+// Flatten the in-memory conversation to the stored shape: keep user turns and
+// completed, non-errored assistant turns (carry reasoning/usage/logprobs).
+const serializeMessages = (): StoredMessage[] =>
+  messages.value
+    .filter((m) => m.role === 'user' || (m.done && !m.error))
+    .map((m) => {
+      const out: StoredMessage = { role: m.role, content: m.content }
+      if (m.reasoning) out.reasoning = m.reasoning
+      if (m.usage) out.usage = m.usage
+      if (m.logprobs?.length) out.logprobs = m.logprobs
+      if (m.reasoningLogprobs?.length) out.reasoningLogprobs = m.reasoningLogprobs
+      return out
+    })
+
+// Save the conversation after each turn. Creates the thread on the first reply
+// (which kicks off async AI-title generation), then PATCHes on later turns.
+// Non-fatal: a failed save never interrupts chatting.
+const persistThread = async () => {
+  if (!messages.value.some((m) => m.role === 'assistant' && m.done && !m.error)) return
+  const payload = { model: model.value, messages: serializeMessages() }
+  try {
+    if (!threadId.value) {
+      const t = await createThread(payload)
+      threadId.value = t.public_id
+    } else {
+      await updateThread(threadId.value, payload)
+    }
+  } catch (e) {
+    console.warn('Could not save chat thread', e)
+  }
+}
+
+// Resume a saved conversation (the "Continue in playground" deep-link).
+const hydrateFromThread = async (publicId: string) => {
+  try {
+    const t = await getThread(publicId)
+    threadId.value = t.public_id
+    if (t.model && models.value.some((m) => m.id === t.model)) model.value = t.model
+    messages.value = t.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      reasoning: m.reasoning || '',
+      usage: m.usage,
+      logprobs: m.logprobs,
+      reasoningLogprobs: m.reasoningLogprobs,
+      done: true,
+    }))
+    if (t.has_logprobs) showLogprobs.value = true
+    await scrollDown(true)
+  } catch {
+    /* a missing/forbidden thread just starts an empty playground */
+  }
 }
 
 const send = async () => {
@@ -264,7 +340,7 @@ const send = async () => {
 
   messages.value.push({ role: 'user', content: text, reasoning: '', attachments: atts, done: true })
   const history = messages.value.slice()
-  const assistant = reactive<Msg>({ role: 'assistant', content: '', reasoning: '', done: false })
+  const assistant = reactive<Msg>({ role: 'assistant', content: '', reasoning: '', logprobs: [], done: false })
   messages.value.push(assistant)
   sending.value = true
   controller = new AbortController()
@@ -279,6 +355,10 @@ const send = async () => {
       onText: (c) => { assistant.content += c; scrollDown() },
       onReasoning: (c) => { assistant.reasoning += c; scrollDown() },
       onUsage: (u) => { assistant.usage = u },
+      onLogprobs: (lp, kind) => {
+        if (kind === 'reasoning') (assistant.reasoningLogprobs ??= []).push(...lp)
+        else (assistant.logprobs ??= []).push(...lp)
+      },
     })
     const elapsed = (performance.now() - start) / 1000
     const ct = assistant.usage?.completion_tokens
@@ -296,6 +376,7 @@ const send = async () => {
     sending.value = false
     controller = null
     scrollDown()
+    void persistThread()
   }
 }
 
@@ -394,6 +475,7 @@ const clear = () => {
     narrationUrls.clear()
     messages.value = []
     attachments.value = []
+    threadId.value = null // start a fresh saved conversation
   }
 }
 
@@ -424,6 +506,9 @@ onMounted(async () => {
       // fall back to the first available model.
       const wanted = String(useRoute().query.model || '')
       model.value = (wanted && models.value.find((m) => m.id === wanted)?.id) || models.value[0].id
+      // Resume a saved conversation if deep-linked from /dashboard/chats.
+      const wantedThread = String(useRoute().query.thread || '')
+      if (wantedThread) await hydrateFromThread(wantedThread)
     } else {
       modelsError.value = 'No models are available to you right now.'
     }
@@ -457,21 +542,13 @@ onBeforeUnmount(() => {
       <div class="flex items-center gap-2">
         <Button
           variant="outline"
-          size="icon"
-          class="lg:hidden"
-          title="Model & parameters"
-          @click="showParams = !showParams"
-        >
-          <SlidersHorizontal class="size-4" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
+          size="sm"
+          class="gap-1.5"
           :disabled="!messages.length || sending"
-          title="Clear conversation"
+          title="Start a new chat"
           @click="clear"
         >
-          <Trash2 class="size-4" />
+          <Plus class="size-4" /> New chat
         </Button>
       </div>
     </div>
@@ -514,7 +591,8 @@ onBeforeUnmount(() => {
               <Bot v-else class="size-4" />
             </div>
             <div class="min-w-0 flex-1 pt-1 space-y-2">
-              <!-- Reasoning trace -->
+              <!-- Reasoning trace. When logprobs are on, the thinking tokens
+                   are heat-mapped here (kept out of the main answer below). -->
               <details
                 v-if="m.reasoning"
                 class="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20"
@@ -523,7 +601,12 @@ onBeforeUnmount(() => {
                 <summary class="cursor-pointer select-none px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
                   Thinking
                 </summary>
-                <pre class="px-3 pb-2 text-xs whitespace-pre-wrap text-amber-900/80 dark:text-amber-200/70 font-sans">{{ m.reasoning }}</pre>
+                <LogprobText
+                  v-if="showLogprobs && m.done && m.reasoningLogprobs?.length"
+                  :tokens="m.reasoningLogprobs"
+                  class="px-3 pb-2"
+                />
+                <pre v-else class="px-3 pb-2 text-xs whitespace-pre-wrap text-amber-900/80 dark:text-amber-200/70 font-sans">{{ m.reasoning }}</pre>
               </details>
 
               <!-- Attachments (user) -->
@@ -543,6 +626,10 @@ onBeforeUnmount(() => {
                 v-else-if="m.role === 'user' || !m.done"
                 class="text-sm whitespace-pre-wrap font-sans"
               >{{ m.content || (m.role === 'assistant' && sending ? '…' : '') }}</pre>
+              <LogprobText
+                v-else-if="showLogprobs && m.logprobs?.length"
+                :tokens="m.logprobs"
+              />
               <MarkdownRenderer v-else :content="m.content" />
 
               <!-- Footer: usage stats + narrate (text-to-speech) -->
@@ -621,8 +708,9 @@ onBeforeUnmount(() => {
               @input="(e) => { const t = e.target as HTMLTextAreaElement; t.style.height='auto'; t.style.height = Math.min(t.scrollHeight, 192) + 'px' }"
             />
 
-            <!-- Bottom row -->
-            <div class="flex items-center gap-1 px-2.5 pb-2.5">
+            <!-- Bottom row: model picker + privacy + options live in the
+                 composer (the pattern other modalities can adopt). -->
+            <div class="flex items-center gap-1.5 px-2.5 pb-2.5">
               <input
                 ref="fileInput"
                 type="file"
@@ -635,15 +723,28 @@ onBeforeUnmount(() => {
                 v-if="mediaKinds.length"
                 variant="ghost"
                 size="icon"
-                class="rounded-full size-9 text-muted-foreground"
+                class="rounded-full size-9 text-muted-foreground shrink-0"
                 title="Attach files"
                 @click="fileInput?.click()"
               >
                 <Plus class="size-5" />
               </Button>
 
+              <ModelPicker v-model="model" :models="models" :loading="loadingModels" />
+
               <div class="ml-auto flex items-center gap-1">
                 <GenerationSharingPicker compact />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="rounded-full size-9 text-muted-foreground hover:text-foreground"
+                  :class="showParams ? 'bg-muted text-foreground' : ''"
+                  :title="showParams ? 'Hide options' : 'Show options'"
+                  :aria-pressed="showParams"
+                  @click="showParams = !showParams"
+                >
+                  <SlidersHorizontal class="size-5" />
+                </Button>
                 <Button
                   v-if="micSupported && caps.includes('audio')"
                   variant="ghost"
@@ -682,39 +783,14 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- Parameters panel -->
+      <!-- Parameters panel — hidden by default; toggled by the options button
+           in the composer (the model picker now lives there too). -->
       <aside
-        :class="[showParams ? 'block' : 'hidden', 'lg:block lg:w-80 shrink-0 lg:sticky lg:top-4 lg:self-start']"
+        v-show="showParams"
+        class="w-full lg:w-80 shrink-0 lg:sticky lg:top-4 lg:self-start"
       >
         <Card class="p-4 space-y-5">
           <div>
-            <div class="flex items-center justify-between">
-              <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Model</Label>
-              <!-- Everything /v1/models returns is reachable, so a selected
-                   model is live & ready. -->
-              <ReadinessDot v-if="selected" :online="true" label="Ready" />
-            </div>
-            <Select v-model="model" :disabled="loadingModels || !models.length">
-              <SelectTrigger class="mt-1.5 w-full font-mono text-xs">
-                <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="m in models" :key="m.id" :value="m.id" class="font-mono text-xs">
-                  <span class="flex items-center gap-2">
-                    <ReadinessDot :online="true" />
-                    <span class="truncate">{{ m.id }}</span>
-                    <component
-                      :is="MODALITY_META[mod]?.icon"
-                      v-for="mod in m.input_modalities.filter((x) => x !== 'text')"
-                      :key="mod"
-                      class="size-3 text-muted-foreground shrink-0"
-                    />
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div class="border-t pt-4">
             <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">System prompt</Label>
             <Textarea v-model="system" rows="3" placeholder="You are a helpful assistant…" class="mt-1.5 resize-none text-sm" />
           </div>
@@ -722,6 +798,28 @@ onBeforeUnmount(() => {
           <div class="flex items-center justify-between">
             <Label for="stream-toggle" class="text-sm">Stream response</Label>
             <Switch id="stream-toggle" v-model="stream" />
+          </div>
+
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <Label for="thinking-toggle" class="text-sm">Thinking</Label>
+              <p class="text-[11px] text-muted-foreground leading-snug">
+                Let reasoning models think before replying. Turn off for faster,
+                shorter answers.
+              </p>
+            </div>
+            <Switch id="thinking-toggle" v-model="thinking" />
+          </div>
+
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <Label for="logprobs-toggle" class="text-sm">Show logprobs</Label>
+              <p class="text-[11px] text-muted-foreground leading-snug">
+                Colour the reply by token confidence; hover to inspect. Needs a model that
+                returns logprobs (e.g. vLLM).
+              </p>
+            </div>
+            <Switch id="logprobs-toggle" v-model="showLogprobs" />
           </div>
 
           <div class="space-y-4 border-t pt-4">

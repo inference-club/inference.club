@@ -8,10 +8,24 @@ export interface ChatUsage {
   total_tokens?: number
 }
 
+// One generated token plus its log-probability and the alternatives the model
+// weighed. Shape mirrors OpenAI's `choices[].logprobs.content[]` (which vLLM
+// emits when the request carries `logprobs: true`).
+export interface TokenLogprob {
+  token: string
+  logprob: number
+  top_logprobs?: { token: string; logprob: number }[]
+}
+
 export interface StreamCallbacks {
   onText: (chunk: string) => void
   onReasoning: (chunk: string) => void
   onUsage: (usage: ChatUsage) => void
+  // Invoked with each batch of per-token logprobs as they arrive (streaming) or
+  // once with the full list (non-streaming). Only fires if the request opted in.
+  // `kind` says whether these tokens belong to the reasoning trace or the final
+  // answer, so the UI can heat-map them in the right place.
+  onLogprobs?: (tokens: TokenLogprob[], kind: 'content' | 'reasoning') => void
   signal?: AbortSignal
 }
 
@@ -80,9 +94,34 @@ export function usePlayground() {
 
     if (!body.stream) {
       const data = await res.json()
-      const msg = data?.choices?.[0]?.message ?? {}
+      const choice = data?.choices?.[0] ?? {}
+      const msg = choice.message ?? {}
       if (msg.content) cb.onText(msg.content)
-      if (msg.reasoning) cb.onReasoning(msg.reasoning)
+      const reasoningText: string = msg.reasoning ?? msg.reasoning_content ?? ''
+      if (reasoningText) cb.onReasoning(reasoningText)
+      const lp = choice.logprobs?.content as TokenLogprob[] | undefined
+      if (Array.isArray(lp) && lp.length) {
+        // Non-streaming returns one flat token list for the whole generation;
+        // split off the leading reasoning tokens by matching the reasoning
+        // text's length so the answer heat-map excludes the thinking trace.
+        if (reasoningText) {
+          const reasoningLp: TokenLogprob[] = []
+          const contentLp: TokenLogprob[] = []
+          let acc = 0
+          for (const t of lp) {
+            if (acc < reasoningText.length) {
+              reasoningLp.push(t)
+              acc += (t.token || '').length
+            } else {
+              contentLp.push(t)
+            }
+          }
+          if (reasoningLp.length) cb.onLogprobs?.(reasoningLp, 'reasoning')
+          if (contentLp.length) cb.onLogprobs?.(contentLp, 'content')
+        } else {
+          cb.onLogprobs?.(lp, 'content')
+        }
+      }
       if (data?.usage) cb.onUsage(data.usage)
       return
     }
@@ -111,10 +150,23 @@ export function usePlayground() {
           continue
         }
         if (obj.usage) cb.onUsage(obj.usage as ChatUsage)
-        const delta = (obj.choices as { delta?: Record<string, string> }[] | undefined)?.[0]?.delta
+        const choice = (obj.choices as {
+          delta?: Record<string, string>
+          logprobs?: { content?: TokenLogprob[] }
+        }[] | undefined)?.[0]
+        const delta = choice?.delta
         if (delta?.content) cb.onText(delta.content)
         const reasoning = delta?.reasoning ?? delta?.reasoning_content
         if (reasoning) cb.onReasoning(reasoning)
+        const lp = choice?.logprobs?.content
+        if (lp?.length) {
+          // Route this chunk's tokens by the delta field it populated: while the
+          // model is thinking it emits reasoning_content, then switches to
+          // content for the answer. Keeps the thinking trace out of the main
+          // heat-map and into the yellow dropdown.
+          const kind = delta?.content ? 'content' : reasoning ? 'reasoning' : 'content'
+          cb.onLogprobs?.(lp, kind)
+        }
       }
     }
   }

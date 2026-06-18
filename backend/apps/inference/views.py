@@ -27,6 +27,7 @@ from .sharing import unique_collection_slug
 from .models import (
     Bookmark,
     CatalogModel,
+    ChatThread,
     Collection,
     CollectionItem,
     ContentReport,
@@ -47,6 +48,8 @@ from .models import (
 from .pagination import StandardResultsSetPagination
 from .serializers import (
     AgentRegisterSerializer,
+    ChatThreadListSerializer,
+    ChatThreadSerializer,
     CollectionSerializer,
     CollectionWriteSerializer,
     ContentReportCreateSerializer,
@@ -202,6 +205,74 @@ class RetrieveInferenceRequestView(generics.RetrieveUpdateDestroyAPIView):
         if instance.user_id != self.request.user.id:
             raise PermissionDenied("You can only delete your own inference requests.")
         instance.delete()
+
+
+def _maybe_generate_title(thread):
+    """Enqueue async AI title generation if this thread still needs one and has
+    something to summarize. The task is a no-op once a title lands, so a couple
+    of redundant enqueues across create/update are harmless."""
+    if thread.title_generated or thread.title:
+        return
+    msgs = thread.messages or []
+    if not any(isinstance(m, dict) and m.get("role") == "user" for m in msgs):
+        return
+    from .tasks import generate_chat_title
+
+    try:
+        generate_chat_title.delay(thread.id)
+    except Exception:
+        logger.exception("could not enqueue chat title for thread %s", thread.id)
+
+
+class ChatThreadView(generics.ListCreateAPIView):
+    """GET lists the user's saved chat threads (newest first); POST creates one
+    from the playground after the first exchange."""
+
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return ChatThreadSerializer
+        return ChatThreadListSerializer
+
+    def get_queryset(self):
+        qs = ChatThread.objects.filter(user=self.request.user)
+        if self.request.method != "POST":
+            # The list never needs the (potentially large) messages blob.
+            qs = qs.defer("messages")
+        return qs
+
+    def perform_create(self, serializer):
+        thread = serializer.save(user=self.request.user)
+        _maybe_generate_title(thread)
+
+
+class ChatThreadDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """GET returns a thread fully expanded (messages included); PATCH appends the
+    latest turn(s); DELETE removes it. Owner-only throughout."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChatThreadSerializer
+    lookup_field = "id"
+
+    def get_queryset(self):
+        return ChatThread.objects.filter(user=self.request.user)
+
+    def get_object(self):
+        # Resolve by opaque public_id first; fall back to the numeric PK.
+        raw = str(self.kwargs.get(self.lookup_field, ""))
+        qs = self.filter_queryset(self.get_queryset())
+        obj = qs.filter(public_id=raw).first()
+        if obj is None and raw.isdigit():
+            obj = qs.filter(pk=int(raw)).first()
+        if obj is None:
+            raise Http404("no such chat thread")
+        return obj
+
+    def perform_update(self, serializer):
+        thread = serializer.save()
+        _maybe_generate_title(thread)
 
 
 class SharedRequestView(generics.RetrieveAPIView):

@@ -54,6 +54,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     titleKey: 'dashboard.groups.inferenceRequests',
     icon: Send,
     items: [
+      { titleKey: 'dashboard.items.chats', url: '/dashboard/chats' },
       { titleKey: 'dashboard.items.yourRequests', url: '/dashboard/inference/requests' },
       { titleKey: 'dashboard.items.allRequests', url: '/dashboard/inference/requests/all' },
       { titleKey: 'dashboard.items.starred', url: '/dashboard/inference/starred' },

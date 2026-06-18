@@ -5,6 +5,7 @@ from django.db.models import Sum
 from rest_framework import serializers
 
 from .models import (
+    ChatThread,
     Collection,
     ContentReport,
     InferenceRequest,
@@ -625,6 +626,62 @@ def request_host_info(req):
             if pm.service_id and pm.service.host_id:
                 host_id = pm.service.host_id
     return {"host_id": host_id, "gpus": _gpus_for_host(provider, host_id) if provider else []}
+
+
+class ChatThreadListSerializer(serializers.ModelSerializer):
+    """Slim card for the Chats list — metadata + counters, never the messages
+    blob (which can be large when logprobs are stored)."""
+
+    class Meta:
+        model = ChatThread
+        fields = [
+            "public_id",
+            "title",
+            "model",
+            "message_count",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "has_logprobs",
+            "title_generated",
+            "created_on",
+            "modified_on",
+        ]
+        read_only_fields = fields
+
+
+class ChatThreadSerializer(serializers.ModelSerializer):
+    """Detail + write. Accepts ``messages``/``model``/``title`` on create and
+    PATCH; the counters (``message_count``, token totals, ``has_logprobs``) are
+    derived server-side in ``ChatThread.save`` and are read-only here."""
+
+    class Meta:
+        model = ChatThread
+        fields = [
+            "public_id",
+            "title",
+            "model",
+            "messages",
+            "message_count",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "has_logprobs",
+            "title_generated",
+            "created_on",
+            "modified_on",
+        ]
+        read_only_fields = [
+            "public_id",
+            "message_count",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "has_logprobs",
+            "title_generated",
+            "created_on",
+            "modified_on",
+        ]
 
 
 class InferenceRequestSerializer(serializers.ModelSerializer):
