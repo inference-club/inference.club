@@ -264,6 +264,49 @@ class TestImageEdits:
         )
         assert resp.status_code == 400
 
+    def test_multi_reference_edit_forwards_image_array(self, user):
+        """Several `image[]` sources are stored and forwarded as repeated
+        `image[]` multipart parts (multi-reference editing, e.g. FLUX.2 Klein)."""
+        p = _online_provider(user)
+        _image_model(p)
+        with patch("apps.inference.openai_views.requests.post", return_value=_gen_resp()) as post:
+            resp = _client(user).post(
+                "/v1/images/edits",
+                {
+                    "model": "image-model",
+                    "prompt": "combine these",
+                    "image[]": [_png_upload("a.png"), _png_upload("b.png")],
+                },
+                format="multipart",
+            )
+        assert resp.status_code == 200
+        # Both sources stored…
+        assert MediaAsset.objects.filter(user=user, kind="INPUT_IMAGE").count() == 2
+        # …and forwarded upstream as two `image[]` parts (a list of tuples).
+        forwarded = [name for name, _ in post.call_args.kwargs["files"]]
+        assert forwarded.count("image[]") == 2
+        # …and both surface in the list serializer so the UI can show every
+        # reference (not just the first) on the card / detail / share views.
+        ir = InferenceRequest.objects.get(user=user, inference_type="IMAGE")
+        listed = _client(user).get("/api/inference/requests/").json()["results"]
+        row = next(r for r in listed if str(r["id"]) == str(ir.id))
+        assert len(row["input_image_urls"]) == 2
+        assert row["input_image_url"] == row["input_image_urls"][0]
+
+    def test_single_image_still_uses_image_field(self, user):
+        """A lone source keeps the classic single `image` field for compat."""
+        p = _online_provider(user)
+        _image_model(p)
+        with patch("apps.inference.openai_views.requests.post", return_value=_gen_resp()) as post:
+            resp = _client(user).post(
+                "/v1/images/edits",
+                {"model": "image-model", "prompt": "x", "image": _png_upload()},
+                format="multipart",
+            )
+        assert resp.status_code == 200
+        forwarded = [name for name, _ in post.call_args.kwargs["files"]]
+        assert forwarded == ["image"]
+
 
 # --- public asset access ---------------------------------------------------
 

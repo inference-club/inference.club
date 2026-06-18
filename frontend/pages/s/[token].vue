@@ -23,7 +23,14 @@ const isMesh = computed(() => req.value?.inference_type === 'MESH')
 const isMusic = computed(() => req.value?.inference_type === 'MUSIC')
 const isVideo = computed(() => req.value?.inference_type === 'VIDEO')
 const isEnhance = computed(() => req.value?.inference_type === 'ENHANCE')
-const lightbox = useImageLightbox()
+// Source image(s) for an edit: prefer the plural list, fall back to the single.
+const imageInputs = computed(() =>
+  req.value?.input_image_urls?.length
+    ? req.value.input_image_urls
+    : req.value?.input_image_url
+      ? [req.value.input_image_url]
+      : [],
+)
 
 // The shared endpoint uses the detail serializer, which carries `payload` but
 // not `prompt_preview`. Pull the human-readable prompt from the payload (image/
@@ -106,15 +113,7 @@ useSeoMeta({
         <p v-if="promptText" class="text-sm mb-3">
           <span class="text-muted-foreground">Prompt:</span> {{ promptText }}
         </p>
-        <div class="flex flex-wrap gap-3">
-          <img
-            v-for="(url, i) in req.image_urls"
-            :key="i"
-            :src="url"
-            class="max-h-[70vh] w-auto cursor-zoom-in rounded-lg border object-contain"
-            @click="lightbox.open(url)"
-          />
-        </div>
+        <ImageGenMedia :inputs="imageInputs" :outputs="req.image_urls" />
       </Card>
 
       <!-- Image to 3D -->

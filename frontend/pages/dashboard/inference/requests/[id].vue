@@ -22,6 +22,14 @@ const id = computed(() => String(route.params.id))
 const req = computed(() => store.currentRequest)
 const isStt = computed(() => req.value?.inference_type === 'STT')
 const isImage = computed(() => req.value?.inference_type === 'IMAGE')
+// Source image(s) for an edit: prefer the plural list, fall back to the single.
+const imageInputs = computed(() =>
+  req.value?.input_image_urls?.length
+    ? req.value.input_image_urls
+    : req.value?.input_image_url
+      ? [req.value.input_image_url]
+      : [],
+)
 const isTts = computed(() => req.value?.inference_type === 'TTS')
 const isMesh = computed(() => req.value?.inference_type === 'MESH')
 const isMusic = computed(() => req.value?.inference_type === 'MUSIC')
@@ -367,24 +375,8 @@ onMounted(() => {
         <div v-if="req.payload?.prompt" class="text-sm mb-3">
           <span class="text-muted-foreground">Prompt:</span> {{ req.payload.prompt }}
         </div>
-        <div class="flex flex-wrap items-start gap-3">
-          <div v-if="req.input_image_url" class="relative">
-            <img
-              :src="req.input_image_url"
-              class="max-h-[75vh] w-auto cursor-zoom-in rounded-lg border object-contain opacity-80 transition-opacity hover:opacity-100"
-              @click="lightbox.open(req.input_image_url)"
-            />
-            <Badge class="absolute top-1.5 left-1.5" variant="secondary">source</Badge>
-          </div>
-          <img
-            v-for="(url, i) in req.image_urls"
-            :key="i"
-            :src="url"
-            class="max-h-[75vh] w-auto cursor-zoom-in rounded-lg border object-contain transition-opacity hover:opacity-90"
-            @click="lightbox.open(url)"
-          />
-        </div>
-        <div v-if="!req.image_urls?.length" class="text-sm text-muted-foreground">
+        <ImageGenMedia :inputs="imageInputs" :outputs="req.image_urls" />
+        <div v-if="!imageInputs.length && !req.image_urls?.length" class="text-sm text-muted-foreground">
           No images stored for this request.
         </div>
       </Card>

@@ -2624,30 +2624,48 @@ class ImageGenerationsView(_ImageProxyBase):
 
 
 class ImageEditsView(_ImageProxyBase):
-    """``POST /v1/images/edits`` — edit a source image with a prompt
-    (multipart: image + prompt, optional mask)."""
+    """``POST /v1/images/edits`` — edit one or more source images with a prompt
+    (multipart: image + prompt, optional mask).
+
+    Accepts a single ``image`` file (OpenAI's classic single-source edit) or
+    several ``image[]`` files for multi-reference editing — models like FLUX.2
+    Klein fuse up to ~8 reference images into one result. Both keys are merged
+    and every source is stored (``INPUT_IMAGE``) so the edit stays replayable."""
 
     upstream_path = "/images/edits"
 
+    # FLUX.2 Klein takes up to 8 references; cap to keep the multipart forward
+    # bounded regardless of what the client sends.
+    MAX_INPUT_IMAGES = 8
+
     def post(self, request):
-        upload = request.FILES.get("image")
-        if upload is None:
+        # Merge the single-source (`image`) and multi-reference (`image[]`)
+        # keys; order is preserved so the first reference stays primary.
+        uploads = request.FILES.getlist("image") + request.FILES.getlist("image[]")
+        if not uploads:
             return Response(
                 {"error": {"message": "`image` file is required.", "type": "missing_file"}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if upload.size and upload.size > settings.IMAGE_MAX_UPLOAD_BYTES:
+        if len(uploads) > self.MAX_INPUT_IMAGES:
             return Response(
-                {"error": {"message": "Image too large.", "type": "file_too_large"}},
-                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                {"error": {"message": f"At most {self.MAX_INPUT_IMAGES} images may be edited at once.",
+                           "type": "too_many_images"}},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        ctype = (upload.content_type or "").split(";", 1)[0].strip().lower()
-        if ctype and ctype not in settings.IMAGE_ALLOWED_CONTENT_TYPES:
-            return Response(
-                {"error": {"message": f"Unsupported image type: {ctype!r}.",
-                           "type": "unsupported_media_type"}},
-                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            )
+        for upload in uploads:
+            if upload.size and upload.size > settings.IMAGE_MAX_UPLOAD_BYTES:
+                return Response(
+                    {"error": {"message": "Image too large.", "type": "file_too_large"}},
+                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                )
+            ctype = (upload.content_type or "").split(";", 1)[0].strip().lower()
+            if ctype and ctype not in settings.IMAGE_ALLOWED_CONTENT_TYPES:
+                return Response(
+                    {"error": {"message": f"Unsupported image type: {ctype!r}.",
+                               "type": "unsupported_media_type"}},
+                    status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                )
         prompt = request.data.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             return Response(
@@ -2668,7 +2686,15 @@ class ImageEditsView(_ImageProxyBase):
         canonical = _model_slug(provider_model)
         requested_format = request.data.get("response_format") or "url"
 
-        image_bytes = upload.read()
+        # Read every source up front (name, bytes, content-type) so we can both
+        # store and forward each one.
+        sources = []
+        for upload in uploads:
+            sources.append((
+                getattr(upload, "name", "image.png") or "image.png",
+                upload.read(),
+                (upload.content_type or "").split(";", 1)[0].strip().lower(),
+            ))
         mask = request.FILES.get("mask")
         mask_bytes = mask.read() if mask is not None else None
 
@@ -2684,34 +2710,42 @@ class ImageEditsView(_ImageProxyBase):
                 "n": request.data.get("n"),
                 "response_format": requested_format,
                 "edit": True,
+                "image_count": len(sources),
             },
             status="PROCESSING",
             visibility=visibility or "",
         )
         file_into_collection(request.user, ir, collection_name)
 
-        # Store the source image (public, like outputs) so the edit is replayable.
+        # Store every source image (public, like outputs) so the edit — including
+        # all references — stays replayable.
         from django.core.files.base import ContentFile
 
         from .models import MediaAsset
 
-        try:
-            src = MediaAsset(
-                user=request.user, inference_request=ir, kind=MediaAsset.INPUT_IMAGE,
-                content_type=ctype or "image/png", size_bytes=len(image_bytes),
-            )
-            src.file.save(getattr(upload, "name", "source.png") or "source.png",
-                          ContentFile(image_bytes), save=False)
-            src.save()
-        except Exception as e:  # storage hiccup shouldn't fail the edit
-            logger.warning("input-image store failed: %s", e)
+        for name, data, ctype in sources:
+            try:
+                src = MediaAsset(
+                    user=request.user, inference_request=ir, kind=MediaAsset.INPUT_IMAGE,
+                    content_type=ctype or "image/png", size_bytes=len(data),
+                )
+                src.file.save(name or "source.png", ContentFile(data), save=False)
+                src.save()
+            except Exception as e:  # storage hiccup shouldn't fail the edit
+                logger.warning("input-image store failed: %s", e)
 
-        # Build the multipart forward.
-        files = {"image": (getattr(upload, "name", "image.png"), image_bytes,
-                           ctype or "application/octet-stream")}
+        # Build the multipart forward. A single source uses the classic `image`
+        # field; multiple references go through `image[]` (a list of same-named
+        # parts, which `requests` sends as repeated multipart fields).
+        if len(sources) == 1:
+            name, data, ctype = sources[0]
+            files = [("image", (name, data, ctype or "application/octet-stream"))]
+        else:
+            files = [("image[]", (name, data, ctype or "application/octet-stream"))
+                     for name, data, ctype in sources]
         if mask_bytes is not None:
-            files["mask"] = (getattr(mask, "name", "mask.png"), mask_bytes,
-                             (mask.content_type or "image/png"))
+            files.append(("mask", (getattr(mask, "name", "mask.png"), mask_bytes,
+                                   (mask.content_type or "image/png"))))
         data_fields = [("prompt", prompt), ("response_format", "b64_json")]
         if served_name:
             data_fields.append(("model", served_name))

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { ChevronDown, Image as ImageIcon, Lightbulb, Loader2, Sparkles, Square, Upload, X } from 'lucide-vue-next'
+import { ChevronDown, Image as ImageIcon, Images, Lightbulb, Loader2, Sparkles, Square, Upload, X } from 'lucide-vue-next'
 import { useImageGeneration } from '@/composables/useImageGeneration'
 import { SUGGESTED_IMAGE_PROMPTS } from '@/utils/imagePrompts'
 import type { ModelInfo } from '@/composables/usePlayground'
@@ -41,12 +41,15 @@ const currentPreset = computed(
   () => ASPECT_PRESETS.find((p) => `${p.w}x${p.h}` === size.value) ?? ASPECT_PRESETS[0],
 )
 
-// Optional source image → switches to the edit endpoint.
+// Optional source images → switches to the edit endpoint. One source is a
+// classic single-image edit; several are reference images the model fuses
+// together (FLUX.2 Klein supports up to 8).
 interface SourceImage { blob: Blob; name: string; url: string }
-const source = ref<SourceImage | null>(null)
+const sources = ref<SourceImage[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragOver = ref(false)
 const MAX_MB = 25
+const MAX_IMAGES = 8
 
 const running = ref(false)
 let controller: AbortController | null = null
@@ -55,30 +58,41 @@ let controller: AbortController | null = null
 // refetches and flashes the image that just finished.
 const refreshKey = ref(0)
 
-const setSource = (blob: Blob, name: string) => {
+const addSource = (blob: Blob, name: string) => {
   if (blob.size > MAX_MB * 1024 * 1024) {
     toast.error(`Image too large (max ${MAX_MB} MB)`)
     return
   }
-  if (source.value) URL.revokeObjectURL(source.value.url)
-  source.value = { blob, name, url: URL.createObjectURL(blob) }
+  if (sources.value.length >= MAX_IMAGES) {
+    toast.error(`Up to ${MAX_IMAGES} reference images`)
+    return
+  }
+  sources.value.push({ blob, name, url: URL.createObjectURL(blob) })
 }
 const onFiles = (e: Event) => {
-  const f = (e.target as HTMLInputElement).files?.[0]
-  if (f) setSource(f, f.name)
+  const files = (e.target as HTMLInputElement).files
+  if (files) for (const f of Array.from(files)) addSource(f, f.name)
   if (fileInput.value) fileInput.value.value = ''
 }
 const onDrop = (e: DragEvent) => {
   dragOver.value = false
-  const f = e.dataTransfer?.files?.[0]
-  if (!f) return
-  if (!f.type.startsWith('image/')) return toast.error('Please drop an image file')
-  setSource(f, f.name)
+  const files = e.dataTransfer?.files
+  if (!files?.length) return
+  for (const f of Array.from(files)) {
+    if (!f.type.startsWith('image/')) { toast.error('Please drop image files'); continue }
+    addSource(f, f.name)
+  }
 }
-const clearSource = () => {
-  if (source.value) URL.revokeObjectURL(source.value.url)
-  source.value = null
+const removeSource = (i: number) => {
+  const [removed] = sources.value.splice(i, 1)
+  if (removed) URL.revokeObjectURL(removed.url)
 }
+const clearSources = () => {
+  for (const s of sources.value) URL.revokeObjectURL(s.url)
+  sources.value = []
+}
+const pickerOpen = ref(false)
+const onPickImage = ({ blob, name }: { blob: Blob; name: string }) => addSource(blob, name)
 
 const canRun = computed(() => !!model.value && !!prompt.value.trim() && !running.value)
 
@@ -87,10 +101,10 @@ const run = async () => {
   running.value = true
   controller = new AbortController()
   const p = prompt.value.trim()
-  const src = source.value
+  const srcs = sources.value
   try {
-    if (src) {
-      await edit(src.blob, src.name, { model: model.value, prompt: p, n: n.value, size: size.value }, controller.signal)
+    if (srcs.length) {
+      await edit(srcs.map((s) => ({ blob: s.blob, name: s.name })), { model: model.value, prompt: p, n: n.value, size: size.value }, controller.signal)
     } else {
       await generate({ model: model.value, prompt: p, n: n.value, size: size.value }, controller.signal)
     }
@@ -139,7 +153,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  if (source.value) URL.revokeObjectURL(source.value.url)
+  for (const s of sources.value) URL.revokeObjectURL(s.url)
 })
 </script>
 
@@ -152,7 +166,8 @@ onBeforeUnmount(() => {
           <ImageIcon class="h-6 w-6" /> Image generation
         </h1>
         <p class="text-sm text-muted-foreground mt-1">
-          Text-to-image — describe an image, or attach one to edit it with your prompt.
+          Text-to-image — describe an image, or attach one to edit it. Add several
+          reference images and the model fuses them into one.
         </p>
       </div>
       <Select v-model="model" :disabled="loadingModels || !models.length">
@@ -212,7 +227,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <!-- Optional source image -->
+          <!-- Optional source image(s) -->
           <div
             class="rounded-xl border border-dashed transition-colors p-3 text-center text-sm"
             :class="dragOver ? 'border-primary bg-accent/40' : 'border-border'"
@@ -220,24 +235,66 @@ onBeforeUnmount(() => {
             @dragleave.prevent="dragOver = false"
             @drop.prevent="onDrop"
           >
-            <div v-if="source" class="flex items-center gap-3">
-              <img :src="source.url" class="size-14 rounded object-cover border" />
-              <span class="text-xs text-muted-foreground flex-1 text-left truncate">
-                Editing <strong>{{ source.name }}</strong> with your prompt
-              </span>
-              <Button variant="ghost" size="icon" @click="clearSource"><X class="size-4" /></Button>
+            <!-- Thumbnails of the chosen sources -->
+            <div v-if="sources.length" class="flex flex-wrap gap-2">
+              <div
+                v-for="(s, i) in sources"
+                :key="i"
+                class="group relative size-16 shrink-0 overflow-hidden rounded border"
+              >
+                <img :src="s.url" :title="s.name" class="size-full object-cover" />
+                <button
+                  type="button"
+                  class="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  :aria-label="`Remove ${s.name}`"
+                  @click="removeSource(i)"
+                >
+                  <X class="size-3" />
+                </button>
+              </div>
+              <button
+                v-if="sources.length < MAX_IMAGES"
+                type="button"
+                class="flex size-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded border border-dashed text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+                @click="fileInput?.click()"
+              >
+                <Upload class="size-4" />
+                <span class="text-[10px]">Add</span>
+              </button>
             </div>
             <div v-else class="text-muted-foreground">
               <Upload class="size-4 inline mr-1 opacity-60" />
-              Drag an image to <em>edit</em> it, or
+              Drag image(s) to <em>edit</em> or combine, or
               <button class="text-primary underline" @click="fileInput?.click()">browse</button>
               <span class="text-[11px]"> (optional)</span>
             </div>
-            <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onFiles" />
+            <input ref="fileInput" type="file" accept="image/*" multiple class="hidden" @change="onFiles" />
+          </div>
+          <div class="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              class="gap-2"
+              :disabled="sources.length >= MAX_IMAGES"
+              @click="pickerOpen = true"
+            >
+              <Images class="size-4" /> Use an existing image
+            </Button>
+            <button
+              v-if="sources.length"
+              type="button"
+              class="text-xs text-muted-foreground hover:text-foreground"
+              @click="clearSources"
+            >
+              Clear all
+            </button>
+            <span v-if="sources.length > 1" class="text-xs text-muted-foreground">
+              {{ sources.length }} reference images
+            </span>
           </div>
 
           <div class="flex items-center gap-2">
-            <span class="text-xs text-muted-foreground">{{ source ? 'Edit mode' : 'Generate mode' }}</span>
+            <span class="text-xs text-muted-foreground">{{ sources.length ? 'Edit mode' : 'Generate mode' }}</span>
             <ElapsedTimer :running="running" class="text-xs text-muted-foreground" />
             <div class="ml-auto flex items-center gap-2">
               <GenerationSharingPicker />
@@ -246,7 +303,7 @@ onBeforeUnmount(() => {
               </Button>
               <Button :disabled="!canRun" class="gap-2" @click="run">
                 <component :is="running ? Loader2 : Sparkles" class="size-4" :class="running ? 'animate-spin' : ''" />
-                {{ source ? 'Edit' : 'Generate' }}
+                {{ sources.length ? 'Edit' : 'Generate' }}
               </Button>
             </div>
           </div>
@@ -277,17 +334,28 @@ onBeforeUnmount(() => {
             </SelectContent>
           </Select>
 
-          <!-- Live shape preview -->
+          <!-- Live shape preview. An SVG with preserveAspectRatio letterboxes
+               the WxH viewBox to fit the box (true object-fit: contain), so the
+               drawn rect always carries the real aspect ratio regardless of the
+               container's own shape — a plain div with max-w/max-h + aspectRatio
+               can't (clamping one axis distorts the other). -->
           <div class="mt-2 flex h-32 items-center justify-center rounded-lg border bg-muted/30 p-3">
-            <div
-              class="rounded border-2 border-primary/50 bg-primary/10"
-              :style="{
-                aspectRatio: `${currentPreset.w} / ${currentPreset.h}`,
-                maxWidth: '100%',
-                maxHeight: '100%',
-                ...(currentPreset.w >= currentPreset.h ? { width: '100%' } : { height: '100%' }),
-              }"
-            />
+            <svg
+              :viewBox="`0 0 ${currentPreset.w} ${currentPreset.h}`"
+              preserveAspectRatio="xMidYMid meet"
+              class="h-full w-full overflow-visible"
+            >
+              <rect
+                x="0"
+                y="0"
+                :width="currentPreset.w"
+                :height="currentPreset.h"
+                :rx="Math.min(currentPreset.w, currentPreset.h) * 0.05"
+                class="fill-primary/10 stroke-primary/50"
+                stroke-width="2"
+                vector-effect="non-scaling-stroke"
+              />
+            </svg>
           </div>
           <p class="mt-1 text-center text-[11px] text-muted-foreground tabular-nums">
             {{ currentPreset.w }} × {{ currentPreset.h }}
@@ -302,5 +370,7 @@ onBeforeUnmount(() => {
         </p>
       </Card>
     </div>
+
+    <ImageSourcePicker v-model:open="pickerOpen" @select="onPickImage" />
   </div>
 </template>

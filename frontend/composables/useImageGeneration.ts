@@ -81,15 +81,20 @@ export function useImageGeneration() {
     return (await res.json())?.data ?? []
   }
 
-  // Source image + prompt → edited image.
+  // Source image(s) + prompt → edited image. A single source uses the classic
+  // `image` field; several references go through `image[]` — models like
+  // FLUX.2 Klein fuse multiple reference images into one result.
   const edit = async (
-    image: Blob,
-    filename: string,
+    images: { blob: Blob; name: string }[],
     opts: GenerateOptions,
     signal?: AbortSignal,
   ): Promise<GeneratedImage[]> => {
     const form = new FormData()
-    form.append('image', image, filename)
+    if (images.length === 1) {
+      form.append('image', images[0].blob, images[0].name)
+    } else {
+      for (const img of images) form.append('image[]', img.blob, img.name)
+    }
     form.append('model', opts.model)
     form.append('prompt', opts.prompt)
     if (opts.n) form.append('n', String(opts.n))

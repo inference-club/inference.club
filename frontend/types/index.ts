@@ -103,6 +103,9 @@ export interface InferenceRequest {
   image_count?: number | null
   image_urls?: string[]
   input_image_url?: string | null
+  // Every source image for an edit (one for a classic edit, several when a
+  // model fuses multiple reference images). `input_image_url` is the first.
+  input_image_urls?: string[]
 
   // Image-to-3D (MESH): the generated GLB + its generation stats. The input
   // image is carried in `input_image_url` above (shared with image edits).

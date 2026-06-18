@@ -730,6 +730,7 @@ class InferenceRequestListSerializer(
     output_audio_url = serializers.SerializerMethodField()
     image_urls = serializers.SerializerMethodField()
     input_image_url = serializers.SerializerMethodField()
+    input_image_urls = serializers.SerializerMethodField()
     model_url = serializers.SerializerMethodField()
     mesh = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
@@ -757,6 +758,7 @@ class InferenceRequestListSerializer(
             "image_count",
             "image_urls",
             "input_image_url",
+            "input_image_urls",
             "model_url",
             "mesh",
             "video_url",
@@ -786,6 +788,12 @@ class InferenceRequestListSerializer(
     def get_input_image_url(self, obj):
         urls = _asset_urls(obj, self.context.get("request"), "INPUT_IMAGE")
         return urls[0] if urls else None
+
+    def get_input_image_urls(self, obj):
+        # Every source for a (possibly multi-reference) edit, in upload order.
+        if obj.inference_type != "IMAGE":
+            return []
+        return _asset_urls(obj, self.context.get("request"), "INPUT_IMAGE")
 
     def get_model_url(self, obj):
         return _model_url(obj, self.context.get("request"))
@@ -850,6 +858,7 @@ class InferenceRequestDetailSerializer(
     transcription = serializers.SerializerMethodField()
     image_urls = serializers.SerializerMethodField()
     input_image_url = serializers.SerializerMethodField()
+    input_image_urls = serializers.SerializerMethodField()
     model_url = serializers.SerializerMethodField()
     mesh = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
@@ -882,6 +891,7 @@ class InferenceRequestDetailSerializer(
             "image_count",
             "image_urls",
             "input_image_url",
+            "input_image_urls",
             "model_url",
             "mesh",
             "video_url",
@@ -916,6 +926,10 @@ class InferenceRequestDetailSerializer(
     def get_input_image_url(self, obj):
         urls = _asset_urls(obj, self.context.get("request"), "INPUT_IMAGE")
         return urls[0] if urls else None
+
+    def get_input_image_urls(self, obj):
+        # Every source for a (possibly multi-reference) edit, in upload order.
+        return _asset_urls(obj, self.context.get("request"), "INPUT_IMAGE")
 
     def get_model_url(self, obj):
         return _model_url(obj, self.context.get("request"))

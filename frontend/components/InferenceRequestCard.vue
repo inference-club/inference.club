@@ -24,8 +24,6 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (e: 'delete' | 'retried', id: string): void }>()
 
-const lightbox = useImageLightbox()
-
 // Defer audio/video network activity (metadata range requests, poster
 // fetches) until the card is near the viewport. <img> gets this natively
 // via loading="lazy"; media elements don't, and a list of music/video cards
@@ -36,6 +34,14 @@ const whenInView = (url?: string | null) => (mediaInView.value && url) || undefi
 
 const isStt = computed(() => props.request.inference_type === 'STT')
 const isImage = computed(() => props.request.inference_type === 'IMAGE')
+// Source image(s) for an edit: prefer the plural list, fall back to the single.
+const imageInputs = computed(() =>
+  props.request.input_image_urls?.length
+    ? props.request.input_image_urls
+    : props.request.input_image_url
+      ? [props.request.input_image_url]
+      : [],
+)
 // VOICE (Dia voice cloning) renders like TTS: input script → audio output.
 const isTts = computed(
   () => props.request.inference_type === 'TTS' || props.request.inference_type === 'VOICE',
@@ -300,18 +306,11 @@ const queueTrack = () => {
         <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Prompt</p>
         <p class="text-sm break-words line-clamp-[8]">{{ props.request.prompt_preview || '—' }}</p>
       </div>
-      <div
-        v-if="props.request.image_urls?.length"
-        class="grid gap-1.5"
-        :class="props.request.image_urls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'"
-      >
-        <img
-          v-for="(url, i) in props.request.image_urls.slice(0, 4)"
-          :key="i"
-          :src="url"
-          class="h-full max-h-80 min-h-32 w-full cursor-zoom-in rounded-lg border object-cover transition-opacity hover:opacity-90"
-          loading="lazy"
-          @click.stop="lightbox.open(url)"
+      <div v-if="imageInputs.length || props.request.image_urls?.length" @click.stop>
+        <ImageGenMedia
+          :inputs="imageInputs"
+          :outputs="props.request.image_urls"
+          compact
         />
       </div>
       <p v-else class="text-sm text-muted-foreground">—</p>
