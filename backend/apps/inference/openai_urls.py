@@ -33,6 +33,7 @@ from .studio_views import (
     StudioVoicesView,
     VariantSelectView,
 )
+from .agent_views import AgentBraveKeyView, AgentChatView, AgentToolsView
 from .openai_views import (
     AudioEnhanceView,
     AudioSpeechView,
@@ -60,6 +61,14 @@ urlpatterns = [
     path("chat/completions/", ChatCompletionsView.as_view()),
     path("completions", CompletionsView.as_view(), name="completions"),
     path("completions/", CompletionsView.as_view()),
+    # --- playground Agent (PRD 14) ---
+    # tools/ must precede the bare agent route so it isn't shadowed.
+    path("agent/tools", AgentToolsView.as_view(), name="agent-tools"),
+    path("agent/tools/", AgentToolsView.as_view()),
+    path("agent/brave-key", AgentBraveKeyView.as_view(), name="agent-brave-key"),
+    path("agent/brave-key/", AgentBraveKeyView.as_view()),
+    path("agent", AgentChatView.as_view(), name="agent"),
+    path("agent/", AgentChatView.as_view()),
     path("audio/transcriptions", AudioTranscriptionsView.as_view(), name="audio-transcriptions"),
     path("audio/transcriptions/", AudioTranscriptionsView.as_view()),
     path("audio/speech", AudioSpeechView.as_view(), name="audio-speech"),

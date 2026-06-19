@@ -5,6 +5,7 @@ Nuxt dev server). Production overrides everything via env vars; in containerized
 deploys these come from the .env file rendered by Pulumi.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -221,6 +222,45 @@ REST_FRAMEWORK = {
 INFERENCE_MAX_MESSAGES = int(os.environ.get("INFERENCE_MAX_MESSAGES", "200"))
 INFERENCE_MAX_INPUT_CHARS = int(os.environ.get("INFERENCE_MAX_INPUT_CHARS", "100000"))
 INFERENCE_MAX_OUTPUT_TOKENS = int(os.environ.get("INFERENCE_MAX_OUTPUT_TOKENS", "8192"))
+
+# ---- playground Agent (PRD 14) ------------------------------------------
+# A shared, server-side tool-calling chatbot. Runs in-process, reuses the chat
+# proxy + per-modality runners, and calls services already on the home cluster
+# (SearXNG, browserless, Firecrawl). Off where no tool-capable model is
+# routable; the loop degrades to a plain answer if a chosen model has no tool
+# parser. Guardrails below are sized for the cluster LLM's 10k context window.
+AGENT_ENABLED = _env_bool("AGENT_ENABLED", default=True)
+# Tool rounds before the loop forces a final, no-tools answer.
+AGENT_MAX_ITERATIONS = int(os.environ.get("AGENT_MAX_ITERATIONS", "6"))
+# Hard cap on a single tool result's text before it re-enters the conversation
+# (the 10k-context guardrail). Truncated with an explicit marker.
+AGENT_TOOL_OUTPUT_MAX_CHARS = int(os.environ.get("AGENT_TOOL_OUTPUT_MAX_CHARS", "4000"))
+# Default number of web-search results returned to the model.
+AGENT_MAX_SEARCH_RESULTS = int(os.environ.get("AGENT_MAX_SEARCH_RESULTS", "5"))
+# Overall wall-clock budget for one agent turn (all tool rounds combined).
+AGENT_WALL_CLOCK_SECONDS = int(os.environ.get("AGENT_WALL_CLOCK_SECONDS", "120"))
+# SearXNG JSON search API, reachable from the Django box over the tailnet
+# (NodePort on a1). Blank disables the web_search tool.
+AGENT_SEARXNG_URL = os.environ.get("AGENT_SEARXNG_URL", "")
+# browserless headless-Chrome (V1 `browse` tool). The HTTP base backs the REST
+# /content endpoint (render a page → HTML); the WS is reserved for future
+# CDP-driven actions. Blank disables the tool.
+AGENT_BROWSERLESS_URL = os.environ.get("AGENT_BROWSERLESS_URL", "")
+AGENT_BROWSERLESS_WS = os.environ.get("AGENT_BROWSERLESS_WS", "")
+AGENT_BROWSERLESS_TOKEN = os.environ.get("AGENT_BROWSERLESS_TOKEN", "")
+# Brave Search API (V1 `web_search_brave` tool). Per-user keys are stored on the
+# account; this is an optional instance-wide fallback key.
+AGENT_BRAVE_API_KEY = os.environ.get("AGENT_BRAVE_API_KEY", "")
+# External MCP servers (V2). A JSON array of {"name","url"[,"token"]} pointing at
+# MCP "Streamable HTTP" JSON-RPC endpoints; each server's tools are registered as
+# `<name>__<tool>` in the agent's tool registry. Empty (default) ⇒ no MCP, no
+# network at startup.
+try:
+    AGENT_MCP_SERVERS = json.loads(os.environ.get("AGENT_MCP_SERVERS", "") or "[]")
+    if not isinstance(AGENT_MCP_SERVERS, list):
+        AGENT_MCP_SERVERS = []
+except (ValueError, TypeError):
+    AGENT_MCP_SERVERS = []
 
 # ---- cache --------------------------------------------------------------
 # Backs DRF throttling and the rate-limit usage meter. A SHARED backend

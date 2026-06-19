@@ -117,6 +117,11 @@ class CustomUser(AbstractUser):
         _("public profile enabled"), default=True
     )
 
+    # Optional personal Brave Search API key, enabling the playground Agent's
+    # `web_search_brave` tool (PRD 14). Stored as-is on this single-tenant,
+    # self-hosted deployment; never exposed by the API (write-only).
+    brave_api_key = models.CharField(max_length=128, blank=True, default="")
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 

@@ -15,6 +15,7 @@ import {
   User,
   Video,
   Volume2,
+  Wand2,
   X,
 } from 'lucide-vue-next'
 import { usePlayground, type ChatUsage, type ModelInfo, type TokenLogprob } from '@/composables/usePlayground'
@@ -557,6 +558,11 @@ onBeforeUnmount(() => {
         </p>
       </div>
       <div class="flex items-center gap-2">
+        <Button variant="ghost" size="sm" class="gap-1.5" as-child title="Chat with a tool-using agent">
+          <NuxtLink to="/dashboard/playground/agent">
+            <Wand2 class="size-4" /> Agent
+          </NuxtLink>
+        </Button>
         <Button
           variant="outline"
           size="sm"
