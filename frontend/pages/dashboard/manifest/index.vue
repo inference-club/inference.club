@@ -85,6 +85,11 @@ const formatRelative = (iso: string | null) => {
         </div>
 
         <template v-else>
+          <MachineSummary
+            v-if="provider.manifest.parsed?.hosts?.length"
+            :hosts="provider.manifest.parsed.hosts"
+            class="px-5 py-3 border-b"
+          />
           <ul
             v-if="provider.manifest.validation_errors.length"
             class="px-5 py-3 bg-destructive/5 border-b text-xs text-destructive list-disc pl-9 space-y-0.5"

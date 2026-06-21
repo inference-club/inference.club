@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import {
-  Activity, BookOpen, Boxes, Cpu, ExternalLink, Github, Image as ImageIcon, KeyRound, Server, Sparkles, VenetianMask, Wrench,
+  Activity, BookOpen, Boxes, Cpu, ExternalLink, Github, Image as ImageIcon, KeyRound, Server, Sparkles, VenetianMask,
 } from 'lucide-vue-next'
-import {
-  ENGINE_LABELS,
-  VENDOR_LABELS,
-  type CatalogModelInfo,
-  type ManifestModel,
-  type OwnerServiceManifest,
-  type PublicProfile,
+import type {
+  CatalogModelInfo,
+  OwnerServiceManifest,
+  PublicProfile,
 } from '@/composables/useManifest'
 import { useInferenceRequest } from '@/composables/useInferenceRequest'
 import { useContentSharing } from '@/composables/useContentSharing'
@@ -164,6 +161,18 @@ const totalServices = computed(() => {
   return n
 })
 
+// Largest machine memory across the whole profile — the reference the relative
+// memory gauges on each MachineCard size themselves against.
+const maxMemoryGb = computed(() => {
+  let max = 0
+  for (const p of data.value?.providers ?? []) {
+    for (const h of p.manifest?.parsed.hosts ?? []) {
+      if (h.gpu?.vram_gb) max = Math.max(max, h.gpu.vram_gb)
+    }
+  }
+  return max
+})
+
 // Owner-only raw YAML modal
 const showRawModal = ref(false)
 const rawManifest = ref<OwnerServiceManifest | null>(null)
@@ -187,31 +196,12 @@ const openRawModal = async (providerId: number) => {
   }
 }
 
-const engineLabel = (e: string) => ENGINE_LABELS[e] ?? e
-const vendorLabel = (v?: string) => (v ? VENDOR_LABELS[v] ?? v : '')
-
 const fmtN = (n: number | null | undefined) => (n ?? 0).toLocaleString()
 
 // --- served models + "use it" CTA ------------------------------------------
 const models = computed<CatalogModelInfo[]>(() => data.value?.models ?? [])
 const firstModel = computed(() => models.value[0] ?? null)
 const playgroundLink = (slug: string) => `/dashboard/playground?model=${encodeURIComponent(slug)}`
-
-// Map a manifest model (declared per host/service) to its catalog entry so the
-// node topology can show capabilities + a playground link. The slug is just
-// `(hf || id).toLowerCase()` (see slugify_model_id on the backend), which is
-// also the catalog slug and the /v1 model id.
-const modelByKey = computed(() => {
-  const map = new Map<string, CatalogModelInfo>()
-  for (const m of models.value) {
-    map.set(m.slug, m)
-    if (m.hf_repo_id) map.set(m.hf_repo_id.toLowerCase(), m)
-  }
-  return map
-})
-const modelSlug = (m: ManifestModel) => (m.hf || m.id || '').trim().toLowerCase()
-const catalogFor = (m: ManifestModel) => modelByKey.value.get(modelSlug(m)) ?? null
-const modelLabel = (m: ManifestModel) => catalogFor(m)?.display_name || m.id || m.hf || 'model'
 
 // Copy-paste examples for the first served model, reusing the <CodeTabs>
 // component. The model id is the slug — what both /v1 and the playground expect.
@@ -402,92 +392,20 @@ console.log(resp.choices[0].message.content)`,
         No manifest uploaded for this agent yet.
       </div>
 
-      <!-- hosts grid -->
-      <div v-else class="grid gap-4 lg:grid-cols-2">
-        <article
-          v-for="host in provider.manifest.parsed.hosts"
-          :key="host.id"
-          class="rounded-lg border bg-card p-5"
-        >
-          <header class="flex items-start gap-2 mb-3">
-            <Server class="size-4 mt-0.5 text-muted-foreground" />
-            <div class="flex-1 min-w-0">
-              <h3 class="font-medium truncate">{{ host.id }}</h3>
-              <p v-if="host.hostname || host.address" class="text-xs text-muted-foreground truncate font-mono">
-                <span v-if="host.hostname">{{ host.hostname }}</span>
-                <span v-if="host.hostname && host.address"> · </span>
-                <span v-if="host.address">{{ host.address }}</span>
-              </p>
-            </div>
-          </header>
-
-          <div v-if="host.gpu" class="flex items-center gap-2 mb-3 text-sm">
-            <Cpu class="size-4 text-muted-foreground" />
-            <span class="font-medium">{{ host.gpu.model || 'GPU' }}</span>
-            <span v-if="host.gpu.vendor" class="rounded bg-muted px-1.5 py-0.5 text-xs">{{ vendorLabel(host.gpu.vendor) }}</span>
-            <span v-if="host.gpu.vram_gb" class="text-xs text-muted-foreground">{{ host.gpu.vram_gb }}&thinsp;GB</span>
-            <span v-if="host.gpu.count && host.gpu.count > 1" class="text-xs text-muted-foreground">× {{ host.gpu.count }}</span>
-          </div>
-
-          <p v-if="host.notes" class="text-xs text-muted-foreground italic mb-3">{{ host.notes }}</p>
-
-          <div v-if="host.services && host.services.length" class="space-y-4 border-t pt-3">
-            <div v-for="svc in host.services" :key="svc.name" class="space-y-2">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="rounded bg-primary/10 text-primary px-1.5 py-0.5 text-xs font-medium">{{ engineLabel(svc.engine) }}</span>
-                <span class="text-sm font-medium">{{ svc.name }}</span>
-              </div>
-              <p class="text-xs text-muted-foreground font-mono break-all">{{ svc.url }}</p>
-
-              <!-- models served by this service, enriched with capabilities -->
-              <div v-if="svc.models && svc.models.length" class="space-y-2">
-                <div
-                  v-for="m in svc.models"
-                  :key="modelSlug(m)"
-                  class="rounded-md border bg-background p-2.5"
-                >
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="font-mono text-xs break-all min-w-0">{{ modelLabel(m) }}</span>
-                    <NuxtLink
-                      v-if="modelSlug(m)"
-                      :to="playgroundLink(modelSlug(m))"
-                      class="shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:underline underline-offset-4"
-                    >
-                      <Sparkles class="size-3" /> playground
-                    </NuxtLink>
-                  </div>
-                  <ModelCapabilities
-                    v-if="catalogFor(m)"
-                    class="mt-2"
-                    :context-length="catalogFor(m)?.context_length"
-                    :input-modalities="catalogFor(m)?.input_modalities"
-                    :supported-features="catalogFor(m)?.supported_features"
-                  />
-                </div>
-              </div>
-
-              <details v-if="svc.command" class="group">
-                <summary class="text-xs text-muted-foreground cursor-pointer inline-flex items-center gap-1">
-                  <Wrench class="size-3" />
-                  command
-                </summary>
-                <pre class="mt-1 rounded bg-muted/60 p-2 text-xs overflow-auto whitespace-pre-wrap font-mono">{{ svc.command }}</pre>
-              </details>
-              <dl
-                v-if="svc.extra && Object.keys(svc.extra).length"
-                class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs"
-              >
-                <template v-for="(value, key) in svc.extra" :key="key">
-                  <dt class="text-muted-foreground font-mono">{{ key }}</dt>
-                  <dd class="font-mono break-all">{{ value }}</dd>
-                </template>
-              </dl>
-            </div>
-          </div>
-          <p v-else class="text-xs text-muted-foreground italic border-t pt-3">
-            no services configured on this host
-          </p>
-        </article>
+      <!-- machines grid: the new resource + service visualization -->
+      <div v-else>
+        <MachineSummary :hosts="provider.manifest.parsed.hosts" class="mb-4" />
+        <div class="grid gap-4 lg:grid-cols-2">
+          <MachineCard
+            v-for="host in provider.manifest.parsed.hosts"
+            :key="host.id"
+            :host="host"
+            :max-memory-gb="maxMemoryGb"
+            :online="provider.is_online"
+            :catalog="models"
+            :show-command="isOwner"
+          />
+        </div>
       </div>
     </section>
 

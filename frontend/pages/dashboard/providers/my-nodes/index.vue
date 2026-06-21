@@ -30,6 +30,18 @@ const formatRelative = (iso: string | null) => {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
   return new Date(iso).toLocaleString()
 }
+
+// Reference memory for the relative gauges — the largest GPU across my fleet.
+const maxMemoryGb = computed(() => {
+  let max = 0
+  for (const p of providers.value) {
+    for (const h of p.manifest?.parsed.hosts ?? []) {
+      if (h.gpu?.vram_gb) max = Math.max(max, h.gpu.vram_gb)
+    }
+  }
+  return max
+})
+const hostsOf = (p: Provider) => p.manifest?.parsed.hosts ?? []
 </script>
 
 <template>
@@ -125,7 +137,23 @@ const formatRelative = (iso: string | null) => {
           </div>
         </div>
 
-        <div v-if="provider.models.length > 0">
+        <!-- new resource + service visualization (when a manifest is present) -->
+        <template v-if="hostsOf(provider).length">
+          <MachineSummary :hosts="hostsOf(provider)" class="mb-4" />
+          <div class="grid gap-4 lg:grid-cols-2">
+            <MachineCard
+              v-for="host in hostsOf(provider)"
+              :key="host.id"
+              :host="host"
+              :max-memory-gb="maxMemoryGb"
+              :online="provider.is_online"
+              :show-command="true"
+            />
+          </div>
+        </template>
+
+        <!-- fallback: agents without a manifest still report a flat model list -->
+        <div v-else-if="provider.models.length > 0">
           <p class="text-xs uppercase text-muted-foreground mb-2">Models</p>
           <div class="flex flex-wrap gap-2">
             <span

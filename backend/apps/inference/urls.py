@@ -2,6 +2,7 @@ from django.urls import path
 from .openai_views import RetryInferenceRequestView
 from .job_views import QueueSummaryView
 from .views import (
+    AgentHeartbeatView,
     AgentManifestView,
     AgentRegisterView,
     AllInferenceRequestView,
@@ -137,6 +138,7 @@ urlpatterns = [
         name="chat-thread-detail",
     ),
     path("agent/register/", AgentRegisterView.as_view(), name="agent-register"),
+    path("agent/heartbeat/", AgentHeartbeatView.as_view(), name="agent-heartbeat"),
     path("agent/manifest/", AgentManifestView.as_view(), name="agent-manifest"),
     path("providers/", ProviderListView.as_view(), name="provider-list"),
     path("providers/all/", AllProvidersListView.as_view(), name="provider-list-all"),

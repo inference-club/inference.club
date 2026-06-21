@@ -558,6 +558,49 @@ class AgentRegisterView(APIView):
         )
 
 
+class AgentHeartbeatView(APIView):
+    """POST /api/inference/agent/heartbeat/ — lightweight liveness beacon.
+
+    The push half of liveness (PRD: agent beacon, phase 1). The agent calls
+    this on a fixed interval over its existing outbound connection, so a
+    healthy provider stays "online" without the backend having to reach back
+    into it over the tailnet. That decouples "is the agent alive" from "can the
+    backend probe it right now" — the latter was the only signal before, which
+    painted healthy-but-unreachable clusters (and every local-dev provider) as
+    offline.
+
+    Resolves the provider by ``(user, name)`` like register, stamps
+    ``last_seen_at`` with **server receipt time** (never an agent-supplied
+    clock), and returns 200. The inbound ``/healthz`` probe and the
+    inference-request bumps stay as fallbacks for agents that don't beacon yet.
+
+    Full members only — guests never register compute.
+    """
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request):
+        name = (request.data.get("name") or "").strip() or "club-host"
+        try:
+            provider = Provider.objects.get(user=request.user, name=name)
+        except Provider.DoesNotExist:
+            return Response(
+                {
+                    "detail": (
+                        f"no provider named {name!r} for this user — "
+                        "the agent must register before sending heartbeats"
+                    )
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        now = timezone.now()
+        Provider.objects.filter(id=provider.id).update(last_seen_at=now)
+        return Response(
+            {"provider_id": provider.id, "online": True, "last_seen_at": now},
+            status=status.HTTP_200_OK,
+        )
+
+
 class ProviderListView(generics.ListAPIView):
     """List the authenticated user's providers (powers /providers/my-nodes UI)."""
 

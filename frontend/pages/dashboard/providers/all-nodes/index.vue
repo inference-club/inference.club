@@ -167,6 +167,12 @@ const formatRelative = (iso: string | null) => {
           </p>
         </div>
 
+        <MachineSummary
+          v-if="provider.manifest?.parsed.hosts?.length"
+          :hosts="provider.manifest.parsed.hosts"
+          class="border-t pt-3 mb-3"
+        />
+
         <div class="border-t pt-3">
           <p class="text-xs uppercase text-muted-foreground tracking-wide mb-1.5">
             Models ({{ provider.models.filter(m => m.is_active).length }})
