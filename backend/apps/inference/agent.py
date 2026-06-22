@@ -149,6 +149,182 @@ def _call_model(user, model_name, messages, specs) -> tuple[Optional[dict], dict
     return msg, (data.get("usage") or {}), None
 
 
+def _stream_model(user, model_name, messages, specs) -> Iterator[dict]:
+    """One STREAMING chat completion. Yields live ``reasoning``/``token`` events
+    as deltas arrive from the upstream, then a final ``_result`` sentinel event
+    carrying ``message`` / ``usage`` / ``error`` for the loop's bookkeeping.
+
+    Records an InferenceRequest (LLM) for metering, mirroring ``_call_model``. A
+    non-OK HTTP response (e.g. a model with no tool parser → 400) is reported via
+    the sentinel BEFORE any delta is emitted, so the caller can fall back to a
+    non-streaming call cleanly.
+    """
+    from .openai_views import (
+        UPSTREAM_TIMEOUT_SECONDS,
+        _find_provider_for_model,
+        _model_slug,
+    )
+    from .views import _tailnet_proxies
+
+    pm = _find_provider_for_model(user, model_name)
+    if pm is None:
+        yield {"type": "_result", "message": None, "usage": {},
+               "error": f"No online provider serving model '{model_name}' for this user."}
+        return
+
+    provider = pm.provider
+    served = pm.name
+    canonical = _model_slug(pm)
+    body = {
+        "model": served or model_name,
+        "messages": messages,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    if specs:
+        body["tools"] = specs
+        body["tool_choice"] = "auto"
+
+    ir = InferenceRequest.objects.create(
+        user=user,
+        provider=provider,
+        model_name=canonical or model_name or "",
+        inference_type="LLM",
+        payload={
+            "messages": messages,
+            "agent": True,
+            "stream": True,
+            "tools": [s["function"]["name"] for s in (specs or [])],
+        },
+        status="PROCESSING",
+    )
+    endpoint = provider.tailnet_base_url.rstrip("/") + "/chat/completions"
+    started = time.monotonic()
+
+    try:
+        upstream = requests.post(
+            endpoint, json=body, timeout=UPSTREAM_TIMEOUT_SECONDS,
+            verify=False, proxies=_tailnet_proxies(), stream=True,
+        )
+    except requests.RequestException as e:
+        _finalize_error(ir, started, str(e))
+        yield {"type": "_result", "message": None, "usage": {}, "error": str(e)}
+        return
+
+    if not upstream.ok:
+        txt = _upstream_error_text(upstream)
+        _finalize_error(ir, started, txt)
+        upstream.close()
+        yield {"type": "_result", "message": None, "usage": {}, "error": txt}
+        return
+
+    content_parts: list = []
+    reasoning_parts: list = []
+    tool_calls: dict = {}  # index → {id, type, function:{name, arguments}}
+    usage: dict = {}
+    try:
+        for line in upstream.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            data_str = line[5:].strip() if line.startswith("data:") else line.strip()
+            if not data_str or data_str == "[DONE]":
+                if data_str == "[DONE]":
+                    break
+                continue
+            try:
+                chunk = json.loads(data_str)
+            except ValueError:
+                continue
+            if chunk.get("usage"):
+                usage = chunk["usage"]
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            # vLLM reasoning parsers stream the thinking trace under "reasoning"
+            # (nemotron_v3) or "reasoning_content" depending on the build —
+            # accept either so the UI's thinking trace populates.
+            rc = delta.get("reasoning_content") or delta.get("reasoning")
+            if rc:
+                reasoning_parts.append(rc)
+                yield {"type": "reasoning", "delta": rc}
+            c = delta.get("content")
+            if c:
+                content_parts.append(c)
+                yield {"type": "token", "delta": c}
+            for tc in (delta.get("tool_calls") or []):
+                idx = tc.get("index", 0)
+                slot = tool_calls.setdefault(
+                    idx, {"id": None, "type": "function",
+                          "function": {"name": "", "arguments": ""}})
+                if tc.get("id"):
+                    slot["id"] = tc["id"]
+                fn = tc.get("function") or {}
+                if fn.get("name"):
+                    slot["function"]["name"] += fn["name"]
+                if fn.get("arguments"):
+                    slot["function"]["arguments"] += fn["arguments"]
+    except requests.RequestException as e:
+        _finalize_error(ir, started, str(e))
+        yield {"type": "_result", "message": None, "usage": usage, "error": str(e)}
+        return
+    finally:
+        upstream.close()
+
+    content = "".join(content_parts)
+    msg: dict = {"role": "assistant", "content": content or None}
+    if tool_calls:
+        msg["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]
+    if reasoning_parts:
+        msg["reasoning_content"] = "".join(reasoning_parts)
+
+    ir.status = "PROCESSED"
+    ir.results = {"choices": [{"message": msg}], "usage": usage}
+    ir.prompt_tokens = int(usage.get("prompt_tokens") or 0)
+    ir.completion_tokens = int(usage.get("completion_tokens") or 0)
+    ir.total_tokens = int(usage.get("total_tokens") or 0)
+    ir.latency_ms = int((time.monotonic() - started) * 1000)
+    ir.save(update_fields=[
+        "status", "results", "prompt_tokens", "completion_tokens",
+        "total_tokens", "latency_ms", "modified_on",
+    ])
+    from django.utils import timezone
+
+    from .models import Provider
+    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+
+    yield {"type": "_result", "message": msg, "usage": usage, "error": None}
+
+
+def _model_turn(user, model, convo, offer_tools) -> Iterator[dict]:
+    """One agent turn. Streams ``reasoning``/``token`` deltas live, then yields a
+    ``_result`` sentinel (``message``/``usage``/``error``). Tries streaming first;
+    if the stream fails before emitting any delta (e.g. upstream 400 on tools),
+    falls back to a non-streaming ``_call_model`` and emits the answer's
+    reasoning/tokens here (chunked) so the UI still streams — but only for a final
+    answer, never for a tool-call turn."""
+    streamed_any = False
+    msg = None
+    usage: dict = {}
+    err = None
+    for ev in _stream_model(user, model, convo, offer_tools):
+        if ev.get("type") == "_result":
+            msg, usage, err = ev["message"], ev["usage"], ev["error"]
+        else:
+            streamed_any = True
+            yield ev
+
+    if err and not streamed_any:
+        msg, usage, err = _call_model(user, model, convo, offer_tools)
+        if not err and msg is not None and not msg.get("tool_calls"):
+            if msg.get("reasoning_content"):
+                yield {"type": "reasoning", "delta": msg["reasoning_content"]}
+            for delta in _chunk(msg.get("content") or ""):
+                yield {"type": "token", "delta": delta}
+
+    yield {"type": "_result", "message": msg, "usage": usage, "error": err}
+
+
 def _extract_message(data) -> Optional[dict]:
     try:
         choice = data["choices"][0]
@@ -234,9 +410,14 @@ def run_agent(
 
     for _step in range(max(1, settings.AGENT_MAX_ITERATIONS)):
         offer_tools = specs if (specs and time.monotonic() < deadline) else None
-        msg, usage, err = _call_model(user, model, convo, offer_tools)
-        if err:
-            yield {"type": "error", "message": err}
+        msg = usage = err = None
+        for ev in _model_turn(user, model, convo, offer_tools):
+            if ev.get("type") == "_result":
+                msg, usage, err = ev["message"], ev["usage"], ev["error"]
+            else:
+                yield ev
+        if err or msg is None:
+            yield {"type": "error", "message": err or "The model returned no message."}
             return
         _accumulate(total_usage, usage)
         convo.append(msg)
@@ -244,7 +425,8 @@ def run_agent(
 
         tool_calls = msg.get("tool_calls") or []
         if not tool_calls:
-            yield from _emit_final(msg, total_usage, new_messages)
+            # The answer's tokens already streamed live during the turn above.
+            yield from _emit_done(msg, total_usage, new_messages)
             return
 
         for call in tool_calls:
@@ -287,21 +469,24 @@ def run_agent(
             break
 
     # Budget/iteration cap hit: force a final answer with tools disabled.
-    msg, usage, err = _call_model(user, model, convo, None)
-    if err:
-        yield {"type": "error", "message": err}
+    msg = usage = err = None
+    for ev in _model_turn(user, model, convo, None):
+        if ev.get("type") == "_result":
+            msg, usage, err = ev["message"], ev["usage"], ev["error"]
+        else:
+            yield ev
+    if err or msg is None:
+        yield {"type": "error", "message": err or "The model returned no message."}
         return
     _accumulate(total_usage, usage)
     convo.append(msg)
     new_messages.append(msg)
-    yield from _emit_final(msg, total_usage, new_messages)
+    yield from _emit_done(msg, total_usage, new_messages)
 
 
-def _emit_final(msg, total_usage, new_messages) -> Iterator[dict]:
-    if msg.get("reasoning_content"):
-        yield {"type": "reasoning", "delta": msg["reasoning_content"]}
-    for delta in _chunk(msg.get("content") or ""):
-        yield {"type": "token", "delta": delta}
+def _emit_done(msg, total_usage, new_messages) -> Iterator[dict]:
+    """Emit the terminal ``done`` event. Any reasoning/token deltas were already
+    streamed live during the model turn, so this only closes the stream."""
     yield {
         "type": "done",
         "usage": total_usage,

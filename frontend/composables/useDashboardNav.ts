@@ -26,6 +26,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     icon: Sparkles,
     items: [
       { titleKey: 'dashboard.items.chat', url: '/dashboard/playground' },
+      { titleKey: 'dashboard.items.voiceAgent', url: '/dashboard/playground/voice' },
       { titleKey: 'dashboard.items.transcription', url: '/dashboard/playground/transcribe' },
       { titleKey: 'dashboard.items.scrape', url: '/dashboard/playground/scrape' },
       { titleKey: 'dashboard.items.images', url: '/dashboard/playground/images' },

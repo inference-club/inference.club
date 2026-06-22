@@ -132,6 +132,7 @@
     },
     "items": {
       "chat": "聊天",
+      "voiceAgent": "语音助手",
       "transcription": "转录",
       "scrape": "网页抓取",
       "images": "图像",

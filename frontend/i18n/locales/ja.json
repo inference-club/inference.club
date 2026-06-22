@@ -132,6 +132,7 @@
     },
     "items": {
       "chat": "チャット",
+      "voiceAgent": "音声エージェント",
       "transcription": "文字起こし",
       "scrape": "Webスクレイプ",
       "images": "画像",

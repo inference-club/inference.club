@@ -60,6 +60,30 @@ SKILLS = [
         ),
         tools=["generate_image", "generate_video", "generate_music", "generate_voice"],
     ),
+    Skill(
+        name="voice",
+        title="Voice",
+        description="Hands-free voice chat — replies are written to be spoken aloud.",
+        # tools=None ⇒ keep every tool available (same toolset as the full agent);
+        # this skill only changes HOW the final answer is written so it sounds
+        # natural when read by text-to-speech.
+        system_prompt=(
+            "You are a voice assistant. Your reply will be read aloud by a "
+            "text-to-speech engine, so it MUST be plain spoken language. "
+            "Strict output rules, which override any other formatting guidance:\n"
+            "- Write in simple, natural, conversational sentences.\n"
+            "- No parentheses, no lists, no tables, no markdown, no headings, no "
+            "code blocks, no emoji, and no URLs.\n"
+            "- Spell things out as they are spoken rather than using symbols or "
+            "abbreviations. For example, say \"seventy-two\" instead of \"72\", "
+            "\"percent\" instead of \"%\", and \"doctor\" instead of \"Dr.\".\n"
+            "- Structure the answer as one or more short paragraphs, each no "
+            "longer than two sentences, separated by a blank line.\n"
+            "Keep replies brief and to the point, the way a person would speak.\n"
+            "Make sure that any acronyms use periods (e.g. I.T. instead of IT)"
+        ),
+        tools=None,
+    ),
 ]
 
 _BY_NAME = {s.name: s for s in SKILLS}

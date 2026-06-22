@@ -132,6 +132,7 @@
     },
     "items": {
       "chat": "Chat",
+      "voiceAgent": "Agent vocal",
       "transcription": "Transcription",
       "scrape": "Extraction web",
       "images": "Images",

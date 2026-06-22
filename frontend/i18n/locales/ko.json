@@ -132,6 +132,7 @@
     },
     "items": {
       "chat": "채팅",
+      "voiceAgent": "음성 에이전트",
       "transcription": "전사",
       "scrape": "웹 스크랩",
       "images": "이미지",
