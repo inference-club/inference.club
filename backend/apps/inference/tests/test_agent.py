@@ -74,6 +74,32 @@ class _FakeResp:
     def json(self):
         return self._p
 
+    def close(self):
+        pass
+
+    def iter_lines(self, decode_unicode=False):
+        """Emulate a streamed chat-completion: replay this (non-streaming) chat
+        payload as SSE delta chunks so the agent's streaming model call parses it
+        the same way it parses a real upstream. Non-chat payloads yield nothing."""
+        p = self._p if isinstance(self._p, dict) else {}
+        choices = p.get("choices") or []
+        msg = (choices[0].get("message") if choices else {}) or {}
+        rc = msg.get("reasoning_content") or msg.get("reasoning")
+        if rc:
+            yield "data: " + json.dumps({"choices": [{"index": 0, "delta": {"reasoning_content": rc}}]})
+        if msg.get("content"):
+            yield "data: " + json.dumps({"choices": [{"index": 0, "delta": {"content": msg["content"]}}]})
+        for i, tc in enumerate(msg.get("tool_calls") or []):
+            fn = tc.get("function") or {}
+            delta_tc = {
+                "index": i, "id": tc.get("id"), "type": "function",
+                "function": {"name": fn.get("name", ""), "arguments": fn.get("arguments", "")},
+            }
+            yield "data: " + json.dumps({"choices": [{"index": 0, "delta": {"tool_calls": [delta_tc]}}]})
+        if p.get("usage"):
+            yield "data: " + json.dumps({"choices": [], "usage": p["usage"]})
+        yield "data: [DONE]"
+
 
 def _chat_msg_tool(name, args, call_id="c1"):
     return {
