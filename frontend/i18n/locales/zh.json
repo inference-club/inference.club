@@ -163,6 +163,7 @@
       "usage": "用量",
       "access": "访问",
       "token": "Token",
+      "apiKeys": "API 密钥",
       "activity": "活动",
       "moderation": "内容审核",
       "music": "音乐",

@@ -93,6 +93,11 @@ services:
       # rewrite, no auth-key minting). Pairs with an agent run in AGENT_DIRECT
       # mode (see ../inference-club-agent/docker-compose.dev.yml).
       INFERENCE_DIRECT_AGENTS: "True"
+      # Keyless web search for the agents' `web_search` tool → the SearXNG
+      # running in the home k3s cluster (mcp namespace, NodePort 30808; its JSON
+      # API is enabled). Reached directly over the LAN. Override DEV_SEARXNG_URL
+      # if a different node IP is handier.
+      AGENT_SEARXNG_URL: ${DEV_SEARXNG_URL:-http://192.168.5.173:30808}
       # Shared cache so rate limits + the usage meter are consistent across
       # the gunicorn workers (not per-worker).
       REDIS_URL: redis://redis:6379/0

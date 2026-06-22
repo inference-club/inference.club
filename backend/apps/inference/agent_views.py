@@ -133,11 +133,13 @@ class AgentToolsView(_RateLimitHeadersMixin, APIView):
     def get(self, request):
         if not settings.AGENT_ENABLED:
             return Response({"object": "list", "data": [], "enabled": False})
+        from .external_keys import get_user_api_key
+
         return Response(
             {
                 "object": "list",
                 "enabled": True,
-                "brave_key_set": bool(getattr(request.user, "brave_api_key", "")),
+                "brave_key_set": bool(get_user_api_key(request.user, "brave")),
                 "data": get_registry().describe_for_user(request.user),
                 "skills": describe_skills(),
             }
@@ -159,11 +161,19 @@ class AgentBraveKeyView(_RateLimitHeadersMixin, APIView):
                 {"error": {"message": "`api_key` is required.", "type": "invalid_request"}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        request.user.brave_api_key = key.strip()[:128]
+        from .external_keys import set_user_api_key
+
+        clean = key.strip()[:128]
+        set_user_api_key(request.user, "brave", clean)
+        # Keep the legacy field in sync for any un-migrated readers.
+        request.user.brave_api_key = clean
         request.user.save(update_fields=["brave_api_key"])
         return Response({"brave_key_set": True})
 
     def delete(self, request):
+        from .external_keys import clear_user_api_key
+
+        clear_user_api_key(request.user, "brave")
         request.user.brave_api_key = ""
         request.user.save(update_fields=["brave_api_key"])
         return Response({"brave_key_set": False})

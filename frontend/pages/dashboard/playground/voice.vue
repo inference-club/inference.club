@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { Loader2, Mic, Settings2, Square, Wand2, Volume2, Bot, User, Search, Globe, Image as ImageIcon, Wrench } from 'lucide-vue-next'
+import { Loader2, Mic, Settings2, Square, Wand2, Volume2, Bot, User, Search, Globe, Image as ImageIcon, Wrench, Play, Pause, Plus, History } from 'lucide-vue-next'
 import { useAgent, type AgentMedia, type ToolCallEvent } from '@/composables/useAgent'
 import { useTranscription } from '@/composables/useTranscription'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
 import { useAudioRecorder } from '@/composables/useAudioRecorder'
 import { usePlayground, type ModelInfo } from '@/composables/usePlayground'
+import { useChatThreads, type StoredMessage } from '@/composables/useChatThreads'
+import { useConversationPlayer } from '@/composables/useConversationPlayer'
 
 definePageMeta({ layout: 'app' })
 
@@ -16,6 +18,11 @@ const { runAgent } = useAgent()
 const { transcribe } = useTranscription()
 const { listVoices, synthesize } = useTextToSpeech()
 const recorder = useAudioRecorder()
+const { createThread, updateThread, getThread } = useChatThreads()
+
+// The saved voice session this conversation persists to (null until the first
+// reply lands; reset by "New"). Listed + resumable from /dashboard/chats.
+const threadId = ref<string | null>(null)
 
 const llmModels = ref<ModelInfo[]>([])
 const sttModels = ref<ModelInfo[]>([])
@@ -28,6 +35,10 @@ const ttsModel = ref('')
 const voice = ref('')
 // Narration playback speed (HTMLAudioElement.playbackRate; pitch is preserved).
 const playbackRate = ref(1)
+
+// Replay player for completed turns (per-message + call-style play-all). The
+// live reply is still spoken by the synth pipeline below; this is for re-listen.
+const player = useConversationPlayer({ rate: playbackRate })
 
 const loadingModels = ref(true)
 const setupError = ref('')
@@ -42,6 +53,9 @@ interface Turn {
   content: string
   reasoning?: string
   tools?: ToolCard[]
+  // Ordered audio clips: a user turn has its mic recording; an assistant turn
+  // has one clip per spoken paragraph. `url` is the durable MediaAsset route.
+  audio?: { id?: number; url: string }[]
   done: boolean
   error?: boolean
 }
@@ -98,6 +112,7 @@ const endRecordingAndSend = async () => {
 // records only while held. Any press first barges in on playback.
 const onPressDown = async () => {
   if (status.value === 'speaking') stopSpeaking()
+  player.stop() // interrupt any replay when the user starts talking
   if (busy.value) return
   if (locked.value) return // the matching tap-up will stop+send
   pressStart = performance.now()
@@ -124,9 +139,11 @@ let controller: AbortController | null = null
 const handleUtterance = async (blob: Blob, ext: string) => {
   status.value = 'transcribing'
   let text = ''
+  let userAudio: { id?: number; url: string }[] | undefined
   try {
     const r = await transcribe(blob, `speech.${ext}`, { model: sttModel.value })
     text = (r.text || '').trim()
+    if (r.audioUrl) userAudio = [{ id: r.audioAssetId, url: r.audioUrl }]
   } catch (e) {
     toast.error((e as Error)?.message || 'Transcription failed')
     status.value = 'idle'
@@ -138,7 +155,12 @@ const handleUtterance = async (blob: Blob, ext: string) => {
     return
   }
 
-  turns.value.push({ role: 'user', content: text, done: true })
+  turns.value.push({
+    role: 'user',
+    content: text,
+    done: true,
+    ...(userAudio ? { audio: userAudio } : {}),
+  })
   const assistant = reactive<Turn>({ role: 'assistant', content: '', reasoning: '', tools: [], done: false })
   turns.value.push(assistant)
   status.value = 'thinking'
@@ -194,6 +216,9 @@ const handleUtterance = async (blob: Blob, ext: string) => {
   } finally {
     assistant.done = true
     controller = null
+    // Save the session (create on first reply, else update). The synth-drain
+    // hook persists again once audio clips finish, so this is the text snapshot.
+    void persistThread()
     // If nothing is queued/playing, we're back to idle; otherwise the audio
     // playback loop flips us to idle when the last clip ends.
     if (!speaking.synthQueue.length && !speaking.audioQueue.length && !speaking.playing) {
@@ -202,13 +227,88 @@ const handleUtterance = async (blob: Blob, ext: string) => {
   }
 }
 
+// ── session persistence + replay ──────────────────────────────────────────────
+// Serialize completed turns to the stored shape (text + audio clips + reasoning
+// + tool traces). Skips the in-flight assistant turn and any errored turn.
+const serializeTurns = (): StoredMessage[] =>
+  turns.value
+    .filter((t) => t.done && !t.error)
+    .map((t) => {
+      const out: StoredMessage = { role: t.role, content: t.content }
+      if (t.reasoning) out.reasoning = t.reasoning
+      if (t.audio?.length) out.audio = t.audio.map((a) => ({ id: a.id ?? 0, url: a.url }))
+      if (t.tools?.length) {
+        out.tools = t.tools.map((c) => ({
+          name: c.name,
+          arguments: c.arguments,
+          ok: c.ok,
+          summary: c.summary,
+          ...(c.media?.length ? { media: c.media } : {}),
+        }))
+      }
+      return out
+    })
+
+const persistThread = async () => {
+  if (!turns.value.some((t) => t.role === 'assistant' && t.done && !t.error)) return
+  const payload = { source: 'voice' as const, model: llmModel.value, messages: serializeTurns() }
+  try {
+    if (!threadId.value) {
+      threadId.value = (await createThread(payload)).public_id
+    } else {
+      await updateThread(threadId.value, payload)
+    }
+  } catch (e) {
+    console.warn('Could not save voice session', e)
+  }
+}
+
+// Resume a saved voice session (?thread= deep link from /dashboard/chats).
+const hydrateFromThread = async (publicId: string) => {
+  try {
+    const t = await getThread(publicId)
+    threadId.value = t.public_id
+    if (t.model && llmModels.value.some((m) => m.id === t.model)) llmModel.value = t.model
+    turns.value = t.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      reasoning: m.reasoning || '',
+      tools: (m.tools || []).map((c) => ({
+        id: c.name, name: c.name, arguments: c.arguments || {},
+        ok: c.ok, summary: c.summary, media: c.media as AgentMedia[] | undefined, done: true,
+      })),
+      audio: m.audio,
+      done: true,
+    }))
+  } catch {
+    /* a missing/forbidden session just starts an empty page */
+  }
+}
+
+// ── replay controls (per-message + call-style play-all) ───────────────────────
+const playMessage = (i: number) => {
+  stopSpeaking() // don't fight the live synth pipeline
+  if (player.activeMsg.value === i && player.playing.value && !player.paused.value) {
+    player.pause()
+  } else if (player.activeMsg.value === i && player.paused.value) {
+    player.resume()
+  } else {
+    void player.playOne(turns.value, i)
+  }
+}
+const playAll = () => {
+  stopSpeaking()
+  void player.playFrom(turns.value, 0)
+}
+const hasAnyAudio = computed(() => turns.value.some((t) => t.audio?.length))
+
 // ── speech pipeline ──────────────────────────────────────────────────────────
 // Two cooperating queues: text segments waiting to synthesize, and synthesized
 // audio URLs waiting to play. Synthesis runs ahead of playback so the next clip
 // is usually ready by the time the current one finishes.
 const speaking = reactive({
   spokenUpTo: 0, // chars of assistant.content already dispatched to TTS
-  synthQueue: [] as string[],
+  synthQueue: [] as { text: string; turn: Turn }[],
   audioQueue: [] as string[],
   synthRunning: false,
   playing: false,
@@ -233,7 +333,7 @@ const flushSpeakable = (assistant: Turn, force = false) => {
   let nl = pending.indexOf('\n\n')
   while (nl !== -1) {
     const seg = pending.slice(0, nl).trim()
-    if (seg) enqueueSpeech(seg)
+    if (seg) enqueueSpeech(seg, assistant)
     speaking.spokenUpTo += nl + 2
     pending = assistant.content.slice(speaking.spokenUpTo)
     nl = pending.indexOf('\n\n')
@@ -247,7 +347,7 @@ const flushSpeakable = (assistant: Turn, force = false) => {
     while ((m = SENTENCE_RE.exec(pending))) lastEnd = m.index + 1
     if (lastEnd > 0 && pending.slice(0, lastEnd).trim().length >= 12) {
       const seg = pending.slice(0, lastEnd).trim()
-      enqueueSpeech(seg)
+      enqueueSpeech(seg, assistant)
       speaking.spokenUpTo += lastEnd
     }
   }
@@ -269,7 +369,7 @@ const cleanForSpeech = (text: string): string =>
     .replace(/[‘’‚‛′‵]/g, "'") // ‘ ’ ‚ ‛ ′ ‵ → '
     .replace(/[“”„‟″‶]/g, '"') // “ ” „ ‟ ″ ‶ → "
 
-const enqueueSpeech = (text: string) => {
+const enqueueSpeech = (text: string, turn: Turn) => {
   if (!ttsModel.value) return // no TTS available — text-only fallback
   // Guard: the Magpie build only speaks Latin-script text. Characters it can't
   // map (e.g. CJK) are dropped, and if too little speakable text remains the
@@ -277,7 +377,7 @@ const enqueueSpeech = (text: string) => {
   // Skip segments without enough speakable content — the text still displays.
   const speakable = (text.match(/[A-Za-z0-9]/g) || []).length
   if (speakable < 2) return
-  speaking.synthQueue.push(text)
+  speaking.synthQueue.push({ text, turn })
   void runSynthLoop()
 }
 
@@ -287,7 +387,7 @@ const runSynthLoop = async () => {
   speechAbort = speechAbort || new AbortController()
   try {
     while (speaking.synthQueue.length) {
-      const text = speaking.synthQueue.shift() as string
+      const { text, turn } = speaking.synthQueue.shift() as { text: string; turn: Turn }
       try {
         const audio = await synthesize(
           // wav (LINEAR_PCM) — the Magpie NIM build rejects ogg/opus ("invalid
@@ -295,6 +395,12 @@ const runSynthLoop = async () => {
           { model: ttsModel.value, input: cleanForSpeech(text), voice: voice.value || undefined, response_format: 'wav' },
           speechAbort.signal,
         )
+        // Record the durable asset handle on the turn so the reply can be saved
+        // + replayed; fall back to the object URL if the header was absent.
+        if (audio.assetUrl) {
+          turn.audio = turn.audio || []
+          turn.audio.push({ id: audio.assetId, url: audio.assetUrl })
+        }
         speaking.audioQueue.push(audio.url)
         playNext()
       } catch (e) {
@@ -305,6 +411,9 @@ const runSynthLoop = async () => {
     }
   } finally {
     speaking.synthRunning = false
+    // Synthesis drained: if the reply is finished, the turn's audio clips are
+    // now complete — persist the session so it's saved + replayable.
+    if (!controller && !speaking.synthQueue.length) void persistThread()
   }
 }
 
@@ -424,6 +533,9 @@ onMounted(async () => {
     // The page is usable now (mic enables). Voices are only needed for the voice
     // picker, so load the (large) list afterward without blocking readiness.
     loadingModels.value = false
+    // Resume a saved voice session if deep-linked from /dashboard/chats.
+    const wantedThread = String(useRoute().query.thread || '')
+    if (wantedThread) await hydrateFromThread(wantedThread)
     if (ttsModel.value) {
       voices.value = await listVoices(ttsModel.value)
       voice.value = pickVoice(voices.value)
@@ -435,7 +547,19 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => stopAll())
+// Start a fresh session (only when idle, so we don't orphan an in-flight reply).
+const newSession = () => {
+  if (busy.value || status.value === 'listening') return
+  stopAll()
+  player.stop()
+  turns.value = []
+  threadId.value = null
+}
+
+onBeforeUnmount(() => {
+  stopAll()
+  player.dispose()
+})
 
 // Magpie lists ~450 voices across many locales/emotions; default to a plain
 // English voice (e.g. EN-US.Aria) rather than whatever sorts first (German).
@@ -463,10 +587,34 @@ const onTtsModelChange = async () => {
         </p>
       </div>
       <div class="flex items-center gap-2">
+        <Button
+          v-if="hasAnyAudio"
+          variant="ghost"
+          size="sm"
+          class="gap-1.5"
+          :title="player.playing.value ? 'Stop playback' : 'Play the whole conversation'"
+          @click="player.playing.value ? player.stop() : playAll()"
+        >
+          <Square v-if="player.playing.value" class="size-4" />
+          <Play v-else class="size-4" /> Play all
+        </Button>
+        <Button variant="ghost" size="sm" class="gap-1.5" as-child title="Saved sessions">
+          <NuxtLink to="/dashboard/chats"><History class="size-4" /> History</NuxtLink>
+        </Button>
         <Button variant="ghost" size="sm" class="gap-1.5" as-child title="Switch to the text agent">
           <NuxtLink to="/dashboard/playground/agent">
             <Wand2 class="size-4" /> Text agent
           </NuxtLink>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          class="gap-1.5"
+          :disabled="!transcript.length || busy || status === 'listening'"
+          title="Start a new session"
+          @click="newSession"
+        >
+          <Plus class="size-4" /> New
         </Button>
         <Button
           variant="outline"
@@ -529,6 +677,11 @@ const onTtsModelChange = async () => {
           />
         </div>
       </div>
+      <p class="mt-3 text-xs text-muted-foreground">
+        Tools like web search use your
+        <NuxtLink to="/dashboard/settings/api-keys" class="text-primary hover:underline">external API keys</NuxtLink>
+        — set once, shared with every agent.
+      </p>
     </div>
 
     <!-- Conversation -->
@@ -580,9 +733,22 @@ const onTtsModelChange = async () => {
               <pre class="mt-1 text-xs whitespace-pre-wrap text-muted-foreground font-sans">{{ c.summary }}</pre>
             </details>
           </div>
-          <!-- Body -->
+          <!-- Body + per-message replay -->
           <div v-if="t.error" class="text-sm text-destructive bg-destructive/10 rounded px-3 py-2">{{ t.content }}</div>
-          <pre v-else class="text-sm whitespace-pre-wrap font-sans">{{ t.content || (t.role === 'assistant' && !t.done ? '…' : '') }}</pre>
+          <div v-else class="flex items-start gap-2">
+            <button
+              v-if="t.audio?.length"
+              type="button"
+              class="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border text-muted-foreground hover:text-foreground transition"
+              :class="player.activeMsg.value === i && player.playing.value && !player.paused.value ? 'bg-primary text-primary-foreground border-transparent' : ''"
+              :title="player.activeMsg.value === i ? 'Pause' : 'Play this message'"
+              @click="playMessage(i)"
+            >
+              <Pause v-if="player.activeMsg.value === i && player.playing.value && !player.paused.value" class="size-3.5" />
+              <Play v-else class="size-3.5" />
+            </button>
+            <pre class="flex-1 text-sm whitespace-pre-wrap font-sans">{{ t.content || (t.role === 'assistant' && !t.done ? '…' : '') }}</pre>
+          </div>
         </div>
       </div>
     </div>

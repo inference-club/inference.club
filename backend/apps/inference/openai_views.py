@@ -916,6 +916,12 @@ class AudioTranscriptionsView(_RateLimitHeadersMixin, APIView):
         if asset is not None and seconds is not None and asset.duration_seconds is None:
             asset.duration_seconds = seconds
             asset.save(update_fields=["duration_seconds", "modified_on"])
+        # Surface the stored INPUT_AUDIO handle so callers (e.g. the Voice Agent)
+        # can persist + replay the user's recording. Only when the response is a
+        # JSON object (response_format=text returns a bare string upstream).
+        if asset is not None and isinstance(payload, dict):
+            payload["audio_asset_id"] = asset.id
+            payload["audio_url"] = _asset_url(request, asset)
         Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
         return Response(payload, status=upstream.status_code)
 
@@ -1266,6 +1272,12 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
 
         resp = HttpResponse(audio, content_type=out_ct)
         resp["Content-Disposition"] = f'inline; filename="speech.{ext}"'
+        # Expose the stored OUTPUT_AUDIO handle so callers (Voice Agent) can
+        # persist + replay this reply. The body is bytes, so it rides on headers;
+        # these are added to CORS_EXPOSE_HEADERS for cross-origin (dev) reads.
+        if asset is not None:
+            resp["X-Asset-Id"] = str(asset.id)
+            resp["X-Asset-Url"] = _asset_url(request, asset)
         return resp
 
 

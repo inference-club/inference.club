@@ -636,6 +636,7 @@ class ChatThreadListSerializer(serializers.ModelSerializer):
         model = ChatThread
         fields = [
             "public_id",
+            "source",
             "title",
             "model",
             "message_count",
@@ -659,6 +660,7 @@ class ChatThreadSerializer(serializers.ModelSerializer):
         model = ChatThread
         fields = [
             "public_id",
+            "source",
             "title",
             "model",
             "messages",

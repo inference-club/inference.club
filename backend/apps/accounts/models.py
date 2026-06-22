@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -247,3 +248,49 @@ class AccessPolicy(models.Model):
             policy, _ = cls.objects.get_or_create(pk=cls._SINGLETON_PK)
             cache.set(cls.CACHE_KEY, policy, cls.CACHE_SECONDS)
         return policy
+
+
+class UserApiKey(models.Model):
+    """A user's personal external-service API key (Brave, ElevenLabs, …).
+
+    Encrypted at rest (Fernet, see ``accounts.crypto``) and NEVER returned by the
+    API — only a masked hint + an is-set flag. One row per (user, service); the
+    service slug is validated against the registry in
+    ``apps.inference.external_keys``. Shared across everything that runs as the
+    user (text agent, voice agent, future tools) via ``get_user_api_key``.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="api_keys"
+    )
+    service = models.CharField(max_length=64)  # registry slug, e.g. "brave"
+    label = models.CharField(max_length=120, blank=True, default="")
+    value_encrypted = models.TextField(blank=True, default="")
+    created_on = models.DateTimeField(auto_now_add=True)
+    modified_on = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("user", "service")]
+        ordering = ["service"]
+
+    def __str__(self):
+        return f"UserApiKey({self.user_id}, {self.service})"
+
+    def set_value(self, plaintext: str) -> None:
+        from .crypto import encrypt_secret
+
+        self.value_encrypted = encrypt_secret((plaintext or "").strip())
+
+    @property
+    def value(self) -> str:
+        from .crypto import decrypt_secret
+
+        return decrypt_secret(self.value_encrypted)
+
+    @property
+    def hint(self) -> str:
+        """A safe-to-display preview — the last 4 chars, never the whole key."""
+        v = self.value
+        if not v:
+            return ""
+        return f"…{v[-4:]}" if len(v) >= 8 else "set"

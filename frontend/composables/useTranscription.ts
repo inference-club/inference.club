@@ -14,6 +14,10 @@ export interface TranscriptionResult {
   duration?: number
   // metering: audio duration in seconds (usage.seconds)
   seconds?: number | null
+  // handle to the persisted INPUT_AUDIO MediaAsset (the user's recording), so
+  // the voice turn can be saved to a thread and replayed later.
+  audioAssetId?: number
+  audioUrl?: string
 }
 
 export interface TranscribeOptions {
@@ -96,6 +100,8 @@ export function useTranscription() {
       language: data?.language,
       duration: data?.duration,
       seconds: usage?.seconds ?? data?.duration ?? null,
+      audioAssetId: data?.audio_asset_id ?? undefined,
+      audioUrl: data?.audio_url ?? undefined,
     }
   }
 

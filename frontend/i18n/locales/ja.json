@@ -163,6 +163,7 @@
       "usage": "使用量",
       "access": "アクセス",
       "token": "トークン",
+      "apiKeys": "APIキー",
       "activity": "アクティビティ",
       "moderation": "モデレーション",
       "music": "ミュージック",

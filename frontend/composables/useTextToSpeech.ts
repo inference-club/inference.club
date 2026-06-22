@@ -16,6 +16,10 @@ export interface SynthesizedAudio {
   blob: Blob
   url: string // object URL for playback
   contentType: string
+  // Handle to the persisted OUTPUT_AUDIO MediaAsset (from response headers), so
+  // the reply can be saved to a thread and replayed later.
+  assetId?: number
+  assetUrl?: string
 }
 
 export function useTextToSpeech() {
@@ -83,10 +87,13 @@ export function useTextToSpeech() {
     })
     if (!res.ok) throw new Error(await _errorMessage(res))
     const blob = await res.blob()
+    const assetIdRaw = res.headers.get('X-Asset-Id')
     return {
       blob,
       url: URL.createObjectURL(blob),
       contentType: res.headers.get('content-type') || 'audio/wav',
+      assetId: assetIdRaw ? Number(assetIdRaw) : undefined,
+      assetUrl: res.headers.get('X-Asset-Url') || undefined,
     }
   }
 

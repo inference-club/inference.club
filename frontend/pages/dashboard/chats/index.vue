@@ -44,6 +44,10 @@ const rel = (iso: string) => {
 
 const fmt = (n: number) => Intl.NumberFormat().format(n)
 
+// Badge for which surface produced the thread.
+const SOURCE_LABEL: Record<string, string> = { chat: 'Chat', agent: 'Agent', voice: 'Voice' }
+const sourceLabel = (s?: string) => SOURCE_LABEL[s || 'chat'] || 'Chat'
+
 onMounted(() => store.fetchThreads(pagination.currentPageSize.value, 0))
 </script>
 
@@ -104,9 +108,17 @@ onMounted(() => store.fetchThreads(pagination.currentPageSize.value, 0))
       >
         <div class="flex items-start justify-between gap-3">
           <NuxtLink :to="`/dashboard/chats/${t.public_id}`" class="min-w-0 flex-1">
-            <h2 class="font-medium truncate">
-              <span v-if="t.title">{{ t.title }}</span>
-              <span v-else class="text-muted-foreground italic">Untitled chat</span>
+            <h2 class="font-medium truncate flex items-center gap-2">
+              <Badge
+                variant="outline"
+                class="shrink-0 text-[10px] px-1.5 py-0"
+                :class="{
+                  'border-violet-400/50 text-violet-600 dark:text-violet-400': t.source === 'voice',
+                  'border-sky-400/50 text-sky-600 dark:text-sky-400': t.source === 'agent',
+                }"
+              >{{ sourceLabel(t.source) }}</Badge>
+              <span v-if="t.title" class="truncate">{{ t.title }}</span>
+              <span v-else class="text-muted-foreground italic truncate">Untitled {{ sourceLabel(t.source).toLowerCase() }}</span>
             </h2>
             <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span class="font-mono truncate max-w-[16rem]">{{ t.model || '—' }}</span>

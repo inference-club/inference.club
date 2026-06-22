@@ -4,8 +4,26 @@
 import { ref } from 'vue'
 import type { ChatUsage, TokenLogprob } from '@/composables/usePlayground'
 
+// A persisted reference to a stored MediaAsset (user mic recording or a TTS
+// reply clip), used for replaying a voice conversation.
+export interface AudioClip {
+  id: number
+  url: string
+}
+
+// A persisted tool invocation from a saved Agent turn (slim — enough to
+// re-render the trace card, including any generated media).
+export interface StoredToolCall {
+  name: string
+  arguments?: Record<string, unknown>
+  ok?: boolean
+  summary?: string
+  media?: { id: number; url: string; kind: string }[]
+}
+
 // One persisted turn. Mirrors the playground's in-memory Msg, minus transient
-// UI state, plus the logprobs/usage we want to keep.
+// UI state, plus the logprobs/usage we want to keep. `audio` (voice) and
+// `tools` (agent) are optional and only set for those sources.
 export interface StoredMessage {
   role: 'user' | 'assistant'
   content: string
@@ -14,11 +32,16 @@ export interface StoredMessage {
   logprobs?: TokenLogprob[]
   reasoningLogprobs?: TokenLogprob[]
   model?: string
+  audio?: AudioClip[]
+  tools?: StoredToolCall[]
 }
+
+export type ThreadSource = 'chat' | 'agent' | 'voice'
 
 // Slim card returned by the list endpoint (no messages blob).
 export interface ChatThreadSummary {
   public_id: string
+  source: ThreadSource
   title: string
   model: string
   message_count: number
@@ -44,6 +67,7 @@ interface PaginatedResponse<T> {
 }
 
 export interface ChatThreadWrite {
+  source?: ThreadSource
   model?: string
   title?: string
   messages: StoredMessage[]
@@ -69,11 +93,12 @@ export function useChatThreads() {
     return null
   }
 
-  const listThreads = async (limit = 10, offset = 0) => {
+  const listThreads = async (limit = 10, offset = 0, source?: ThreadSource) => {
     loading.value = true
     error.value = null
     try {
-      const res = await fetch(`${base}/?limit=${limit}&offset=${offset}`, {
+      const q = `?limit=${limit}&offset=${offset}${source ? `&source=${source}` : ''}`
+      const res = await fetch(`${base}/${q}`, {
         credentials: 'include',
       })
       if (!res.ok) throw new Error('Failed to fetch chats')

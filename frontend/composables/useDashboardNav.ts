@@ -102,6 +102,7 @@ export const dashboardNav: DashboardNavGroup[] = [
       { titleKey: 'dashboard.items.usage', url: '/dashboard/settings/usage' },
       { titleKey: 'dashboard.items.access', url: '/dashboard/settings/access' },
       { titleKey: 'dashboard.items.token', url: '/dashboard/settings/token' },
+      { titleKey: 'dashboard.items.apiKeys', url: '/dashboard/settings/api-keys' },
     ],
   },
   {

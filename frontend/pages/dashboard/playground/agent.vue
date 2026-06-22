@@ -113,12 +113,22 @@ const serializeMessages = (): StoredMessage[] =>
       const out: StoredMessage = { role: m.role, content: m.content }
       if (m.reasoning) out.reasoning = m.reasoning
       if (m.usage) out.usage = m.usage
+      // Keep the tool traces so a resumed/viewed session shows its tool cards.
+      if (m.tools?.length) {
+        out.tools = m.tools.map((c) => ({
+          name: c.name,
+          arguments: c.arguments,
+          ok: c.ok,
+          summary: c.summary,
+          ...(c.media?.length ? { media: c.media } : {}),
+        }))
+      }
       return out
     })
 
 const persistThread = async () => {
   if (!messages.value.some((m) => m.role === 'assistant' && m.done && !m.error)) return
-  const payload = { model: model.value, messages: serializeMessages() }
+  const payload = { source: 'agent' as const, model: model.value, messages: serializeMessages() }
   try {
     if (!threadId.value) {
       threadId.value = (await createThread(payload)).public_id
@@ -139,7 +149,15 @@ const hydrateFromThread = async (publicId: string) => {
       role: m.role,
       content: m.content,
       reasoning: m.reasoning || '',
-      tools: [],
+      tools: (m.tools || []).map((c) => ({
+        id: c.name,
+        name: c.name,
+        arguments: c.arguments || {},
+        ok: c.ok,
+        summary: c.summary,
+        media: c.media as AgentMedia[] | undefined,
+        done: true,
+      })),
       usage: m.usage,
       done: true,
     }))
@@ -313,6 +331,13 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
         <Key class="size-3" />
         {{ braveKeySet ? 'Brave key set' : 'Add Brave key' }}
       </button>
+      <NuxtLink
+        to="/dashboard/settings/api-keys"
+        class="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 hover:bg-muted"
+        title="Manage all external API keys"
+      >
+        <Key class="size-3" /> Manage keys
+      </NuxtLink>
     </div>
 
     <!-- Brave key dialog -->

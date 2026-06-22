@@ -59,6 +59,9 @@ CORS_ALLOWED_ORIGINS = _env_list("DJANGO_CORS_ALLOWED_ORIGINS", _DEV_FRONTEND_OR
 CSRF_TRUSTED_ORIGINS = _env_list("DJANGO_CSRF_TRUSTED_ORIGINS", _DEV_FRONTEND_ORIGINS)
 
 CORS_ALLOW_CREDENTIALS = True
+# Let the (cross-origin in dev) frontend read the stored-audio handle that
+# /v1/audio/speech returns on headers (the body is raw audio bytes).
+CORS_EXPOSE_HEADERS = ["X-Asset-Id", "X-Asset-Url"]
 CORS_ALLOW_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"]
 CORS_ALLOW_HEADERS = [
     "accept",

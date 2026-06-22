@@ -285,10 +285,12 @@ def _web_search_brave(ctx: ToolContext, args: dict) -> ToolResult:
     query = (args.get("query") or "").strip()
     if not query:
         return ToolResult(text="No query was provided.", ok=False)
-    key = getattr(ctx.user, "brave_api_key", "") or settings.AGENT_BRAVE_API_KEY
+    from .external_keys import get_user_api_key
+
+    key = get_user_api_key(ctx.user, "brave")
     if not key:
         return ToolResult(
-            text="No Brave Search API key is set. Add one in the Agent settings to use Brave.",
+            text="No Brave Search API key is set. Add one under Settings → API keys to use Brave.",
             ok=False,
         )
     n = args.get("num_results")

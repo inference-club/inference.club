@@ -239,6 +239,10 @@ class ChatThreadView(generics.ListCreateAPIView):
     def get_queryset(self):
         qs = ChatThread.objects.filter(user=self.request.user)
         if self.request.method != "POST":
+            # Optional ?source=chat|agent|voice filter for the badged history.
+            source = self.request.query_params.get("source")
+            if source in dict(ChatThread.Source.choices):
+                qs = qs.filter(source=source)
             # The list never needs the (potentially large) messages blob.
             qs = qs.defer("messages")
         return qs
@@ -273,6 +277,73 @@ class ChatThreadDetailView(generics.RetrieveUpdateDestroyAPIView):
     def perform_update(self, serializer):
         thread = serializer.save()
         _maybe_generate_title(thread)
+
+
+class ApiKeyListView(APIView):
+    """``GET /api/inference/api-keys/`` — the known external services merged with
+    this user's set status. Never returns the actual keys, only a masked hint."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.accounts.models import UserApiKey
+
+        from .external_keys import EXTERNAL_SERVICES
+
+        rows = {r.service: r for r in UserApiKey.objects.filter(user=request.user)}
+        legacy_brave = getattr(request.user, "brave_api_key", "") or ""
+        data = []
+        for svc in EXTERNAL_SERVICES:
+            row = rows.get(svc.slug)
+            is_set = bool(row and row.value)
+            hint = row.hint if row else ""
+            # Surface a legacy Brave key (pre-UserApiKey) as set.
+            if not is_set and svc.slug == "brave" and legacy_brave:
+                is_set = True
+                hint = f"…{legacy_brave[-4:]}" if len(legacy_brave) >= 8 else "set"
+            data.append({
+                "service": svc.slug,
+                "name": svc.name,
+                "description": svc.description,
+                "docs_url": svc.docs_url,
+                "is_set": is_set,
+                "hint": hint,
+                "updated": row.modified_on if row else None,
+            })
+        return Response({"data": data})
+
+
+class ApiKeyDetailView(APIView):
+    """``PUT``/``DELETE /api/inference/api-keys/<service>/`` — set or clear the
+    user's key for a known service. PUT body: ``{"value": "<key>"}``."""
+
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, service):
+        from .external_keys import get_service, set_user_api_key
+
+        if not get_service(service):
+            return Response({"error": "Unknown service"}, status=status.HTTP_400_BAD_REQUEST)
+        value = (request.data.get("value") or "").strip()
+        if not value:
+            return Response({"error": "value is required"}, status=status.HTTP_400_BAD_REQUEST)
+        set_user_api_key(request.user, service, value)
+        # Keep the legacy single Brave field in sync for any un-migrated readers.
+        if service == "brave":
+            request.user.brave_api_key = value[:128]
+            request.user.save(update_fields=["brave_api_key"])
+        return Response({"service": service, "is_set": True})
+
+    def delete(self, request, service):
+        from .external_keys import clear_user_api_key, get_service
+
+        if not get_service(service):
+            return Response({"error": "Unknown service"}, status=status.HTTP_400_BAD_REQUEST)
+        clear_user_api_key(request.user, service)
+        if service == "brave" and getattr(request.user, "brave_api_key", ""):
+            request.user.brave_api_key = ""
+            request.user.save(update_fields=["brave_api_key"])
+        return Response({"service": service, "is_set": False})
 
 
 class SharedRequestView(generics.RetrieveAPIView):

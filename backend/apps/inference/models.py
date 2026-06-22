@@ -742,6 +742,17 @@ class ChatThread(BaseModel):
         on_delete=models.CASCADE,
         related_name="chat_threads",
     )
+    # Which surface produced this thread, so the unified Chats history can badge
+    # it and route "Continue" back to the right page (plain chat / tool-using
+    # agent / hands-free voice agent).
+    class Source(models.TextChoices):
+        CHAT = "chat", "Chat"
+        AGENT = "agent", "Agent"
+        VOICE = "voice", "Voice"
+
+    source = models.CharField(
+        max_length=16, choices=Source.choices, default=Source.CHAT
+    )
     # AI-generated once the first exchange lands; blank until then (the UI shows
     # the first user message as a placeholder).
     title = models.CharField(max_length=200, blank=True, default="")
