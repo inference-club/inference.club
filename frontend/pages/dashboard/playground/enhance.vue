@@ -6,7 +6,7 @@ import { useAudioEnhance } from '@/composables/useAudioEnhance'
 import { useAudioRecorder } from '@/composables/useAudioRecorder'
 import type { ModelInfo } from '@/composables/usePlayground'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.audioEnhance' })
 
 const { listEnhanceModels, enhance } = useAudioEnhance()
 const recorder = useAudioRecorder()

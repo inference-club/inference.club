@@ -3,7 +3,7 @@
 import { ArrowLeft } from 'lucide-vue-next'
 import WorkflowBuilder from '@/components/workflow/WorkflowBuilder.vue'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.workflows' })
 const { t } = useI18n()
 
 const initial = { name: 'Untitled workflow', description: '', spec: { steps: [] } }

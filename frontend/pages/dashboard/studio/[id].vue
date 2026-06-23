@@ -11,7 +11,7 @@ import SegmentCard from '@/components/studio/SegmentCard.vue'
 import EpisodeTimeline from '@/components/studio/EpisodeTimeline.vue'
 import { useStudio, type Episode, type StudioVoices } from '@/composables/useStudio'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.studio' })
 
 const route = useRoute()
 const studio = useStudio()

@@ -7,7 +7,7 @@ import {
 import { useVideoGeneration } from '@/composables/useVideoGeneration'
 import type { ModelInfo } from '@/composables/usePlayground'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.videoGeneration' })
 
 const { listVideoModels, generate } = useVideoGeneration()
 const prefill = usePlaygroundPrefill()

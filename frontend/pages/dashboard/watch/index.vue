@@ -4,16 +4,18 @@
 // of your generated videos. No persistent player; cards open /dashboard/watch/:id.
 
 import { onMounted, ref } from 'vue'
-import { Clapperboard, ListVideo, Plus } from 'lucide-vue-next'
+import { Clapperboard, ListVideo, Plus, LogIn } from 'lucide-vue-next'
 import type { Collection, InferenceRequest } from '@/types'
 import { useInferenceRequest } from '@/composables/useInferenceRequest'
 import { useContentSharing } from '@/composables/useContentSharing'
+import { useAuth } from '@/composables/useAuth'
 
 definePageMeta({ layout: 'app' })
 
 const { t } = useI18n()
-const { listInferenceRequests } = useInferenceRequest()
+const { listInferenceRequests, listAllInferenceRequests } = useInferenceRequest()
 const { listCollections } = useContentSharing()
+const { isAuthenticated } = useAuth()
 
 const videos = ref<InferenceRequest[]>([])
 const videoCount = ref(0)
@@ -22,15 +24,29 @@ const loading = ref(true)
 
 onMounted(async () => {
   try {
-    const [videosRes, cols] = await Promise.all([
-      listInferenceRequests(50, 0, { type: 'VIDEO' }),
-      listCollections().catch(() => [] as Collection[]),
-    ])
-    videos.value = (videosRes?.results ?? []).filter(
-      (r: InferenceRequest) => r.video_url,
-    )
-    videoCount.value = videosRes?.count ?? videos.value.length
-    playlists.value = (cols ?? []).filter((c) => (c.video_count ?? 0) > 0)
+    if (isAuthenticated.value) {
+      // Signed-in: your own videos + your video playlists.
+      const [videosRes, cols] = await Promise.all([
+        listInferenceRequests(50, 0, { type: 'VIDEO' }),
+        listCollections().catch(() => [] as Collection[]),
+      ])
+      videos.value = (videosRes?.results ?? []).filter(
+        (r: InferenceRequest) => r.video_url,
+      )
+      videoCount.value = videosRes?.count ?? videos.value.length
+      playlists.value = (cols ?? []).filter((c) => (c.video_count ?? 0) > 0)
+    } else {
+      // Logged-out: the public network feed (PUBLIC only, server-enforced),
+      // most-starred first — a showcase of what the club is making.
+      const videosRes = await listAllInferenceRequests(50, 0, {
+        type: 'VIDEO',
+        sort: 'popular',
+      })
+      videos.value = (videosRes?.results ?? []).filter(
+        (r: InferenceRequest) => r.video_url,
+      )
+      videoCount.value = videosRes?.count ?? videos.value.length
+    }
   } finally {
     loading.value = false
   }
@@ -45,12 +61,17 @@ useHead({ title: 'Videos' })
       <div>
         <h1 class="text-2xl font-bold">{{ t('media.videosTitle') }}</h1>
         <p class="text-sm text-muted-foreground">
-          {{ t('media.videosSubtitle') }}
+          {{ isAuthenticated ? t('media.videosSubtitle') : t('media.videosSubtitlePublic') }}
         </p>
       </div>
-      <NuxtLink to="/dashboard/playground/videos">
+      <NuxtLink v-if="isAuthenticated" to="/dashboard/playground/videos">
         <Button class="gap-2">
           <Plus class="size-4" /> {{ t('media.createVideo') }}
+        </Button>
+      </NuxtLink>
+      <NuxtLink v-else to="/login">
+        <Button class="gap-2">
+          <LogIn class="size-4" /> {{ t('media.signInToCreate') }}
         </Button>
       </NuxtLink>
     </div>
@@ -99,7 +120,7 @@ useHead({ title: 'Videos' })
       <section>
         <div class="mb-3 flex flex-wrap items-center gap-3">
           <h2 class="flex items-center gap-2 text-lg font-semibold">
-            <Clapperboard class="size-5" /> {{ t('media.yourVideos') }}
+            <Clapperboard class="size-5" /> {{ isAuthenticated ? t('media.yourVideos') : t('media.videosFromClub') }}
           </h2>
           <span v-if="videos.length" class="text-sm text-muted-foreground">
             {{ videoCount }} {{ t('media.videos', videoCount) }}
@@ -113,11 +134,14 @@ useHead({ title: 'Videos' })
         >
           <VideoCard v-for="r in videos" :key="r.id" :request="r" />
         </div>
-        <div v-else class="rounded-xl border py-12 text-center text-muted-foreground">
+        <div v-else-if="isAuthenticated" class="rounded-xl border py-12 text-center text-muted-foreground">
           {{ t('media.noVideosYet') }}
           <NuxtLink to="/dashboard/playground/videos" class="underline">
             {{ t('media.createFirstVideo') }}
           </NuxtLink>
+        </div>
+        <div v-else class="rounded-xl border py-12 text-center text-muted-foreground">
+          {{ t('media.noPublicVideosYet') }}
         </div>
       </section>
     </template>

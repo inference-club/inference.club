@@ -19,7 +19,7 @@ import { usePlayground, type ChatUsage, type ModelInfo } from '@/composables/use
 import { useAgent, type AgentMedia, type AgentSkill, type AgentTool } from '@/composables/useAgent'
 import { useChatThreads, type StoredMessage } from '@/composables/useChatThreads'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.groups.playground' })
 
 interface ToolCard {
   id: string

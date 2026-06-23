@@ -6,7 +6,7 @@ import { useTranscription } from '@/composables/useTranscription'
 import { useAudioRecorder } from '@/composables/useAudioRecorder'
 import type { ModelInfo } from '@/composables/usePlayground'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.transcription' })
 
 const { listSttModels, transcribe } = useTranscription()
 const recorder = useAudioRecorder()

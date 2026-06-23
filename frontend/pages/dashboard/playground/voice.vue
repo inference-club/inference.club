@@ -10,7 +10,7 @@ import { usePlayground, type ModelInfo } from '@/composables/usePlayground'
 import { useChatThreads, type StoredMessage } from '@/composables/useChatThreads'
 import { useConversationPlayer } from '@/composables/useConversationPlayer'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.voiceAgent' })
 
 // ── models ──────────────────────────────────────────────────────────────────
 const { listModels } = usePlayground()

@@ -6,6 +6,8 @@ import { useAuth } from '@/composables/useAuth'
 
 definePageMeta({
   layout: 'app',
+  requireAuth: true,
+  gateTitleKey: 'dashboard.items.routing',
 })
 
 type RoutingPref = 'ANY' | 'PREFER_OWN' | 'ONLY_OWN'

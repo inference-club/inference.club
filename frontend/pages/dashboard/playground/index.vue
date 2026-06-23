@@ -22,7 +22,7 @@ import { usePlayground, type ChatUsage, type ModelInfo, type TokenLogprob } from
 import { useChatThreads, type StoredMessage } from '@/composables/useChatThreads'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.chat' })
 
 type MediaKind = 'image' | 'audio' | 'video'
 interface Attachment {

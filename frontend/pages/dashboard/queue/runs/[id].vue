@@ -9,7 +9,7 @@ import { ArrowLeft, RefreshCw, GitFork } from 'lucide-vue-next'
 import { useWorkflowRunPoller, useAsyncJobs } from '@/composables/useAsyncJobs'
 import WorkflowGraph from '@/components/workflow/WorkflowGraph.vue'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.queue' })
 
 const route = useRoute()
 const { t } = useI18n()

@@ -10,7 +10,7 @@ import {
 } from '@/composables/useMusicAssist'
 import type { ModelInfo } from '@/composables/usePlayground'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.musicGeneration' })
 
 const { listMusicModels, generate } = useMusicGeneration()
 const { listChatModels, composeIdeas } = useMusicAssist()

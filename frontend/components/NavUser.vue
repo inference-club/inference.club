@@ -24,6 +24,7 @@ import {
   ChevronsUpDown,
   Github,
   KeyRound,
+  LogIn,
   LogOut,
   Settings,
   Shield,
@@ -34,7 +35,7 @@ import { computed } from 'vue'
 import { NuxtLink } from '#components'
 import { useAuth } from '@/composables/useAuth'
 
-const { user, logout, isAnonymous } = useAuth()
+const { user, logout, isAnonymous, isAuthenticated } = useAuth()
 const { isMobile } = useSidebar()
 const config = useRuntimeConfig()
 
@@ -58,7 +59,22 @@ const keepAccount = () => {
 
 <template>
   <SidebarMenu>
-    <SidebarMenuItem>
+    <!-- Logged-out: a plain sign-in entry (no account dropdown to show). The
+         login page surfaces GitHub plus any enabled guest/passcode paths. -->
+    <SidebarMenuItem v-if="!isAuthenticated">
+      <SidebarMenuButton size="lg" as-child>
+        <NuxtLink to="/login">
+          <div class="flex size-8 items-center justify-center rounded-lg bg-muted">
+            <LogIn class="size-4" />
+          </div>
+          <div class="grid flex-1 text-left text-sm leading-tight">
+            <span class="truncate font-medium">{{ $t('nav.signIn') }}</span>
+            <span class="truncate text-xs text-muted-foreground">{{ $t('nav.signInHint') }}</span>
+          </div>
+        </NuxtLink>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+    <SidebarMenuItem v-else>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <SidebarMenuButton

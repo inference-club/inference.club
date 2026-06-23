@@ -141,9 +141,11 @@ const toggleMute = () => {
             <Music class="size-5 text-muted-foreground" />
           </div>
           <div class="min-w-0">
-            <p class="truncate text-sm font-medium" :title="current.title">
-              {{ current.title }}
-            </p>
+            <MarqueeText
+              :text="current.title"
+              class="text-sm font-medium"
+              :title="current.title"
+            />
             <p v-if="current.owner" class="truncate text-xs text-muted-foreground">
               {{ current.owner }}
             </p>

@@ -73,6 +73,10 @@ export const useAuth = () => {
       console.error('Auth check error:', err)
       authStore.setUser(null)
       return false
+    } finally {
+      // The initial session check has resolved (one way or the other) — gated
+      // surfaces can now safely decide whether to show their sign-in gate.
+      authStore.setReady()
     }
   }
 
@@ -322,6 +326,8 @@ export const useAuth = () => {
     regenerateAlias,
     user: computed(() => authStore.user),
     isAuthenticated: computed(() => authStore.isAuthenticated),
-    isAnonymous: computed(() => !!authStore.user?.is_anonymous_account)
+    isAnonymous: computed(() => !!authStore.user?.is_anonymous_account),
+    // Has the initial session check resolved yet? (see store + plugins/auth.ts)
+    ready: computed(() => authStore.ready)
   }
 }

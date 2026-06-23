@@ -9,7 +9,7 @@ import { useRouter } from 'vue-router'
 import { Loader2, Mic, Scissors, Trash2 } from 'lucide-vue-next'
 import { useStudio, type EpisodeSummary } from '@/composables/useStudio'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.studio' })
 
 const studio = useStudio()
 const router = useRouter()

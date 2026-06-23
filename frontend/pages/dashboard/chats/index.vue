@@ -6,7 +6,7 @@ import { useChatThreadStore } from '@/stores/chatThread'
 import { usePagination } from '@/composables/usePagination'
 import PaginationControls from '@/components/PaginationControls.vue'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.chats' })
 
 const store = useChatThreadStore()
 const pagination = usePagination(computed(() => store.pagination.count), 10)

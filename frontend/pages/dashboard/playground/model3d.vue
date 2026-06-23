@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useMeshGeneration } from '@/composables/useMeshGeneration'
 import type { ModelInfo } from '@/composables/usePlayground'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.imageTo3d' })
 
 const { t } = useI18n()
 const { listMeshModels, generate } = useMeshGeneration()

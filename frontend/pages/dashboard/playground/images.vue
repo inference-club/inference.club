@@ -6,7 +6,7 @@ import { useImageGeneration } from '@/composables/useImageGeneration'
 import { SUGGESTED_IMAGE_PROMPTS } from '@/utils/imagePrompts'
 import type { ModelInfo } from '@/composables/usePlayground'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.images' })
 
 const { listImageModels, generate, edit } = useImageGeneration()
 

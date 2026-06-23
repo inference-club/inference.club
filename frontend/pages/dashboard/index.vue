@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { onMounted, computed } from 'vue'
-import { RefreshCw, Cpu, Server, Sparkles, Wrench, Activity, Layers } from 'lucide-vue-next'
+import {
+  RefreshCw, Cpu, Server, Sparkles, Wrench, Activity, Layers,
+  Images, Music, Clapperboard, Trophy, Boxes, Github,
+} from 'lucide-vue-next'
 import { useProviders, type Provider } from '@/composables/useProviders'
+import { useAuth } from '@/composables/useAuth'
 import {
   ENGINE_LABELS,
   VENDOR_LABELS,
@@ -15,8 +19,28 @@ definePageMeta({
 })
 
 const { providers, isLoading, error, fetchProviders, refreshModels } = useProviders()
+const { isAuthenticated } = useAuth()
+const config = useRuntimeConfig()
 
-onMounted(fetchProviders)
+// "Registered Compute" is your own nodes — only fetch (and show it) when signed
+// in. Logged-out visitors get a welcome hero pointing at the public showcase.
+onMounted(() => {
+  if (isAuthenticated.value) fetchProviders()
+})
+
+const signIn = () => {
+  window.location.href = `${config.public.apiBase}/oauth/login/github/`
+}
+
+// Public surfaces a logged-out visitor can explore right now.
+const exploreLinks = [
+  { to: '/dashboard/inference/gallery', icon: Images, title: 'Gallery', desc: 'Every image generated on the network' },
+  { to: '/dashboard/music', icon: Music, title: 'Music', desc: 'Songs the club is generating' },
+  { to: '/dashboard/watch', icon: Clapperboard, title: 'Videos', desc: 'Watch what the club is making' },
+  { to: '/dashboard/models', icon: Cpu, title: 'Models', desc: 'The live model catalog' },
+  { to: '/dashboard/leaderboard', icon: Trophy, title: 'Leaderboard', desc: 'Top token consumers' },
+  { to: '/dashboard/cluster', icon: Boxes, title: 'Cluster', desc: 'The living compute network' },
+]
 
 const onlineCount = computed(() => providers.value.filter(p => p.is_online).length)
 const totalModels = computed(() =>
@@ -116,6 +140,38 @@ const STATUS_DOT: Record<SvcState, string> = {
 
 <template>
   <div class="mx-auto w-full max-w-6xl px-3 sm:px-6 py-6 space-y-8">
+    <!-- Logged-out: a welcoming overview that sends visitors into the public
+         showcase surfaces, with a single sign-in CTA. -->
+    <template v-if="!isAuthenticated">
+      <section class="rounded-xl border bg-gradient-to-b from-muted/40 to-transparent p-6 sm:p-8">
+        <h1 class="text-2xl font-bold sm:text-3xl">Welcome to inference.club</h1>
+        <p class="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
+          A community network of GPUs running open models — image, video, music,
+          speech, 3D and chat. Browse what the club is making below, then sign in
+          to generate your own and serve from your own hardware.
+        </p>
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <Button class="gap-2" @click="signIn">
+            <Github class="size-4" /> {{ $t('gate.continueGithub') }}
+          </Button>
+          <NuxtLink to="/login" class="text-sm text-muted-foreground underline hover:text-foreground">
+            {{ $t('loggedOutBanner.otherOptions') }}
+          </NuxtLink>
+        </div>
+      </section>
+
+      <section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <NuxtLink v-for="link in exploreLinks" :key="link.to" :to="link.to" class="group">
+          <Card class="h-full p-5 transition-colors group-hover:border-primary/40 group-hover:bg-accent/30">
+            <component :is="link.icon" class="size-6 text-muted-foreground" />
+            <h3 class="mt-3 font-semibold">{{ link.title }}</h3>
+            <p class="mt-0.5 text-sm text-muted-foreground">{{ link.desc }}</p>
+          </Card>
+        </NuxtLink>
+      </section>
+    </template>
+
+    <template v-else>
     <DashboardPageHeader
       title="Dashboard"
       description="Overview of your compute and inference activity."
@@ -392,5 +448,6 @@ const STATUS_DOT: Record<SvcState, string> = {
         </Card>
       </div>
     </section>
+    </template>
   </div>
 </template>

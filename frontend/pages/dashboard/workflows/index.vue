@@ -9,7 +9,7 @@ import { Workflow as WorkflowIcon, Plus, Play, Pencil, Trash2, GitFork,
   BookOpen, Images, Clapperboard, Music, Mic, HardHat, Newspaper, Loader2 } from 'lucide-vue-next'
 import { useAsyncJobs, type SavedWorkflowSummary, type WorkflowTemplate } from '@/composables/useAsyncJobs'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.workflows' })
 
 const { t } = useI18n()
 const { listWorkflows, deleteWorkflow, runSavedWorkflow, listTemplates, forkTemplate } = useAsyncJobs()

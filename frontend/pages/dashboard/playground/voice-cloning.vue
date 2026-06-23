@@ -18,7 +18,7 @@ import {
 import { useVoiceCloning, type Speaker, type VoiceSample } from '@/composables/useVoiceCloning'
 import type { ModelInfo } from '@/composables/usePlayground'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.voiceCloning' })
 
 const vc = useVoiceCloning()
 const recorder = useAudioRecorder()

@@ -5,7 +5,7 @@ import { AudioLines, Loader2, Mic2, Square } from 'lucide-vue-next'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
 import type { ModelInfo } from '@/composables/usePlayground'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.textToSpeech' })
 
 const { listTtsModels, listVoices, synthesize } = useTextToSpeech()
 

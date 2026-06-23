@@ -154,8 +154,10 @@ const onVisibilityUpdated = (v: Visibility) => {
       <span class="text-xs">{{ retrying ? 'Retrying…' : 'Retry' }}</span>
     </Button>
 
-    <!-- Star -->
+    <!-- Star (read-only count for logged-out visitors; interactive once signed
+         in — writes would 403 anyway, so the button is a sign-in dead end). -->
     <Button
+      v-if="isAuthenticated"
       variant="ghost"
       size="sm"
       class="h-8 px-2 gap-1"
@@ -166,9 +168,18 @@ const onVisibilityUpdated = (v: Visibility) => {
       <Star class="size-4" :class="starred ? 'fill-current' : ''" />
       <span v-if="starCount > 0" class="text-xs tabular-nums">{{ starCount }}</span>
     </Button>
+    <span
+      v-else-if="starCount > 0"
+      class="flex h-8 items-center gap-1 px-2 text-muted-foreground"
+      :title="`${starCount} stars`"
+    >
+      <Star class="size-4" />
+      <span class="text-xs tabular-nums">{{ starCount }}</span>
+    </span>
 
-    <!-- Bookmark -->
+    <!-- Bookmark (signed-in only) -->
     <Button
+      v-if="isAuthenticated"
       variant="ghost"
       size="icon"
       class="size-8"

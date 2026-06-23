@@ -4,7 +4,7 @@ import { Globe, Loader2, Copy, Check, ExternalLink } from 'lucide-vue-next'
 import { Card } from '@/components/ui/card'
 import { useScrape, type ScrapeResult } from '@/composables/useScrape'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.scrape' })
 
 const { listScrapeModels, scrape } = useScrape()
 

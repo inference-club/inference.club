@@ -5,7 +5,7 @@ import type { InferenceRequest } from '@/types'
 import { useContentSharing } from '@/composables/useContentSharing'
 import InferenceRequestCard from '@/components/InferenceRequestCard.vue'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.starred' })
 
 const { listStarred } = useContentSharing()
 

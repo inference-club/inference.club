@@ -7,6 +7,8 @@ import { useProviders, type Provider } from '@/composables/useProviders'
 
 definePageMeta({
   layout: 'app',
+  requireAuth: true,
+  gateTitleKey: 'dashboard.items.access',
 })
 
 const { services, loading, error, fetchServices, updateService } = useServices()

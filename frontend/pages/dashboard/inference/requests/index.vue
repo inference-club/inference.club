@@ -13,6 +13,8 @@ import InferenceRequestRow from '@/components/InferenceRequestRow.vue'
 
 definePageMeta({
   layout: 'app',
+  requireAuth: true,
+  gateTitleKey: 'dashboard.items.yourRequests',
 })
 
 const store = useInferenceRequestStore()

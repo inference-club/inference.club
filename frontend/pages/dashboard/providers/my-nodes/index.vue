@@ -4,6 +4,8 @@ import { useProviders, type Provider } from '@/composables/useProviders'
 
 definePageMeta({
   layout: 'app',
+  requireMember: true,
+  gateTitleKey: 'dashboard.items.myNodes',
 })
 
 const { providers, isLoading, error, fetchProviders, refreshModels, setAcceptingRequests } = useProviders()

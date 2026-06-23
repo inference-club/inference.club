@@ -13,7 +13,7 @@ import { usePlayerStore } from '@/stores/player'
 import { tracksFromRequests, formatTrackTime, formatRuntime } from '@/utils/player'
 import InferenceRequestCard from '@/components/InferenceRequestCard.vue'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.collections' })
 
 const { t } = useI18n()
 const route = useRoute()

@@ -7,7 +7,7 @@ import { useContentSharing } from '@/composables/useContentSharing'
 import { VISIBILITY_META, VISIBILITY_ORDER } from '@/utils/visibility'
 import CollectionCard from '@/components/CollectionCard.vue'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.collections' })
 
 const { listCollections, createCollection } = useContentSharing()
 

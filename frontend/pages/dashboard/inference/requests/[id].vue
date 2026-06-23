@@ -7,6 +7,7 @@ import {
 import { useRoute } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
 import { usePlaygroundPrefill, REPRODUCE_ROUTES } from '@/composables/usePlaygroundPrefill'
+import { useAuth } from '@/composables/useAuth'
 import {
   statusVariant, formatAbsolute, formatLatency, totalTokens, roleClasses,
 } from '@/utils/inference'
@@ -17,7 +18,15 @@ definePageMeta({
 
 const route = useRoute()
 const store = useInferenceRequestStore()
+const { isAuthenticated } = useAuth()
 const id = computed(() => String(route.params.id))
+
+// Public request detail is open to anyone (the API enforces per-request
+// visibility); send logged-out viewers back to the public gallery rather than
+// the members-only requests list.
+const backTo = computed(() =>
+  isAuthenticated.value ? '/dashboard/inference/requests' : '/dashboard/inference/gallery',
+)
 
 const req = computed(() => store.currentRequest)
 const isStt = computed(() => req.value?.inference_type === 'STT')
@@ -108,10 +117,10 @@ onMounted(() => {
     <!-- Top bar -->
     <div class="flex flex-wrap items-center justify-between gap-y-2 mb-6">
       <NuxtLink
-        to="/dashboard/inference/requests"
+        :to="backTo"
         class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft class="size-4" /> Back to requests
+        <ArrowLeft class="size-4" /> {{ isAuthenticated ? 'Back to requests' : 'Explore the gallery' }}
       </NuxtLink>
 
       <div class="flex flex-wrap items-center justify-end gap-2">

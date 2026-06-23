@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 import { useChatThreadStore } from '@/stores/chatThread'
 import { useConversationPlayer } from '@/composables/useConversationPlayer'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.chats' })
 
 const route = useRoute()
 const store = useChatThreadStore()

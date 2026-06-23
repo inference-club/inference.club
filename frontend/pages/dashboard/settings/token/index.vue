@@ -31,6 +31,8 @@ const regenerate = async () => {
 
 definePageMeta({
   layout: 'app',
+  requireMember: true,
+  gateTitleKey: 'dashboard.items.token',
 })
 </script>
 

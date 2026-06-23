@@ -790,6 +790,7 @@ class InferenceRequestListSerializer(
     video_url = serializers.SerializerMethodField()
     video = serializers.SerializerMethodField()
     cover_image_url = serializers.SerializerMethodField()
+    gpu_label = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -805,6 +806,7 @@ class InferenceRequestListSerializer(
             "is_owner",
             *SHARING_FIELDS,
             "latency_ms",
+            "gpu_label",
             "usage",
             "audio_seconds",
             "audio_url",
@@ -891,6 +893,14 @@ class InferenceRequestListSerializer(
 
     def get_has_reasoning(self, obj) -> bool:
         return bool(_extract_reasoning(obj.results))
+
+    def get_gpu_label(self, obj):
+        # A short "where it ran" chip for the list rows (e.g. "RTX 4090"). Prefers
+        # the first GPU resolved from the dispatch-time host snapshot, falling back
+        # to the bare host id; None when nothing is known (legacy/unmatched rows).
+        info = request_host_info(obj)
+        gpus = info.get("gpus") or []
+        return gpus[0] if gpus else (info.get("host_id") or None)
 
 
 class InferenceRequestDetailSerializer(
@@ -1113,6 +1123,7 @@ class CollectionSerializer(serializers.ModelSerializer):
     audio_count = serializers.SerializerMethodField()
     video_count = serializers.SerializerMethodField()
     total_audio_seconds = serializers.SerializerMethodField()
+    star_total = serializers.SerializerMethodField()
     cover_image_url = serializers.SerializerMethodField()
     owner = serializers.SerializerMethodField()
     github_login = serializers.SerializerMethodField()
@@ -1130,6 +1141,7 @@ class CollectionSerializer(serializers.ModelSerializer):
             "audio_count",
             "video_count",
             "total_audio_seconds",
+            "star_total",
             "cover_image_url",
             "owner",
             "github_login",
@@ -1144,6 +1156,7 @@ class CollectionSerializer(serializers.ModelSerializer):
             "audio_count",
             "video_count",
             "total_audio_seconds",
+            "star_total",
             "cover_image_url",
             "owner",
             "github_login",
@@ -1173,6 +1186,15 @@ class CollectionSerializer(serializers.ModelSerializer):
         return obj.items.filter(request__inference_type="MUSIC").aggregate(
             s=Sum("request__audio_seconds")
         )["s"]
+
+    def get_star_total(self, obj) -> int:
+        # Popularity proxy for "albums": the summed star_count of member songs.
+        # Annotated by the list view; aggregated on demand otherwise.
+        if hasattr(obj, "star_total"):
+            return obj.star_total or 0
+        return (
+            obj.items.aggregate(s=Sum("request__star_count"))["s"] or 0
+        )
 
     def get_cover_image_url(self, obj):
         return _cover_image_url(obj, self.context.get("request"))

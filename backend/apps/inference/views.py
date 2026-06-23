@@ -8,14 +8,18 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Exists, Max, OuterRef, Prefetch, Q, Sum
-from django.db.models.functions import TruncDate
+from django.db.models.functions import Coalesce, TruncDate
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import (
+    AllowAny,
+    IsAuthenticated,
+    IsAuthenticatedOrReadOnly,
+)
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework.views import APIView
@@ -77,7 +81,7 @@ logger = logging.getLogger("django")
 # Owner-attribution querysets need the user + their GitHub social_auth row.
 def _requests_with_owner():
     return InferenceRequest.objects.select_related(
-        "provider", "user", "cover_request"
+        "provider", "provider__manifest", "user", "cover_request"
     ).prefetch_related("user__social_auth", "assets", "cover_request__assets")
 
 
@@ -157,9 +161,11 @@ class AllInferenceRequestView(generics.ListAPIView):
     """Every *listable* inference request on the network (powers "All Inference
     Requests"). Visible to any authenticated user, with owner attribution.
     Honors per-request visibility: a member sees PUBLIC + PRIVATE (members-only)
-    requests plus their own; UNLISTED and SECRET are excluded from the feed."""
+    requests plus their own; UNLISTED and SECRET are excluded from the feed.
+    Open to anonymous visitors too — ``visible_list_q`` narrows them to PUBLIC
+    only, so the logged-out dashboard can showcase what the club is making."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     pagination_class = StandardResultsSetPagination
     serializer_class = InferenceRequestListSerializer
 
@@ -171,9 +177,13 @@ class AllInferenceRequestView(generics.ListAPIView):
 
 class RetrieveInferenceRequestView(generics.RetrieveUpdateDestroyAPIView):
     """GET returns a request fully-expanded (subject to its visibility); PATCH
-    changes its visibility (owner only); DELETE removes it (owner only)."""
+    changes its visibility (owner only); DELETE removes it (owner only).
 
-    permission_classes = [IsAuthenticated]
+    Reads are open to anyone (``get_object`` enforces ``is_visible_to``, so a
+    logged-out visitor can open a PUBLIC/UNLISTED request by its opaque
+    ``public_id``); writes require auth and are owner-only."""
+
+    permission_classes = [IsAuthenticatedOrReadOnly]
     lookup_field = "id"
 
     def get_serializer_class(self):
@@ -689,12 +699,12 @@ class ProviderListView(generics.ListAPIView):
 class AllProvidersListView(generics.ListAPIView):
     """List every active provider on the network (powers /providers/all-nodes UI).
 
-    Exposes per-node detail to any logged-in user, including the owner
-    (email local-part), so the network is legible. Inactive providers
-    are hidden.
+    Exposes per-node detail to anyone, including the owner (public GitHub
+    handle), so the network is legible — same public surface as the network
+    status view. Inactive providers are hidden.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     serializer_class = PublicProviderSerializer
     pagination_class = StandardResultsSetPagination
 
@@ -814,10 +824,10 @@ class ProviderUpdateView(generics.RetrieveUpdateAPIView):
 
 
 class LeaderboardView(APIView):
-    """Top token consumers over a time window. Visible to any authenticated
-    member — it's a deliberately public, social view of network usage."""
+    """Top token consumers over a time window. A deliberately public, social
+    view of network usage — open to logged-out visitors too."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     RANGES = {
         "hour": timedelta(hours=1),
@@ -1090,10 +1100,11 @@ class ModelCatalogView(APIView):
 
     One entry per CatalogModel that has at least one active deployment, with
     operator-declared capabilities (modalities, context, features) and which
-    nodes serve it.
+    nodes serve it. Open to logged-out visitors — the catalog is public network
+    data (the same models are already surfaced on public profiles).
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request):
         # Default to "runnable right now": models with at least one online
@@ -2291,6 +2302,8 @@ def _collections_annotated(qs):
                 "items__request__audio_seconds",
                 filter=Q(items__request__inference_type="MUSIC"),
             ),
+            # Popularity proxy for "albums": summed star_count of member songs.
+            star_total=Coalesce(Sum("items__request__star_count"), 0),
         )
         .select_related("cover_request")
         .prefetch_related("cover_request__assets")

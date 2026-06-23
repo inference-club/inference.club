@@ -5,7 +5,7 @@ import { KeyRound, ExternalLink, Check, Loader2, Trash2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useApiKeys, type ApiKeyInfo } from '@/composables/useApiKeys'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireMember: true, gateTitleKey: 'dashboard.items.apiKeys' })
 
 const { list, setKey, clearKey } = useApiKeys()
 

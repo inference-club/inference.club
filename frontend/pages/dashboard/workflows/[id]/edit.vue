@@ -5,7 +5,7 @@ import { ArrowLeft } from 'lucide-vue-next'
 import WorkflowBuilder from '@/components/workflow/WorkflowBuilder.vue'
 import { useAsyncJobs, type SavedWorkflow } from '@/composables/useAsyncJobs'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.workflows' })
 
 const route = useRoute()
 const { t } = useI18n()

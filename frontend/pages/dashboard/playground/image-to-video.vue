@@ -8,7 +8,7 @@ import {
 import { useImageToVideo } from '@/composables/useImageToVideo'
 import type { ModelInfo } from '@/composables/usePlayground'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.imageToVideo' })
 
 const { listModels, generateImage, suggestPrompts, generateVideo } = useImageToVideo()
 

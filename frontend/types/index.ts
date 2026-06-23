@@ -140,6 +140,8 @@ export interface InferenceRequest {
   response_preview?: string
   message_count?: number
   has_reasoning?: boolean
+  // Short "where it ran" label (e.g. "RTX 4090") for the music list chips.
+  gpu_label?: string | null
 
   // Detail serializer only
   messages?: ChatMessage[]
@@ -170,6 +172,8 @@ export interface Collection {
   audio_count?: number
   video_count?: number
   total_audio_seconds?: number | null
+  // Popularity proxy for "albums": summed star_count of member songs.
+  star_total?: number
   cover_image_url?: string | null
   owner?: string
   github_login?: string | null

@@ -23,18 +23,27 @@ interface User {
 interface AuthState {
   user: User | null
   isAuthenticated: boolean
+  // True once the initial session rehydration (plugins/auth.ts → checkAuth)
+  // has settled. Lets gated surfaces wait instead of flashing a sign-in gate
+  // at a user who is actually logged in.
+  ready: boolean
 }
 
 export const useAuthStore = defineStore('auth', {
   state: (): AuthState => ({
     user: null,
-    isAuthenticated: false
+    isAuthenticated: false,
+    ready: false
   }),
 
   actions: {
     setUser(user: User | null) {
       this.user = user
       this.isAuthenticated = !!user
+    },
+
+    setReady() {
+      this.ready = true
     },
 
     logout() {

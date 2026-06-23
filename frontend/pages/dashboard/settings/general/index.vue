@@ -9,6 +9,8 @@ import { VISIBILITY_META, VISIBILITY_ORDER } from '@/utils/visibility'
 
 definePageMeta({
   layout: 'app',
+  requireAuth: true,
+  gateTitleKey: 'dashboard.items.general',
 })
 
 const { user, updateAccount, regenerateAlias, isAnonymous } = useAuth()

@@ -197,6 +197,68 @@ class TestSharedByToken:
         assert r.status_code == 404
 
 
+# --- anonymous read access (logged-out dashboard showcase) ------------------
+# The network feed, request detail, leaderboard, model catalog and node list
+# are open to logged-out visitors so the dashboard can showcase the club's
+# public work. Visibility is still enforced per request; writes stay gated.
+
+
+@pytest.mark.django_db
+class TestAnonymousReadAccess:
+    def test_feed_lists_only_public_to_anonymous(self, api_client, alice, bob):
+        public = make_request(alice, "PUBLIC")
+        make_request(alice, "SECRET")
+        make_request(alice, "UNLISTED")
+        make_request(bob, "PRIVATE")
+        r = api_client.get(reverse("inference:inference-requests-all"))
+        assert r.status_code == 200
+        ids = {row["id"] for row in r.data["results"]}
+        assert ids == {public.id}
+
+    def test_anonymous_can_view_public_detail(self, api_client, alice):
+        ir = make_request(alice, "PUBLIC")
+        r = api_client.get(reverse("inference:inference-detail", args=[ir.id]))
+        assert r.status_code == 200
+        assert r.data["id"] == ir.id
+        assert r.data["share_token"] is None  # token never leaks to non-owners
+
+    def test_anonymous_can_view_unlisted_detail_by_id(self, api_client, alice):
+        # UNLISTED is excluded from the feed but reachable by direct link/id.
+        ir = make_request(alice, "UNLISTED")
+        r = api_client.get(reverse("inference:inference-detail", args=[ir.id]))
+        assert r.status_code == 200
+
+    def test_anonymous_blocked_from_private_detail(self, api_client, alice):
+        ir = make_request(alice, "PRIVATE")  # members-only
+        r = api_client.get(reverse("inference:inference-detail", args=[ir.id]))
+        assert r.status_code == 404
+
+    def test_anonymous_blocked_from_secret_detail(self, api_client, alice):
+        ir = make_request(alice, "SECRET")
+        r = api_client.get(reverse("inference:inference-detail", args=[ir.id]))
+        assert r.status_code == 404
+
+    def test_anonymous_cannot_patch_detail(self, api_client, alice):
+        ir = make_request(alice, "PUBLIC")
+        r = api_client.patch(
+            reverse("inference:inference-detail", args=[ir.id]),
+            {"visibility": "SECRET"},
+            format="json",
+        )
+        assert r.status_code in (401, 403)
+        ir.refresh_from_db()
+        assert ir.visibility == "PUBLIC"
+
+    def test_anonymous_can_read_leaderboard(self, api_client):
+        assert api_client.get(reverse("inference:leaderboard")).status_code == 200
+
+    def test_anonymous_can_read_model_catalog(self, api_client):
+        assert api_client.get(reverse("inference:model-catalog")).status_code == 200
+
+    def test_anonymous_can_read_node_list(self, api_client):
+        assert api_client.get(reverse("inference:provider-list-all")).status_code == 200
+
+
 # --- all-requests feed honors visibility ------------------------------------
 
 

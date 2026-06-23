@@ -6,6 +6,8 @@
     "blog": "Blog",
     "login": "Login",
     "logout": "Logout",
+    "signIn": "Sign in",
+    "signInHint": "Join the club",
     "userMenu": "User menu",
     "publicProfile": "Public profile",
     "accountSettings": "Account settings",
@@ -297,17 +299,25 @@
     "collectionNotFound": "Collection not found",
     "musicTitle": "Music",
     "musicSubtitle": "Your songs and playlists, generated on the network.",
+    "musicSubtitlePublic": "Songs the club is generating on the network.",
+    "musicFromClub": "Fresh from the club",
     "createSong": "Create a song",
+    "signInToCreate": "Sign in to create",
     "yourPlaylists": "Your playlists",
+    "popularAlbums": "Popular albums",
     "recentlyPlayed": "Recently played",
     "yourSongs": "Your songs",
     "noSongsYet": "You haven't generated any songs yet.",
+    "noPublicSongsYet": "No public songs on the network yet.",
     "createFirstSong": "Create your first song",
     "videosTitle": "Videos",
     "videosSubtitle": "Your videos and playlists, generated on the network.",
+    "videosSubtitlePublic": "Videos the club is generating on the network.",
+    "videosFromClub": "Fresh from the club",
     "createVideo": "Create a video",
     "yourVideos": "Your videos",
     "noVideosYet": "You haven't generated any videos yet.",
+    "noPublicVideosYet": "No public videos on the network yet.",
     "createFirstVideo": "Create your first video",
     "notAVideo": "This request has no video to play.",
     "videoNotFound": "Video not found",
@@ -328,5 +338,20 @@
     "updateFailed": "Failed to save your sharing preference",
     "loadCollectionsFailed": "Failed to load collections",
     "anonymousNoPublic": "Anonymous accounts can't publish publicly."
-  }
+  },
+  "gate": {
+    "defaultTitle": "Members only",
+    "signInToUse": "Sign in to use this and start generating on the club's network.",
+    "continueGithub": "Continue with GitHub",
+    "guestHintPrefix": "Just exploring? You can also ",
+    "guestHintLink": "continue as a guest",
+    "guestHintSuffix": ".",
+    "memberDescription": "This needs a full account. Sign in with GitHub to unlock it — everything you've made comes with you."
+  },
+  "loggedOutBanner": {
+    "body": "You're browsing the club as a guest. Sign in to generate your own and save it to your profile.",
+    "otherOptions": "or explore other sign-in options",
+    "dismiss": "Dismiss"
+  },
+  "signInToCreatePrompt": "Sign in to make your own"
 }

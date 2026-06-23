@@ -3,6 +3,8 @@ import { Gauge } from 'lucide-vue-next'
 
 definePageMeta({
   layout: 'app',
+  requireAuth: true,
+  gateTitleKey: 'dashboard.items.usage',
 })
 </script>
 

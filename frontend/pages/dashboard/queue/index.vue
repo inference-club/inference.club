@@ -11,7 +11,7 @@ import { useAsyncJobs, type AsyncJob, type WorkflowRunSummary,
   type QueueSummary } from '@/composables/useAsyncJobs'
 import TemplateLauncher from '@/components/workflow/TemplateLauncher.vue'
 
-definePageMeta({ layout: 'app' })
+definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.queue' })
 
 const { t } = useI18n()
 const { listJobs, listRuns, queueSummary, cancelJob, retryJob } = useAsyncJobs()

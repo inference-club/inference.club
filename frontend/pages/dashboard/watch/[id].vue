@@ -11,6 +11,7 @@ import {
 import type { Collection, InferenceRequest } from '@/types'
 import { useInferenceRequest } from '@/composables/useInferenceRequest'
 import { useContentSharing } from '@/composables/useContentSharing'
+import { useAuth } from '@/composables/useAuth'
 import { formatRelative } from '@/utils/inference'
 
 definePageMeta({ layout: 'app' })
@@ -19,6 +20,13 @@ const { t } = useI18n()
 const route = useRoute()
 const { getInferenceRequest } = useInferenceRequest()
 const { getCollection } = useContentSharing()
+const { isAuthenticated } = useAuth()
+
+// Where "back" lands: your requests when signed in, the public videos home
+// otherwise (the requests list is members-only).
+const backTo = computed(() =>
+  isAuthenticated.value ? '/dashboard/inference/requests' : '/dashboard/watch',
+)
 
 const requestId = computed(() => String(route.params.id))
 const listSlug = computed(() => {
@@ -114,7 +122,7 @@ useHead(() => ({
 <template>
   <div class="mx-auto w-full max-w-7xl px-3 sm:px-6 py-6">
     <NuxtLink
-      :to="listSlug ? `/dashboard/inference/collections/${listSlug}` : '/dashboard/inference/requests'"
+      :to="listSlug ? `/dashboard/inference/collections/${listSlug}` : backTo"
       class="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
     >
       <ArrowLeft class="size-4" />
