@@ -492,6 +492,11 @@ const sparklinePoints = (s: SnapshotService): string => {
     .join(' ')
 }
 
+// VRAM a service holds right now — summed from its pods' per-process totals
+// (the vram-reporter breakdown). 0 when the reporter isn't deployed.
+const serviceVramTotal = (s: SnapshotService): number =>
+  (s.pods ?? []).reduce((sum, p) => sum + (p.gpu_vram_used_bytes ?? 0), 0)
+
 const helpOpen = ref(false)
 </script>
 
@@ -944,6 +949,10 @@ const helpOpen = ref(false)
               <span class="text-slate-500 dark:text-slate-400">Node</span>
               <span class="font-mono text-slate-700 dark:text-slate-200">{{ selection.host.hostname || selection.host.id }}</span>
             </div>
+            <div v-if="serviceVramTotal(selection.service)" class="flex justify-between gap-2">
+              <span class="text-slate-500 dark:text-slate-400">GPU memory now</span>
+              <span class="font-mono text-slate-700 dark:text-slate-200">{{ formatBytes(serviceVramTotal(selection.service)) }}</span>
+            </div>
             <div v-if="selection.service.activity?.buckets?.length">
               <p class="text-slate-500 dark:text-slate-400">
                 Requests · last hour
@@ -980,7 +989,8 @@ const helpOpen = ref(false)
                   <p class="text-[11px]" :class="pod.phase === 'Running' && pod.ready ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'">
                     {{ pod.phase }}<span v-if="pod.reason"> · {{ pod.reason }}</span>
                     <span v-if="pod.restarts" class="text-slate-500 dark:text-slate-400"> · {{ pod.restarts }} restarts</span>
-                    <span v-if="pod.memory_usage_bytes" class="text-slate-500 dark:text-slate-400"> · {{ formatBytes(pod.memory_usage_bytes) }}</span>
+                    <span v-if="pod.memory_usage_bytes" class="text-slate-500 dark:text-slate-400"> · {{ formatBytes(pod.memory_usage_bytes) }} RAM</span>
+                    <span v-if="pod.gpu_vram_used_bytes" class="text-slate-500 dark:text-slate-400"> · {{ formatBytes(pod.gpu_vram_used_bytes) }} VRAM</span>
                   </p>
                 </li>
               </ul>

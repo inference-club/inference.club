@@ -354,6 +354,12 @@ def dispatch_due_jobs(limit=50):
             job.dispatch_meta = {
                 "provider_model_id": provider_model.id,
                 "provider_id": provider_id,
+                # Snapshot the host so the GPU it ran on resolves correctly even
+                # after the deployment/manifest is gone (see request_host_info).
+                "host_id": (
+                    provider_model.service.host_id or ""
+                    if provider_model.service_id else ""
+                ),
                 "service_type": svc_type,
                 "resource_group": group,
                 "served_name": provider_model.name,

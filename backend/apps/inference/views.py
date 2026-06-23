@@ -14,6 +14,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -736,6 +737,68 @@ class ProviderServiceUpdateView(generics.RetrieveUpdateAPIView):
             .select_related("provider")
             .prefetch_related("models")
         )
+
+
+SERVICE_LOGO_MAX_BYTES = 2 * 1024 * 1024  # 2 MB — logos are small brand marks
+SERVICE_LOGO_TYPES = {
+    "image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml",
+}
+
+
+class ServiceLogoView(APIView):
+    """Upload (POST, multipart ``logo``) or clear (DELETE) a service's custom
+    logo. Owner-only — a member may only touch their own services. The file
+    lands in the public media bucket; its URL is surfaced through the manifest's
+    enriched ``parsed`` services as ``logo_url`` (see serializers)."""
+
+    permission_classes = [IsFullMember]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _service(self, request, pk):
+        return get_object_or_404(
+            ProviderService, id=pk, provider__user=request.user
+        )
+
+    def post(self, request, pk):
+        from django.core.files.base import ContentFile
+
+        svc = self._service(request, pk)
+        upload = request.FILES.get("logo")
+        if upload is None:
+            return Response(
+                {"detail": "`logo` file is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        ctype = (
+            (getattr(upload, "content_type", "") or "").split(";", 1)[0].strip().lower()
+        )
+        if ctype not in SERVICE_LOGO_TYPES:
+            return Response(
+                {"detail": f"Unsupported image type '{ctype or 'unknown'}'."},
+                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
+        data = upload.read()
+        if len(data) > SERVICE_LOGO_MAX_BYTES:
+            return Response(
+                {"detail": "Logo too large (max 2 MB)."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+        # Replace any previous logo so old files don't orphan in the bucket.
+        if svc.logo:
+            svc.logo.delete(save=False)
+        svc.logo.save(
+            getattr(upload, "name", "logo") or "logo", ContentFile(data), save=False
+        )
+        svc.save(update_fields=["logo", "modified_on"])
+        return Response({"logo_url": svc.logo.url})
+
+    def delete(self, request, pk):
+        svc = self._service(request, pk)
+        if svc.logo:
+            svc.logo.delete(save=False)
+            svc.logo = None
+            svc.save(update_fields=["logo", "modified_on"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ProviderUpdateView(generics.RetrieveUpdateAPIView):
@@ -1783,7 +1846,8 @@ class ProviderManifestView(APIView):
         return Response(ServiceManifestSerializer(manifest).data)
 
 
-CLUSTER_STATE_CACHE_TTL = 30  # seconds — "live-ish" per PRD 07 (30–60s poll)
+CLUSTER_STATE_CACHE_TTL = 12  # seconds — fresh enough for the ~20s live poll
+# (so the client-side VRAM/util sparkline gets distinct samples, not cache dups)
 CLUSTER_ACTIVITY_CACHE_TTL = 20  # seconds
 CLUSTER_ACTIVITY_WINDOW_MIN = 60
 CLUSTER_ACTIVITY_BUCKET_SEC = 60

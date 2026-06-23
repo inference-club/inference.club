@@ -139,17 +139,14 @@ const hostsOf = (p: Provider) => p.manifest?.parsed.hosts ?? []
 
         <!-- new resource + service visualization (when a manifest is present) -->
         <template v-if="hostsOf(provider).length">
-          <MachineSummary :hosts="hostsOf(provider)" class="mb-4" />
-          <div class="grid gap-4 lg:grid-cols-2">
-            <MachineCard
-              v-for="host in hostsOf(provider)"
-              :key="host.id"
-              :host="host"
-              :max-memory-gb="maxMemoryGb"
-              :online="provider.is_online"
-              :show-command="true"
-            />
-          </div>
+          <ProviderMachineGrid
+            :provider-id="provider.id"
+            :hosts="hostsOf(provider)"
+            :discovery="provider.manifest?.parsed.discovery"
+            :max-memory-gb="maxMemoryGb"
+            :online="provider.is_online"
+            :show-command="true"
+          />
         </template>
 
         <!-- fallback: agents without a manifest still report a flat model list -->

@@ -15,8 +15,11 @@ const props = withDefaults(
     size?: number
     // hide the tile background (glyph only, inherits currentColor)
     bare?: boolean
+    // Operator-uploaded custom logo. When set, it replaces the engine glyph;
+    // the engine mark stays the fallback for services without a custom logo.
+    logoUrl?: string | null
   }>(),
-  { size: 28, bare: false },
+  { size: 28, bare: false, logoUrl: null },
 )
 
 const brand = computed(() => engineBrand(props.engine))
@@ -25,7 +28,19 @@ const stroke = computed(() => (props.bare ? 2 : 1.9))
 </script>
 
 <template>
+  <!-- Custom uploaded logo takes precedence over the engine glyph. -->
+  <img
+    v-if="logoUrl"
+    :src="logoUrl"
+    :alt="brand.label"
+    :title="brand.label"
+    :width="size"
+    :height="size"
+    class="inline-block shrink-0 rounded-[7px] object-contain"
+    :style="{ width: `${size}px`, height: `${size}px` }"
+  >
   <span
+    v-else
     class="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[7px]"
     :style="bare
       ? { width: `${size}px`, height: `${size}px`, color: brand.color }

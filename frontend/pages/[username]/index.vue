@@ -394,18 +394,15 @@ console.log(resp.choices[0].message.content)`,
 
       <!-- machines grid: the new resource + service visualization -->
       <div v-else>
-        <MachineSummary :hosts="provider.manifest.parsed.hosts" class="mb-4" />
-        <div class="grid gap-4 lg:grid-cols-2">
-          <MachineCard
-            v-for="host in provider.manifest.parsed.hosts"
-            :key="host.id"
-            :host="host"
-            :max-memory-gb="maxMemoryGb"
-            :online="provider.is_online"
-            :catalog="models"
-            :show-command="isOwner"
-          />
-        </div>
+        <ProviderMachineGrid
+          :provider-id="provider.id"
+          :hosts="provider.manifest.parsed.hosts"
+          :discovery="provider.manifest.parsed.discovery"
+          :max-memory-gb="maxMemoryGb"
+          :online="provider.is_online"
+          :catalog="models"
+          :show-command="isOwner"
+        />
       </div>
     </section>
 

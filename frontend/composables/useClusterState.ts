@@ -43,11 +43,29 @@ export interface LiveGPUDevice {
   util_percent: number
 }
 
+// One GPU compute process, attributed to the pod/service holding it — the
+// per-process VRAM breakdown from the vram-reporter (agent clusterstate.go
+// GPUProcess). Lets the viz show which service owns a shared GPU's memory.
+export interface LiveGPUProcess {
+  pid: number
+  gpu_index: number
+  gpu_uuid?: string
+  used_bytes: number
+  process_name?: string
+  pod?: string
+  namespace?: string
+  service?: string
+}
+
 export interface LiveNodeGPU {
   vram_used_bytes: number
   vram_total_bytes: number
   util_percent: number // averaged across devices
   devices?: LiveGPUDevice[]
+  processes?: LiveGPUProcess[]
+  // true for unified-memory accelerators (DGX Spark GB10): total is the node's
+  // unified pool, used is the summed per-process VRAM (no dcgm framebuffer).
+  unified?: boolean
 }
 
 export interface LivePod {
@@ -60,6 +78,9 @@ export interface LivePod {
   restarts: number
   reason?: string
   memory_usage_bytes: number
+  // VRAM this pod's processes hold (from the vram-reporter); 0/absent when
+  // unknown.
+  gpu_vram_used_bytes?: number
 }
 
 export interface ClusterStatePayload {
@@ -150,6 +171,23 @@ export const MODALITY_HEX: Record<string, string> = {
 
 export const modalityHex = (type?: string) => MODALITY_HEX[type || 'llm'] ?? MODALITY_HEX.llm
 
+// Mix a hex color toward white by amt (0–1).
+const lightenHex = (hex: string, amt: number): string => {
+  const n = parseInt(hex.slice(1), 16)
+  const mix = (c: number) => Math.round(c + (255 - c) * amt)
+  const r = mix((n >> 16) & 255), g = mix((n >> 8) & 255), b = mix(n & 255)
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
+}
+
+// A stable, distinguishable color per service: modality hue, lightened by a
+// deterministic per-name amount so two same-modality services (two LLMs) get
+// different shades — and so the stacked bar and the sparkline agree on colors.
+export const serviceColor = (name: string, type?: string): string => {
+  let h = 0
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return lightenHex(modalityHex(type), (h % 4) * 0.16)
+}
+
 const serviceModels = (s: ManifestService): string[] =>
   (s.models ?? [])
     .map(m => m.hf || m.id || '')
@@ -237,9 +275,37 @@ export const formatBytes = (bytes: number): string => {
   return `${Math.round(bytes / 2 ** 20)} MiB`
 }
 
+// VRAM in use per service on a node, summed from its GPU processes (the
+// vram-reporter breakdown). Keyed by manifest service name — the same key the
+// cards/scene use — so a shared GPU shows each service's share.
+export const serviceVramFromNode = (node?: LiveNode | null): Map<string, number> => {
+  const map = new Map<string, number>()
+  for (const p of node?.gpu?.processes ?? []) {
+    if (!p.service || !p.used_bytes) continue
+    map.set(p.service, (map.get(p.service) ?? 0) + p.used_bytes)
+  }
+  return map
+}
+
+// ── Live history (client-side sparkline) ─────────────────────────────────────
+// We accumulate a rolling per-node series from each poll — an nvtop-style live
+// graph that builds up while the page is open. Per-service VRAM (stable, the
+// useful signal for placement) plus device util.
+
+export interface VramSample {
+  t: number // epoch ms
+  used: number
+  total: number
+  util: number
+  unified: boolean
+  services: Record<string, number> // service name → bytes
+}
+
+const MAX_SAMPLES = 90
+
 // ── Polling ─────────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS = 45_000 // PRD: live-ish, 30–60s
+const POLL_INTERVAL_MS = 20_000 // live-ish; resolution for the sparkline
 
 export const useClusterState = (providerId: () => number | null | undefined) => {
   const config = useRuntimeConfig()
@@ -249,7 +315,31 @@ export const useClusterState = (providerId: () => number | null | undefined) => 
   // null = not yet determined; false = provider has no k8s cluster (404)
   const available = ref<boolean | null>(null)
   const error = ref<string | null>(null)
+  // Rolling per-node history (host_id → samples) for the live sparkline.
+  const history = ref<Record<string, VramSample[]>>({})
   let timer: ReturnType<typeof setInterval> | null = null
+
+  const recordHistory = (payload: ClusterStatePayload | null) => {
+    if (!payload) return
+    const t = Date.now()
+    for (const n of payload.nodes) {
+      if (!n.gpu) continue
+      const services: Record<string, number> = {}
+      for (const [svc, bytes] of serviceVramFromNode(n)) services[svc] = bytes
+      const sample: VramSample = {
+        t,
+        used: n.gpu.vram_used_bytes,
+        total: n.gpu.vram_total_bytes,
+        util: n.gpu.util_percent,
+        unified: !!n.gpu.unified,
+        services,
+      }
+      const arr = history.value[n.host_id] ?? []
+      arr.push(sample)
+      if (arr.length > MAX_SAMPLES) arr.splice(0, arr.length - MAX_SAMPLES)
+      history.value[n.host_id] = arr
+    }
+  }
 
   // Activity rides the same poll. Non-fatal: a scene without pulses is still
   // a scene, so failures here never block the state fetch.
@@ -275,6 +365,7 @@ export const useClusterState = (providerId: () => number | null | undefined) => 
       )
       available.value = true
       error.value = null
+      recordHistory(state.value)
     } catch (err: unknown) {
       const status = (err as { statusCode?: number; response?: { status?: number } })
       const code = status.statusCode ?? status.response?.status
@@ -308,7 +399,7 @@ export const useClusterState = (providerId: () => number | null | undefined) => 
 
   onBeforeUnmount(stop)
 
-  return { state, activity, available, error, start, stop, refresh: fetchState }
+  return { state, activity, available, error, history, start, stop, refresh: fetchState }
 }
 
 // ── Story mode (PRD 07 V3): manifest revision history ───────────────────────

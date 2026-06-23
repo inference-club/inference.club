@@ -48,7 +48,11 @@ def _public_prefixes():
     apps load, so this never risks a circular import."""
     from apps.inference.models import MediaAsset
 
-    return frozenset(f"{k.lower()}/" for k in MediaAsset.PUBLIC_KINDS)
+    prefixes = {f"{k.lower()}/" for k in MediaAsset.PUBLIC_KINDS}
+    # Operator-uploaded service logos (ProviderService.logo) are public brand
+    # marks shown on profiles/cards — served straight from the public bucket.
+    prefixes.add("service_logo/")
+    return frozenset(prefixes)
 
 
 class KindRoutedGCSStorage(Storage):

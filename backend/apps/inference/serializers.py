@@ -46,10 +46,48 @@ class ProviderModelSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "context_window", "is_active"]
 
 
+def _parsed_with_service_meta(manifest, *, include_ids: bool):
+    """The manifest's parsed structure with each service enriched from its
+    ProviderService row: ``logo_url`` (the operator-uploaded brand mark, when
+    set) and — for owner views only — ``service_id`` so the dashboard can
+    target the logo-upload endpoint. Returns a copy; never mutates the stored
+    JSONField."""
+    import copy
+
+    parsed = manifest.parsed
+    if not isinstance(parsed, dict):
+        return parsed
+    meta_by_name: dict[str, tuple[int, str | None]] = {}
+    for svc in manifest.provider.services.all():
+        logo_url = svc.logo.url if svc.logo else None
+        if logo_url or include_ids:
+            meta_by_name[svc.name] = (svc.id, logo_url)
+    if not meta_by_name:
+        return parsed
+    out = copy.deepcopy(parsed)
+    for host in out.get("hosts") or []:
+        if not isinstance(host, dict):
+            continue
+        for s in host.get("services") or []:
+            if not isinstance(s, dict):
+                continue
+            meta = meta_by_name.get(s.get("name"))
+            if not meta:
+                continue
+            sid, logo_url = meta
+            if logo_url:
+                s["logo_url"] = logo_url
+            if include_ids:
+                s["service_id"] = sid
+    return out
+
+
 class PublicServiceManifestSerializer(serializers.ModelSerializer):
     """Public-facing manifest view — exposes the parsed structure but not
     the raw YAML (which may contain notes the operator wouldn't want
     on a public profile)."""
+
+    parsed = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceManifest
@@ -60,11 +98,16 @@ class PublicServiceManifestSerializer(serializers.ModelSerializer):
             "is_valid",
         ]
 
+    def get_parsed(self, obj):
+        return _parsed_with_service_meta(obj, include_ids=False)
+
 
 class ServiceManifestSerializer(serializers.ModelSerializer):
     """Owner-facing manifest view — includes raw YAML and validation errors
     so the dashboard can show the operator exactly what they uploaded and
     what (if anything) the server rejected."""
+
+    parsed = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceManifest
@@ -76,6 +119,9 @@ class ServiceManifestSerializer(serializers.ModelSerializer):
             "is_valid",
             "validation_errors",
         ]
+
+    def get_parsed(self, obj):
+        return _parsed_with_service_meta(obj, include_ids=True)
 
 
 class ProviderSerializer(serializers.ModelSerializer):
@@ -597,13 +643,15 @@ def _gpus_for_host(provider, host_id):
         for h in hosts:
             if isinstance(h, dict) and (h.get("id") or h.get("host") or h.get("name")) == host_id:
                 return host_gpus(h)
-    out: list[str] = []
-    for h in hosts:
-        if isinstance(h, dict):
-            for g in host_gpus(h):
-                if g not in out:
-                    out.append(g)
-    return out
+        # The request named a host the manifest no longer describes — report
+        # "unknown" rather than guessing. (Union-ing every host's GPUs is what
+        # made a single-GPU request appear to span the whole fleet.)
+        return []
+    # No host recorded (legacy rows). Only a single-host provider lets us
+    # attribute GPUs unambiguously; multi-host providers stay "unknown".
+    if len(hosts) == 1 and isinstance(hosts[0], dict):
+        return host_gpus(hosts[0])
+    return []
 
 
 def request_host_info(req):
@@ -613,9 +661,13 @@ def request_host_info(req):
     still known."""
     meta = req.dispatch_meta or {}
     provider = req.provider
-    host_id = None
+    # Prefer the host snapshotted at dispatch time — it survives the
+    # deployment/manifest being removed and avoids a DB lookup. Fall back to
+    # resolving via provider_model_id for older rows (and the async path, which
+    # records only provider_model_id).
+    host_id = meta.get("host_id") or None
     pm_id = meta.get("provider_model_id")
-    if pm_id:
+    if pm_id and host_id is None:
         pm = (
             ProviderModel.objects.filter(id=pm_id)
             .select_related("service", "provider", "provider__manifest")

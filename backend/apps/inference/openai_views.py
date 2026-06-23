@@ -279,6 +279,19 @@ def _model_slug(pm) -> str:
     return slugify_model_id(pm.name)
 
 
+def _dispatch_meta(pm) -> dict:
+    """What served a synchronous request, recorded on the request so the host /
+    GPU it ran on can be shown later. Mirrors the async path
+    (``jobs.py`` sets ``provider_model_id``) but ALSO snapshots the resolved
+    ``host_id`` so the GPU lookup stays correct even after the deployment or
+    its manifest is gone. Without this, the serializer can't tell which host a
+    request used and falls back to listing every GPU on the provider."""
+    host_id = ""
+    if getattr(pm, "service_id", None):
+        host_id = pm.service.host_id or ""
+    return {"provider_model_id": pm.id, "host_id": host_id}
+
+
 def _model_caps(pm) -> dict:
     """Capability fields for a deployment's catalog model, surfaced on
     /v1/models so clients (the playground) can adapt the UI. Extra fields are
@@ -575,6 +588,7 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             # Record the canonical (pooled) id so dashboards/leaderboards
             # aggregate one model across providers, not per served-name variant.
             model_name=canonical or model_name or "",
@@ -843,6 +857,7 @@ class AudioTranscriptionsView(_RateLimitHeadersMixin, APIView):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="STT",
             payload={
@@ -1188,6 +1203,7 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="TTS",
             payload=stored_payload,
@@ -1361,6 +1377,7 @@ class AudioEnhanceView(_RateLimitHeadersMixin, APIView):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="ENHANCE",
             payload={
@@ -1862,6 +1879,7 @@ class VoiceGenerationsView(_RateLimitHeadersMixin, APIView):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="VOICE",
             payload={
@@ -2109,6 +2127,7 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="MUSIC",
             payload=stored_payload,
@@ -2419,6 +2438,7 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="VIDEO",
             payload=stored_payload,
@@ -2615,6 +2635,7 @@ class ImageGenerationsView(_ImageProxyBase):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="IMAGE",
             payload=stored_payload,
@@ -2713,6 +2734,7 @@ class ImageEditsView(_ImageProxyBase):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="IMAGE",
             payload={
@@ -2842,6 +2864,7 @@ class ScrapeView(_RateLimitHeadersMixin, APIView):
 
         ir = InferenceRequest.objects.create(
             user=request.user, provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="SCRAPE", payload=stored_payload,
             status="PROCESSING", visibility=visibility or "",
@@ -3050,6 +3073,7 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="MESH",
             payload={

@@ -1,13 +1,74 @@
 """Unit tests for the inference-request serializer helpers that normalize the
 heterogeneous OpenAI request/response shapes. Pure functions — no DB."""
+from types import SimpleNamespace
+
 from apps.inference.serializers import (
     _extract_messages,
     _extract_reasoning,
     _extract_response_text,
     _extract_usage,
+    _gpus_for_host,
     _stringify_content,
     _truncate,
+    request_host_info,
 )
+
+
+def _provider(*hosts):
+    """A stand-in provider whose manifest declares ``hosts`` — enough for
+    _gpus_for_host, which only reads ``provider.manifest.parsed['hosts']``."""
+    return SimpleNamespace(manifest=SimpleNamespace(parsed={"hosts": list(hosts)}))
+
+
+class TestGpusForHost:
+    A = {"id": "a1", "gpus": [{"model": "RTX 4090"}]}
+    B = {"id": "a2", "gpus": [{"model": "RTX 3090"}, {"model": "RTX 3090"}]}
+
+    def test_matched_host_returns_only_its_gpus(self):
+        assert _gpus_for_host(_provider(self.A, self.B), "a1") == ["RTX 4090"]
+
+    def test_unknown_host_on_multi_host_returns_empty(self):
+        # The bug: a request that named a host the manifest no longer lists must
+        # NOT fall back to every GPU on the provider.
+        assert _gpus_for_host(_provider(self.A, self.B), "gone") == []
+
+    def test_no_host_on_multi_host_returns_empty(self):
+        assert _gpus_for_host(_provider(self.A, self.B), None) == []
+
+    def test_no_host_on_single_host_attributes_unambiguously(self):
+        assert _gpus_for_host(_provider(self.A), None) == ["RTX 4090"]
+
+    def test_dedupes_within_a_host(self):
+        assert _gpus_for_host(_provider(self.B), "a2") == ["RTX 3090"]
+
+    def test_supports_singular_gpu_string(self):
+        host = {"id": "h", "gpu": "A100"}
+        assert _gpus_for_host(_provider(host), "h") == ["A100"]
+
+    def test_no_manifest_returns_empty(self):
+        assert _gpus_for_host(SimpleNamespace(manifest=None), "a1") == []
+
+
+class TestRequestHostInfo:
+    """request_host_info prefers the host snapshotted on the request (no DB
+    hit) over re-deriving it. The DB-fallback branch is covered by the API
+    tests; here we lock in the stored-host_id fast path, which is pure."""
+
+    def test_prefers_stored_host_id(self):
+        req = SimpleNamespace(
+            dispatch_meta={"provider_model_id": 7, "host_id": "a1"},
+            provider=_provider(TestGpusForHost.A, TestGpusForHost.B),
+        )
+        assert request_host_info(req) == {"host_id": "a1", "gpus": ["RTX 4090"]}
+
+    def test_blank_stored_host_with_no_pm_is_unknown(self):
+        # Sync request whose service had no host_id, multi-host provider →
+        # "unknown", never a union of every GPU.
+        req = SimpleNamespace(
+            dispatch_meta={"provider_model_id": None, "host_id": ""},
+            provider=_provider(TestGpusForHost.A, TestGpusForHost.B),
+        )
+        assert request_host_info(req) == {"host_id": None, "gpus": []}
 
 
 class TestExtractMessages:

@@ -16,6 +16,7 @@ import {
 } from '@/composables/useManifest'
 import { engineBrand, modalityType } from '@/composables/useEngines'
 import { machineForm, prettyGpuModel } from '@/composables/useMachineForm'
+import { formatBytes, serviceVramFromNode, serviceColor, type LiveNode, type VramSample } from '@/composables/useClusterState'
 
 const props = withDefaults(
   defineProps<{
@@ -27,12 +28,40 @@ const props = withDefaults(
     catalog?: CatalogModelInfo[]
     // Owner view — reveals the launch command per service.
     showCommand?: boolean
+    // Live node state (agent /cluster/state) matched to this host by host_id.
+    // When present with a reachable GPU exporter, the gauge shows real VRAM.
+    live?: LiveNode | null
+    // Rolling per-node VRAM/util samples for the live sparkline.
+    history?: VramSample[]
   }>(),
-  { maxMemoryGb: 0, online: undefined, catalog: undefined, showCommand: false },
+  { maxMemoryGb: 0, online: undefined, catalog: undefined, showCommand: false, live: null, history: () => [] },
 )
 
 const form = computed(() => machineForm(props.host))
 const services = computed(() => props.host.services ?? [])
+// Live GPU VRAM/util for this host, when the agent could reach its exporter.
+const liveGpu = computed(() => props.live?.gpu ?? null)
+// VRAM in use per service on this host (vram-reporter breakdown), keyed by
+// service name — shows which service holds the memory on a shared GPU.
+const serviceVram = computed(() => serviceVramFromNode(props.live))
+// Per-service segments for the stacked memory bar, ordered largest-first so the
+// bar reads like a treemap of the GPU. serviceColor gives each service a stable,
+// distinguishable shade (shared with the sparkline).
+const vramSegments = computed(() =>
+  services.value
+    .map(svc => ({
+      label: svc.name,
+      bytes: serviceVram.value.get(svc.name) ?? 0,
+      type: svc.type,
+      color: serviceColor(svc.name, svc.type),
+    }))
+    .filter(s => s.bytes > 0)
+    .sort((a, b) => b.bytes - a.bytes),
+)
+// Stable color per service for the sparkline bands (matches the bar).
+const serviceColors = computed<Record<string, string>>(() =>
+  Object.fromEntries(services.value.map(svc => [svc.name, serviceColor(svc.name, svc.type)])),
+)
 
 const vendorLabel = (v?: string) => (v ? VENDOR_LABELS[v] ?? v : '')
 
@@ -99,11 +128,15 @@ const playgroundLink = (slug: string) =>
     <!-- memory + GPU -->
     <div class="space-y-3 px-4 py-3">
       <MemoryBar
-        v-if="host.gpu?.vram_gb"
-        :gb="host.gpu.vram_gb"
+        v-if="host.gpu?.vram_gb || liveGpu"
+        :gb="host.gpu?.vram_gb"
         :max-gb="maxMemoryGb"
         :unified="form.unified"
         :color="form.accent"
+        :used-bytes="liveGpu?.vram_used_bytes"
+        :total-bytes="liveGpu?.vram_total_bytes"
+        :util-percent="liveGpu?.util_percent"
+        :segments="vramSegments"
       />
       <div v-if="host.gpu" class="flex flex-wrap items-center gap-1.5 text-xs">
         <span
@@ -120,6 +153,8 @@ const playgroundLink = (slug: string) =>
           × {{ host.gpu.count }}
         </span>
       </div>
+      <!-- live nvtop-style sparkline: per-service VRAM over time + util -->
+      <VramSparkline v-if="history.length >= 2" :samples="history" :colors="serviceColors" />
       <p v-if="host.notes" class="text-xs italic text-muted-foreground">{{ host.notes }}</p>
     </div>
 
@@ -127,11 +162,27 @@ const playgroundLink = (slug: string) =>
     <div v-if="services.length" class="divide-y border-t">
       <div v-for="svc in services" :key="svc.name" class="px-4 py-3">
         <div class="flex items-center gap-2.5">
-          <EngineLogo :engine="svc.engine" :size="30" />
+          <!-- Owner gets an inline uploader; everyone else sees the logo. -->
+          <ServiceLogoUploader
+            v-if="showCommand && svc.service_id"
+            :service-id="svc.service_id"
+            :engine="svc.engine"
+            :logo-url="svc.logo_url"
+            :size="30"
+            @update:logo-url="(url) => (svc.logo_url = url ?? undefined)"
+          />
+          <EngineLogo v-else :engine="svc.engine" :logo-url="svc.logo_url" :size="30" />
           <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <span class="truncate text-sm font-medium">{{ svc.name }}</span>
               <ModalityBadge :type="(modalityType(svc.type) as any)" />
+              <span
+                v-if="serviceVram.get(svc.name)"
+                class="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground"
+                title="GPU memory this service is using right now"
+              >
+                {{ formatBytes(serviceVram.get(svc.name)!) }} VRAM
+              </span>
             </div>
             <p class="truncate font-mono text-[11px] text-muted-foreground">
               {{ engineBrand(svc.engine).label }}<span v-if="svc.url"> · {{ svc.url }}</span>

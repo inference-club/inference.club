@@ -156,6 +156,20 @@ class Provider(BaseModel):
         return timezone.now() - self.last_seen_at <= PROVIDER_LAST_SEEN_WINDOW
 
 
+def service_logo_upload_to(instance, filename: str) -> str:
+    """Storage key for a service's uploaded logo:
+    ``service_logo/<provider_id>/<uuid>/<filename>``.
+
+    The ``service_logo/`` prefix routes the object to the PUBLIC bucket (see
+    ``backend.storage._public_prefixes``) so the logo serves directly to
+    browsers like any other public media. The UUID segment makes every upload a
+    fresh, immutable key (no overwrite races, long-lived cache)."""
+    import uuid
+
+    safe = (filename or "logo").rsplit("/", 1)[-1][:120]
+    return f"service_logo/{instance.provider_id}/{uuid.uuid4().hex}/{safe}"
+
+
 class ProviderService(BaseModel):
     """One OpenAI-compatible service exposed by a provider's agent (e.g. a
     vLLM or LM Studio instance), mirrored from the uploaded manifest's
@@ -250,6 +264,18 @@ class ProviderService(BaseModel):
     # slot budget — this is how "two services on one GPU, only one at a time"
     # is expressed (declared in the manifest's services[].resource_group).
     resource_group = models.CharField(max_length=64, blank=True, default="")
+    # Operator-uploaded brand logo for this service, shown on machine cards and
+    # the cluster scene in place of the engine-derived glyph. Set via the
+    # dashboard (not the manifest), so the manifest re-upsert in
+    # ``sync_provider_models_from_manifest`` deliberately leaves it untouched —
+    # uploading a logo survives every subsequent manifest upload.
+    logo = models.ImageField(
+        upload_to=service_logo_upload_to,
+        max_length=512,
+        blank=True,
+        null=True,
+        help_text="Optional custom logo; falls back to the engine glyph.",
+    )
 
     class Meta:
         ordering = ["name"]

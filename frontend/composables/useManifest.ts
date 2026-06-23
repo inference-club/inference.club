@@ -21,6 +21,11 @@ export interface ManifestService {
   models?: ManifestModel[]
   command?: string
   extra?: Record<string, string>
+  // Injected server-side from the ProviderService row (not the YAML): the
+  // operator-uploaded logo URL, and — owner views only — the service's DB id
+  // so the dashboard can target the logo upload endpoint.
+  logo_url?: string
+  service_id?: number
 }
 
 export interface ManifestGPU {

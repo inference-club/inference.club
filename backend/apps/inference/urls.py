@@ -34,6 +34,7 @@ from .views import (
     ProviderModelsCatalogView,
     ProviderServiceListView,
     ProviderServiceUpdateView,
+    ServiceLogoView,
     ProviderUpdateView,
     RefreshProviderModelsView,
     RequestBookmarkView,
@@ -178,6 +179,11 @@ urlpatterns = [
         "services/<int:id>/",
         ProviderServiceUpdateView.as_view(),
         name="service-detail",
+    ),
+    path(
+        "services/<int:pk>/logo/",
+        ServiceLogoView.as_view(),
+        name="service-logo",
     ),
     path(
         "providers/<int:id>/refresh-models/",
