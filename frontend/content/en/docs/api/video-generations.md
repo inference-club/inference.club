@@ -7,7 +7,13 @@ order: 9
 
 # `POST /v1/videos/generations`
 
+::api-endpoint{method="POST" path="/v1/videos/generations" async="true"}
+
 Generate a short video from a text prompt, optionally conditioned on a first-frame image. Routes to providers running a `video` service (LTX-2). The response is the **raw MP4 bytes** — not JSON. Video generation is slow; expect minutes, not seconds.
+
+::callout{type="tip"}
+Video renders take minutes — this endpoint can also be run asynchronously by adding `"async": true`, so you queue the job instead of holding the connection open. See [Direct vs async](/docs/services/direct-vs-async).
+::
 
 ## Request
 

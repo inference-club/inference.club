@@ -7,12 +7,11 @@ order: 6
 
 # Image generation
 
-Generate images from a text prompt, or edit an existing image with a prompt, using any image model on the network. The endpoints mirror OpenAI's image API.
+::api-endpoint{method="POST" path="/v1/images/generations"}
 
-```
-POST /v1/images/generations   (JSON)
-POST /v1/images/edits         (multipart)
-```
+::api-endpoint{method="POST" path="/v1/images/edits"}
+
+Generate images from a text prompt, or edit an existing image with a prompt, using any image model on the network. The endpoints mirror OpenAI's image API (`/v1/images/generations` takes JSON; `/v1/images/edits` takes multipart).
 
 Requests are routed only to services a provider declared as `type: image`. inference.club stores every generated image in object storage and, by default, returns a URL you can drop straight into an `<img>` tag.
 
@@ -76,7 +75,7 @@ curl https://api.inference.club/v1/images/edits \
 }
 ```
 
-- **`url` (default):** the image is stored in inference.club object storage and the response returns its URL. Generated images are **public by URL** (so they embed in `<img>` tags and can be shared) — request-level privacy controls are coming.
+- **`url` (default):** the image is stored on object storage and the response returns its URL, ready to drop into an `<img>` tag. Like every generation endpoint, `/v1/images/generations` and `/v1/images/edits` accept `visibility` and `collection` fields so you control who can see each image and how it's organized — see [Sharing](/docs/sharing).
 - **`b64_json`:** set `response_format: b64_json` to also get the raw base64 bytes inline. The image is still stored.
 
 Every request is recorded as an inference request with the prompt, the source image (for edits), and the output image(s), visible in your dashboard. Generation is metered by **image count**.

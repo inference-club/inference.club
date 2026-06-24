@@ -28,6 +28,8 @@ The `/v1` namespace mirrors the OpenAI API surface. Anything that speaks OpenAI 
 | `POST /v1/completions` | Legacy text completions. |
 | `POST /v1/audio/transcriptions` | [Speech-to-text](/docs/api/audio-transcriptions) — audio in, text out. |
 | `POST /v1/audio/speech` | [Text to speech](/docs/api/speech) — text in, audio out. |
+| `POST /v1/audio/enhance` | Audio enhancement / denoise — audio in, cleaned audio out. |
+| `GET /v1/audio/voices` | List the TTS voices a model offers. |
 | `POST /v1/images/generations` | [Image generation](/docs/api/images) — text in, image out. |
 | `POST /v1/images/edits` | [Image edits](/docs/api/images) — image + prompt in, image out. |
 | `POST /v1/music/generations` | [Music generation](/docs/api/music-generations) — text + optional lyrics in, audio out. |

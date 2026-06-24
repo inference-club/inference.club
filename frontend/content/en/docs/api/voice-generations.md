@@ -7,6 +7,8 @@ order: 10
 
 # `POST /v1/voice/generations`
 
+::api-endpoint{method="POST" path="/v1/voice/generations"}
+
 Synthesize expressive, cloned speech using [Dia](https://github.com/nari-labs/dia). Dia is a text-to-dialogue model that takes a multi-speaker script and, optionally, short audio clips from your voice library to clone one or two speakers. Routes only to `tts` providers advertising the `voice-cloning` feature.
 
 ## Request

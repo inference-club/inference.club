@@ -1,7 +1,8 @@
 ---
 title: Quickstart
 description: From zero to your first inference request in five minutes.
-order: 2
+category: Getting started
+order: 1
 ---
 
 # Quickstart

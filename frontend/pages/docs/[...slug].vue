@@ -85,7 +85,7 @@ useSeoMeta({
 
     <!-- Table of contents (wide screens) -->
     <aside v-if="toc.length" class="hidden w-52 shrink-0 xl:block">
-      <nav class="sticky top-20 text-sm">
+      <nav class="sticky top-28 text-sm">
         <p class="mb-2 text-xs font-medium text-muted-foreground">{{ t('docs.onThisPage') }}</p>
         <ul class="space-y-1.5 border-l pl-3">
           <li v-for="link in toc" :key="link.id">

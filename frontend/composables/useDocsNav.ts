@@ -1,69 +1,97 @@
-// Docs navigation tree, shared by the docs layout (sidebar) and doc pages
-// (prev/next links) so both follow the same reading order: `order` frontmatter
-// ascending, then title. The useAsyncData key dedupes the fetch between the
-// layout and the page within one request.
+// Docs navigation, shared by the docs layout (grouped sidebar + mobile drawer)
+// and doc pages (prev/next links). Pages are grouped into ordered SECTIONS by
+// their `category` frontmatter — not by directory — so the sidebar reads as a
+// curated table of contents. Within a section, items sort by `order` then
+// title. The same ordering drives the flat reading order for prev/next.
 
 export interface DocsNavItem {
   title: string
   path: string
   order?: number
-  children?: DocsNavItem[]
 }
 
-function sorted(items: DocsNavItem[] | undefined): DocsNavItem[] {
-  if (!items) return []
-  return [...items]
-    .sort((a, b) => {
-      const ao = a.order ?? Number.POSITIVE_INFINITY
-      const bo = b.order ?? Number.POSITIVE_INFINITY
-      if (ao !== bo) return ao - bo
-      return a.title.localeCompare(b.title)
-    })
-    .map((item) => ({ ...item, children: sorted(item.children) }))
+export interface DocsNavSection {
+  title: string
+  items: DocsNavItem[]
 }
 
-// Reading order = leaf pages in sidebar order. Parent nodes that are pure
-// folders (no index.md, e.g. /docs/api) are skipped — linking prev/next to
-// them would 404.
-function flatten(items: DocsNavItem[], out: DocsNavItem[] = []): DocsNavItem[] {
-  for (const item of items) {
-    if (item.children?.length) flatten(item.children, out)
-    else out.push(item)
+// Section render order. Categories not listed here fall to the end (alpha).
+const SECTION_ORDER = [
+  'Getting started',
+  'Playground',
+  'Services',
+  'Providers',
+  'API reference',
+  'Architecture',
+  'Reference',
+]
+
+// The landing page (/docs) is reached from the brand link / breadcrumb, so it
+// is kept out of the section list to avoid a redundant "Welcome" row.
+const HIDDEN_PATHS = new Set(['/docs'])
+
+interface RawPage { title?: string; path: string; category?: string; order?: number }
+
+function byOrderThenTitle(a: DocsNavItem, b: DocsNavItem) {
+  const ao = a.order ?? Number.POSITIVE_INFINITY
+  const bo = b.order ?? Number.POSITIVE_INFINITY
+  if (ao !== bo) return ao - bo
+  return a.title.localeCompare(b.title)
+}
+
+function buildSections(pages: RawPage[]): DocsNavSection[] {
+  const groups = new Map<string, DocsNavItem[]>()
+  for (const p of pages) {
+    if (!p?.path || HIDDEN_PATHS.has(p.path)) continue
+    const cat = p.category || 'Reference'
+    if (!groups.has(cat)) groups.set(cat, [])
+    groups.get(cat)!.push({ title: p.title ?? p.path, path: p.path, order: p.order })
   }
-  return out
+  for (const items of groups.values()) items.sort(byOrderThenTitle)
+  const sectionRank = (name: string) => {
+    const i = SECTION_ORDER.indexOf(name)
+    return i === -1 ? SECTION_ORDER.length : i
+  }
+  return [...groups.keys()]
+    .sort((a, b) => sectionRank(a) - sectionRank(b) || a.localeCompare(b))
+    .map((title) => ({ title, items: groups.get(title)! }))
 }
 
-// The single fetch — called by the docs LAYOUT only. Pages read the same
-// data through useDocsReadingOrder below; registering a second useAsyncData
-// under the same key would warn about mismatched handlers.
+function flatten(sections: DocsNavSection[]): DocsNavItem[] {
+  return sections.flatMap((s) => s.items)
+}
+
+// The single fetch — called by the docs LAYOUT. Pages read the same data via
+// useDocsReadingOrder below (same useAsyncData key, deduped within a request).
 export async function useDocsNav() {
   const { collectionName, locale } = useLocalizedContent()
 
-  // Sidebar reflects the active locale's docs; falls back to English nav when
-  // the locale has no docs translated yet so the tree is never empty.
-  const { data: nav } = await useAsyncData(
+  const { data: pages } = await useAsyncData(
     'docs-nav',
     async () => {
-      // `order` must be requested explicitly — navigation items only carry
-      // title/path by default, which would silently fall back to title sort.
-      const localized = await queryCollectionNavigation(collectionName('docs'), ['order'])
-      if (localized?.length) return localized
-      return await queryCollectionNavigation(collectionName('docs', 'en'), ['order'])
+      const fields = ['title', 'path', 'category', 'order'] as const
+      // Active locale, falling back wholesale to English when untranslated so
+      // the tree is never empty (matches the page-level fallback).
+      let rows = (await queryCollection(collectionName('docs'))
+        .select(...fields)
+        .all()) as RawPage[]
+      if (!rows?.length) {
+        rows = (await queryCollection(collectionName('docs', 'en'))
+          .select(...fields)
+          .all()) as RawPage[]
+      }
+      return rows
     },
     { watch: [locale] },
   )
 
-  const tree = computed<DocsNavItem[]>(() => sorted(nav.value as DocsNavItem[] | undefined))
-  const flat = computed<DocsNavItem[]>(() => flatten(tree.value))
-  return { tree, flat }
+  const sections = computed<DocsNavSection[]>(() => buildSections((pages.value as RawPage[]) ?? []))
+  const flat = computed<DocsNavItem[]>(() => flatten(sections.value))
+  return { sections, flat }
 }
 
-// Reading order for prev/next links, from the nav the layout already fetched.
-// Safe because the docs layout's setup (and its await) completes before the
-// page inside it is rendered.
+// Reading order for prev/next links, from the data the layout already fetched.
 export function useDocsReadingOrder() {
-  const { data: nav } = useNuxtData('docs-nav')
-  return computed<DocsNavItem[]>(() =>
-    flatten(sorted(nav.value as DocsNavItem[] | undefined)),
-  )
+  const { data: pages } = useNuxtData('docs-nav')
+  return computed<DocsNavItem[]>(() => flatten(buildSections((pages.value as RawPage[]) ?? [])))
 }

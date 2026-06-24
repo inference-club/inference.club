@@ -7,11 +7,9 @@ order: 5
 
 # Audio transcriptions
 
-Transcribe speech to text with any STT (speech-to-text / ASR) model on the network. The endpoint mirrors OpenAI's transcription API, so the official SDKs and `curl` work unchanged.
+::api-endpoint{method="POST" path="/v1/audio/transcriptions"}
 
-```
-POST /v1/audio/transcriptions
-```
+Transcribe speech to text with any STT (speech-to-text / ASR) model on the network. The endpoint mirrors OpenAI's transcription API, so the official SDKs and `curl` work unchanged.
 
 This is a separate modality from the chat/completions LLM endpoints — it takes an **audio file** (`multipart/form-data`, not JSON) and returns text. Requests are routed only to services a provider has declared as `type: stt`, so a transcription never lands on a text model.
 
@@ -85,9 +83,11 @@ When you ask for `response_format=verbose_json` with `timestamp_granularities[]`
 }
 ```
 
-> **Not every deployment supports timestamps.** Whether word/segment timings are available depends on how the provider serves the model, not just the model id — e.g. Qwen3-ASR returns timestamps only when launched with its [ForcedAligner](https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B) (plain `vllm serve` rejects `verbose_json`). So the capability is **declared by the operator** in their agent manifest (`services[].features: [timestamps]`) and surfaced as the `timestamps` entry in a model's `supported_features` on `/v1/models`.
->
-> When a model isn't declared timestamp-capable, inference.club **automatically downgrades** a `verbose_json` request to plain `json` — so you get a clean transcript instead of an upstream error, never a fake one. The in-dashboard [Transcription playground](/dashboard/playground/transcribe) only offers the timestamp toggle, and renders the interactive click-to-seek transcript, when the selected model actually supports it.
+::callout{type="limitation" title="Not every deployment supports timestamps"}
+Whether word/segment timings are available depends on how the provider serves the model, not just the model id — e.g. Qwen3-ASR returns timestamps only when launched with its [ForcedAligner](https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B) (plain `vllm serve` rejects `verbose_json`). So the operator opts in via the Kubernetes service label/annotation `inference-club.com/features: timestamps` (see [Run an agent](/docs/providers/run-an-agent)), which surfaces as the `timestamps` entry in a model's `supported_features` on `/v1/models`.
+
+When a model isn't declared timestamp-capable, inference.club **automatically downgrades** a `verbose_json` request to plain `json` — so you get a clean transcript instead of an upstream error, never a fake one. The in-dashboard [Transcription playground](/dashboard/playground/transcribe) only offers the timestamp toggle, and renders the interactive click-to-seek transcript, when the selected model actually supports it.
+::
 
 ## Errors
 

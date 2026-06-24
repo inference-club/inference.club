@@ -1,7 +1,8 @@
 ---
 title: FAQ
 description: Common questions and gotchas.
-order: 99
+category: Reference
+order: 9
 ---
 
 # FAQ
@@ -16,7 +17,7 @@ Yes. One key per user covers both directions. Your agent uses it to heartbeat in
 
 ### What models can I run?
 
-Anything your local server can serve. For LLMs that's any OpenAI-compatible server (vLLM, Ollama, LM Studio, llama.cpp). For other modalities, the agent manifest declares the service type — `tts`, `stt`, `image`, `music`, `video`, `mesh` — and the agent routes the upstream call to the matching local server. See the [agent manifest docs](/docs/providers/run-an-agent#advanced-agent-manifest).
+Anything your local server can serve. For LLMs that's any OpenAI-compatible server (vLLM, Ollama, LM Studio, llama.cpp). For other modalities, you label the Kubernetes Service with its type — `tts`, `stt`, `image`, `music`, `video`, `mesh`, `audio-enhance`, `scrape` — and the agent routes each upstream call to the matching in-cluster server. See [Run an agent](/docs/providers/run-an-agent).
 
 ### What modalities does inference.club support beyond LLMs?
 
@@ -52,9 +53,9 @@ Every successful proxied request is recorded as an `InferenceRequest` row tied t
 
 None in the MVP. Don't be a jerk about it.
 
-### Can I run the agent on Kubernetes?
+### How does the agent run — Docker or Kubernetes?
 
-Yes. See [Running the agent on Kubernetes](/docs/providers/kubernetes-agent) for a full Deployment + ConfigMap example with GPU node scheduling and Tailscale networking.
+Kubernetes. The agent runs in **discovery mode**: you install it once with Helm, label the Services you want to share, and it reports them — including each one's GPU — read live from the cluster. The older single-container Docker / `agent.yaml` path has been retired. See [Run an agent](/docs/providers/run-an-agent) and the [Kubernetes deep-dive](/docs/providers/kubernetes-agent). A single GPU box running k3s counts as a cluster.
 
 ### Where do I report bugs?
 

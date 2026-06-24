@@ -1,155 +1,145 @@
 ---
 title: Run an agent
-description: Install inference-club-agent, point it at your local LLM server, and watch it register.
+description: Deploy inference-club-agent on Kubernetes in discovery mode and watch your cluster register itself — GPUs, services, and all.
 category: Providers
 order: 2
 ---
 
 # Run an agent
 
-This guide walks through bringing up an `inference-club-agent` on a machine that's already running an OpenAI-compatible LLM server (vLLM, LM Studio, Ollama, llama.cpp, etc.).
+The `inference-club-agent` runs on **Kubernetes**. You install it once in
+discovery mode, label the Services you want to share, and the cluster
+*describes itself* to inference.club — GPU model, VRAM, the launch command
+behind each service, all read live from the cluster.
 
-## 1. Confirm your local LLM server is reachable
+> **Heads up — this changed.** Earlier versions of the agent shipped as a
+> single Docker container configured with environment variables or an
+> `agent.yaml` manifest, often via `docker compose`. **That path has been
+> retired.** There's no `agent.yaml` to write and no compose file to maintain —
+> the agent reads everything from the cluster. If you're coming from the old
+> setup, this page is the replacement.
 
-Before plugging anything into inference.club, make sure your local server responds. If you're running LM Studio with its OpenAI-compatible server enabled on port 1234, this should work:
+## How it works
 
-```bash
-curl http://localhost:1234/v1/models
-```
+Instead of hand-writing a manifest, you run the agent in **kubernetes discovery
+mode**. The agent:
 
-You should get back a list. If you don't, fix that first — the agent is a thin proxy and can't make a broken upstream work.
+1. Lists the Services in your namespace that carry the
+   `inference-club.com/managed: "true"` label.
+2. Follows each Service to the pod and node actually running it, and reads the
+   GPU model + VRAM straight from node labels.
+3. Heartbeats the resulting picture to inference.club every ~30 seconds.
 
-Note its base URL — for the rest of this guide we'll assume `http://localhost:1234/v1`.
+Add a service by labeling it. Scale it to zero and it drops off the next poll.
+There's no agent config to keep in sync with reality — the cluster *is* the
+manifest.
 
-## 2. Get an inference.club API key
+## Prerequisites
 
-Sign in at <https://inference.club/login>. Go to **Dashboard → Settings → Token** and create one. Copy it once.
+- A **k3s** (or any other Kubernetes) cluster with GPU nodes.
+- The **NVIDIA device plugin** running, so `nvidia.com/gpu` appears in
+  `kubectl describe node`. Under k3s, run it with the `nvidia` RuntimeClass.
+- `kubectl` admin access.
+- An inference.club API key — [dashboard → settings → token](/dashboard/settings/token).
 
-## 3. Run the agent
+A single GPU box is enough; "cluster" can be one node. If you don't have
+Kubernetes yet, k3s installs in one command and is the path we use across the
+home fleet.
 
-The agent ships as a Docker container. With your LLM server running on the host:
+## 1. Install the agent
 
-```bash
-docker run -d --name inference-club-agent \
-  --restart unless-stopped \
-  --network host \
-  -e INFERENCE_CLUB_URL=https://api.inference.club \
-  -e INFERENCE_CLUB_API_KEY=<your-key> \
-  -e AGENT_NAME=home-rig \
-  -e AGENT_CALLBACK_URL=http://<this-machine-ip>:8002/v1 \
-  -e LLM_BASE_URL=http://localhost:1234/v1 \
-  -e LLM_MODELS=qwen3-8b \
-  ghcr.io/inference-club/inference-club-agent:latest
-```
-
-A few pieces to get right:
-
-- `AGENT_NAME` — pick something memorable; this is what shows up in the dashboard and in `owned_by` on `/v1/models`. Must be unique within your account.
-- `AGENT_CALLBACK_URL` — what inference.club hits when it proxies a request to you. On a home LAN where inference.club can't reach you, see "Networking" below.
-- `LLM_BASE_URL` — your local server's OpenAI-compatible base URL.
-- `LLM_MODELS` — comma-separated list of model names to advertise. Must match what your local server actually serves.
-
-## 4. Check it registered
-
-Open the dashboard at <https://inference.club/providers/my-nodes>. You should see your agent with a green **online** badge within 30 seconds. The model list reflects what you reported.
-
-If it doesn't show up, check the agent's logs:
+Put your API key in a Secret, then install the chart with
+`discovery.mode=kubernetes`:
 
 ```bash
-docker logs -f inference-club-agent
+kubectl create namespace inference-club
+
+kubectl create secret generic inference-club-agent \
+  --namespace inference-club \
+  --from-literal=api-key=<your-key>
+
+helm install agent oci://ghcr.io/inference-club/charts/inference-club-agent \
+  --namespace inference-club \
+  --set agentName=club-host-k8s \
+  --set apiKey.existingSecret=inference-club-agent \
+  --set discovery.mode=kubernetes \
+  --set discovery.namespace=inference-club
 ```
 
-The most common failures: wrong API key (look for `401`), unreachable inference.club URL, malformed `LLM_MODELS`.
+The chart ships the RBAC the agent needs (read Services, EndpointSlices, Pods,
+and named Secrets in the namespace; read Nodes cluster-wide). The most useful
+values:
 
-## 5. Make a request through the network
+| Value | Meaning |
+|---|---|
+| `agentName` | The provider name this registers as. |
+| `discovery.mode` | `kubernetes` — discover from labeled Services. |
+| `discovery.namespace` | Namespace to watch (default: the release namespace). |
+| `discovery.interval` | Re-list interval (default `30s`). |
 
-```bash
-curl https://api.inference.club/v1/chat/completions \
-  -H "Authorization: Bearer <your-key>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen3-8b",
-    "messages": [{"role": "user", "content": "hi"}]
-  }'
-```
+## 2. Advertise a service — just label it
 
-The request goes inference.club → your agent → your local LLM server → back. Latency is what your local server takes plus a small overhead.
-
-## Networking
-
-For inference.club (running in the cloud) to reach your agent, **your agent's `AGENT_CALLBACK_URL` has to be reachable from the public internet**. Three common options:
-
-| Option | Setup | Trade-off |
-|---|---|---|
-| Direct exposure | Open a port on your router, set `AGENT_CALLBACK_URL` to your public IP | Simple; exposes your home network |
-| [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) | Zero-config tunnel; CF gives you a stable hostname | Recommended; no port forward needed |
-| [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) | Same idea on Tailscale | Recommended if you already use Tailscale |
-
-For local-only development where both inference.club and the agent run on your laptop, you can use `http://localhost:8002/v1` and skip all of this.
-
-## Advanced: agent manifest
-
-For rigs with multiple services or non-LLM modalities, configure the agent via an `agent.yaml` manifest instead of environment variables. Mount it at `/app/agent.yaml` inside the container (or at the path `AGENT_MANIFEST` points to):
+Tag any Service with the discovery labels and it appears on your provider. The
+**only required label** is `inference-club.com/managed: "true"`.
 
 ```yaml
-hosts:
-  - id: home-rig
-    services:
-      - name: vllm-qwen            # LLM (type defaults to llm)
-        engine: vllm
-        url: http://localhost:8000/v1
-        models:
-          - hf: Qwen/Qwen3-30B-A3B
-
-      - name: qwen-asr             # speech-to-text
-        type: stt
-        engine: vllm
-        url: http://localhost:8001/v1
-        features: [timestamps]
-        models:
-          - id: Qwen/Qwen3-ASR-1.7B
-
-      - name: dia-voice            # voice cloning
-        type: tts
-        engine: dia
-        url: http://localhost:7860/v1
-        features: [voice-cloning]
-        models:
-          - id: nari-labs/Dia-1.6B
-
-      - name: ltx-video            # text-to-video
-        type: video
-        url: http://localhost:8003/v1
-        models:
-          - id: Lightricks/LTX-Video-2
-
-      - name: ace-step-music       # music generation
-        type: music
-        url: http://localhost:8004/v1
-        models:
-          - id: ACE-Step/ACE-Step-v1-3.5B
-
-      - name: flux-dev             # image generation
-        type: image
-        url: http://localhost:8005/v1
-        models:
-          - id: black-forest-labs/FLUX.1-dev
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-qwen
+  namespace: inference-club
+  labels:
+    inference-club.com/managed: "true"   # required — the discovery selector
+    inference-club.com/type: llm         # llm | stt | tts | image | music | video | mesh | scrape | audio-enhance
+    inference-club.com/engine: vllm      # vllm | lmstudio | ollama | sglang | llamacpp | tgi | other
+  annotations:
+    inference-club.com/base-path: /v1
+    inference-club.com/models: |
+      - id: qwen3-30b-a3b
+        hf: Qwen/Qwen3-30B-A3B
+        name: Qwen3 30B A3B
+        features: [reasoning, tools]
+spec:
+  selector: { app: vllm-qwen }
+  ports:
+    - { name: http, port: 8000 }
 ```
 
-Each service in the manifest advertises its models separately. inference.club routes requests to the matching service type — a video generation request never lands on an image service even if they share a machine.
+Everything else — the host address, GPU model/VRAM, the service URL, and the
+exact launch command — is **derived from the cluster, not declared**. A Service
+with no running pod is simply left out; scale the Deployment back up and it
+reappears on the next poll.
 
-`features` is how you opt in to capability-gated endpoints: a `tts` service without `voice-cloning` will only receive plain TTS requests; with `voice-cloning` it also receives voice-generation requests.
+## 3. Verify
 
-## Kubernetes / k3s
+```bash
+kubectl -n inference-club logs deploy/agent | grep "discovered manifest"
+# discovered manifest from kubernetes (4 hosts, 7 services)
+```
 
-See [Running the agent on Kubernetes](/docs/providers/kubernetes-agent) for deploying the agent as a Kubernetes Deployment with a manifest ConfigMap.
+Within ~30s your provider lights up at **Dashboard → Compute → My nodes** and on
+your public profile, each machine showing its GPU, relative memory, and the
+services it's running.
+
+## Going further
+
+- **[Running the agent on Kubernetes](/docs/providers/kubernetes-agent)** — the
+  full walkthrough: native GPU discovery with Node Feature Discovery +
+  GPU-feature-discovery (so GPU model and VRAM self-report), the complete
+  Service label/annotation reference, multi-modal services (STT, TTS, image,
+  video, music, voice cloning), unified-memory boards like the DGX Spark, and a
+  troubleshooting table.
+- **[Become a provider](/docs/providers/overview)** — how heartbeats and
+  proxied requests work under the hood.
 
 ## Updating
 
+Pull the latest chart and upgrade in place:
+
 ```bash
-docker pull ghcr.io/inference-club/inference-club-agent:latest
-docker stop inference-club-agent && docker rm inference-club-agent
-# then re-run the `docker run` command from step 3
+helm upgrade agent oci://ghcr.io/inference-club/charts/inference-club-agent \
+  --namespace inference-club --reuse-values
 ```
 
-The agent will heartbeat in within 30 seconds of restarting and your provider record will pick up where it left off.
+The agent heartbeats back in within ~30 seconds and your provider record picks
+up where it left off.

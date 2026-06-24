@@ -1,7 +1,8 @@
 ---
 title: Sharing & collections
 description: Who can see your generations, and how to organize them into collections.
-order: 4
+category: Reference
+order: 2
 ---
 
 # Sharing & collections

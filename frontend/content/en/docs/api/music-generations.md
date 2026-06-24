@@ -7,7 +7,13 @@ order: 8
 
 # `POST /v1/music/generations`
 
+::api-endpoint{method="POST" path="/v1/music/generations" async="true"}
+
 Generate music from a text prompt, with optional lyrics. Routes to providers running a `music` service (ACE-Step). The response is the **raw audio bytes** (`audio/mpeg` by default) — not JSON.
+
+::callout{type="tip"}
+This endpoint can also be run asynchronously — add `"async": true` to queue it as a job instead of blocking. See [Direct vs async](/docs/services/direct-vs-async).
+::
 
 ## Request
 

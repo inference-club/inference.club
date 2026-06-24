@@ -184,3 +184,128 @@
 .prose pre {
   border: 1px solid var(--border);
 }
+
+/* ── Docs-only prose refinements (scoped to the docs layout so the blog,
+   which shares `.prose`, is untouched). Aim: a tighter, more "reference-doc"
+   feel that stays consistent with the monochrome brand but reads as its own
+   surface. ─────────────────────────────────────────────────────────────── */
+
+/* Anchor jumps must clear the sticky top bar (56px) + docs sub-bar (44px). */
+.docs-content :is(h1, h2, h3, h4) {
+  scroll-margin-top: 7rem;
+}
+
+/* Section rhythm: lighter, weightier headings instead of heavy underlines. */
+.docs-content .prose :where(h2) {
+  margin-top: 2.5rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--border);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.docs-content .prose :where(h2):first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.docs-content .prose :where(h3) {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Lead paragraph (first paragraph after the h1) reads as a deck. */
+.docs-content .prose > p:first-of-type {
+  font-size: 1.075rem;
+  line-height: 1.7;
+  color: var(--muted-foreground);
+}
+
+/* Links: keep monochrome, but make them unmistakably interactive. */
+.docs-content .prose :where(a):not(.not-prose a) {
+  color: var(--foreground);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s;
+}
+.docs-content .prose :where(a):not(.not-prose a):hover {
+  text-decoration-color: var(--foreground);
+}
+
+/* Inline code as a soft chip — drop the typography plugin's backtick quotes. */
+.docs-content .prose :where(code):not(pre code) {
+  background: color-mix(in oklch, var(--muted-foreground) 12%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.1rem 0.34rem;
+  font-size: 0.83em;
+  font-weight: 500;
+}
+.docs-content .prose :where(code):not(pre code)::before,
+.docs-content .prose :where(code):not(pre code)::after {
+  content: none;
+}
+
+/* Code blocks: roomier, softer corners. */
+.docs-content .prose :where(pre) {
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem;
+  font-size: 0.85em;
+}
+
+/* Tables: framed, rounded, with a muted header — the default plugin table is
+   bare and reads poorly against the doc surface. */
+.docs-content .prose :where(table) {
+  display: table;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  font-size: 0.875rem;
+  margin: 1.5rem 0;
+}
+.docs-content .prose :where(thead) {
+  background: var(--muted);
+}
+.docs-content .prose :where(th) {
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted-foreground);
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.docs-content .prose :where(td) {
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.docs-content .prose :where(tbody tr:last-child td) {
+  border-bottom: 0;
+}
+.docs-content .prose :where(tbody tr:hover) {
+  background: color-mix(in oklch, var(--muted) 50%, transparent);
+}
+
+/* Plain Markdown blockquotes (kept for nuance) read as a quiet aside. */
+.docs-content .prose :where(blockquote) {
+  font-style: normal;
+  font-weight: 400;
+  border-left-width: 3px;
+  border-left-color: var(--border);
+  color: var(--muted-foreground);
+}
+.docs-content .prose :where(blockquote p:first-of-type)::before,
+.docs-content .prose :where(blockquote p:last-of-type)::after {
+  content: none;
+}
+
+/* Horizontal rules as hairlines. */
+.docs-content .prose :where(hr) {
+  border-color: var(--border);
+  margin: 2.5rem 0;
+}

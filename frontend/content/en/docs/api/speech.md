@@ -7,11 +7,13 @@ order: 7
 
 # Text to speech
 
+::api-endpoint{method="POST" path="/v1/audio/speech" async="true"}
+
 Generate natural speech from text with any TTS model on the network. The endpoint mirrors OpenAI's speech API, so the official SDKs and `curl` work unchanged.
 
-```
-POST /v1/audio/speech
-```
+::callout{type="tip"}
+This endpoint can also be run asynchronously — add `"async": true` to queue it as a job instead of blocking. See [Direct vs async](/docs/services/direct-vs-async).
+::
 
 Requests route only to services a provider declared as `type: tts`. The response is the **raw audio** (just like OpenAI), and a copy is stored on inference.club so it shows up in your history.
 

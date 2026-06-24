@@ -1,7 +1,8 @@
 ---
 title: Quickstart for AI agents
 description: Everything an AI agent or automated system needs to call inference.club — model discovery, routing, error handling, async, and workflows.
-order: 2.5
+category: Getting started
+order: 3
 ---
 
 # Quickstart for AI agents
@@ -60,6 +61,8 @@ Use `service_type` to match a model to the task you want to run:
 | `music` | Music generation | `/v1/music/generations` |
 | `video` | Video generation | `/v1/videos/generations` |
 | `mesh` | 3D generation | `/v1/3d/generations` |
+| `audio-enhance` | Denoise / clean speech audio | `/v1/audio/enhance` |
+| `scrape` | URL → clean markdown | `/v1/scrape` |
 
 Check `supported_features` for capability-gated behaviors:
 
@@ -302,6 +305,8 @@ List with `GET /v1/workflows/templates`. Current templates:
 | `POST` | `/v1/videos/generations` | Video gen. Returns raw MP4. Supports `async: true`. |
 | `POST` | `/v1/voice/generations` | Dia voice cloning. Synchronous only. |
 | `POST` | `/v1/3d/generations` | 3D mesh gen. |
+| `POST` | `/v1/audio/enhance` | Denoise / clean audio. `multipart/form-data`. Synchronous only. |
+| `POST` | `/v1/scrape` | URL → clean markdown. |
 | `GET` | `/v1/jobs` | List async jobs (`?status=`, `?active=1`, `?limit=`) |
 | `GET` | `/v1/jobs/<id>` | Job status + result |
 | `POST` | `/v1/jobs/<id>/cancel` | Cancel a queued/processing job |

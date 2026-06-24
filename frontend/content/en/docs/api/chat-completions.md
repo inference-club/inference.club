@@ -7,7 +7,13 @@ order: 3
 
 # `POST /v1/chat/completions`
 
+::api-endpoint{method="POST" path="/v1/chat/completions" async="true"}
+
 The main inference endpoint. Same request and response shape as OpenAI; inference.club proxies the request to one of your online providers and streams the response back.
+
+::callout{type="tip"}
+This endpoint can also be run asynchronously — add `"async": true` to queue it as a job instead of blocking. See [Direct vs async](/docs/services/direct-vs-async).
+::
 
 ## Request
 

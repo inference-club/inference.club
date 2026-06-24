@@ -4,67 +4,66 @@ description: A community-run inference network. Bring your own hardware, or use 
 order: 1
 ---
 
-# Welcome to inference.club
+# Documentation
 
-inference.club is a community-run inference network. Members run **agents** on their own hardware — a workstation with a GPU, a homelab, a rented box — that expose local model servers. Other members do inference against those models through a single OpenAI-compatible API.
-
-```
-Base URL:  https://api.inference.club/v1
-Auth:      Authorization: Bearer <your-api-key>
-```
-
-## Pick your path
-
-### I'm a human, just getting started
-
-1. **[Quickstart](/docs/quickstart)** — get a key, run your first request, point Open WebUI at it. Five minutes.
-2. **[Concepts](/docs/concepts)** — providers, agents, modalities, routing.
-3. **[API reference](/docs/api/overview)** — every endpoint, request shape, and error code.
-4. **[Become a provider](/docs/providers/overview)** — serve your own models on the network.
-
-### I'm an AI agent / automated system
-
-- **[Quickstart for AI agents](/docs/quickstart-agents)** — model discovery, capability selection, async polling, workflow authoring, full endpoint reference. No fluff.
-- Machine-readable: [`https://inference.club/llms.txt`](https://inference.club/llms.txt)
-- OpenAPI spec: [`https://api.inference.club/openapi.json`](https://api.inference.club/openapi.json)
-
-## What you can do
-
-### Modalities
-
-inference.club supports more than chat. Depending on what models your providers are serving, you can call:
-
-| Endpoint | What it does |
-|---|---|
-| `POST /v1/chat/completions` | Text chat, multimodal input |
-| `POST /v1/completions` | Legacy text completions |
-| `POST /v1/audio/transcriptions` | Speech-to-text |
-| `POST /v1/audio/speech` | Text-to-speech |
-| `POST /v1/images/generations` | Text-to-image |
-| `POST /v1/images/edits` | Image editing |
-| `POST /v1/music/generations` | Music generation with lyrics |
-| `POST /v1/videos/generations` | Text-to-video or image-to-video |
-| `POST /v1/voice/generations` | Voice cloning (Dia) |
-| `POST /v1/3d/generations` | 3D mesh generation |
-
-### Async jobs, batches, and workflows
-
-Every generation endpoint accepts an optional `"async": true` field that queues the request instead of blocking. A **batch** groups up to 256 requests into one submission. A **workflow** chains multiple inference steps into a DAG — fan out, transform, collect, and pause for human review mid-run. See the [jobs](/docs/api/jobs), [batches](/docs/api/batches), and [workflows](/docs/api/workflows) references.
-
-## How it works in one diagram
+inference.club is a community-run inference network. Members run GPUs at home and expose their local model servers; everyone calls those models through one OpenAI-compatible API. One key works in both directions — to **consume** inference and to **provide** it.
 
 ```
-Your client (Open WebUI, OpenAI SDK, curl)
-         │   Authorization: Bearer <your-api-key>
-         ▼
-    api.inference.club  ──┐
-                          │  proxies your request to the
-                          │  callback_url an agent registered
-                          ▼
-   inference-club-agent on someone's hardware
-                          │
-                          ▼
-   vLLM / LM Studio / Ollama / ... (the actual model)
+Base URL   https://api.inference.club/v1
+Auth       Authorization: Bearer <your-api-key>
 ```
 
-The agent on the provider side and the inference.club server stay in sync via a heartbeat — every 30 seconds the agent reports which models it's currently serving and proves it's online.
+## Start here
+
+::doc-cards
+  :::doc-card{title="Quickstart" to="/docs/quickstart" icon="rocket"}
+  Get a key and make your first request in five minutes.
+  :::
+
+  :::doc-card{title="For AI agents" to="/docs/quickstart-agents" icon="bot"}
+  Model discovery, routing, async, and workflows — written for automated callers.
+  :::
+
+  :::doc-card{title="Concepts" to="/docs/concepts" icon="book"}
+  The vocabulary: users, keys, providers, agents, models, routing.
+  :::
+
+  :::doc-card{title="Become a provider" to="/docs/providers/overview" icon="server"}
+  Share your own GPUs on the network with the Kubernetes agent.
+  :::
+::
+
+## What you can build with
+
+The network serves far more than chat. Which modalities are live depends on what models the providers are running right now.
+
+::doc-cards
+  :::doc-card{title="The playground" to="/docs/playground/overview" icon="sparkles"}
+  A browser tool for every modality — chat, agents, images, video, music, voice, and more.
+  :::
+
+  :::doc-card{title="Services & modalities" to="/docs/services/overview" icon="layers"}
+  Each model type, the endpoint it answers, and the model behind it.
+  :::
+
+  :::doc-card{title="API reference" to="/docs/api/overview" icon="code"}
+  Every endpoint, request shape, and error code.
+  :::
+
+  :::doc-card{title="Async, batches & workflows" to="/docs/services/direct-vs-async" icon="workflow"}
+  Fire-and-forget jobs, 256-item batches, and multi-step DAGs.
+  :::
+::
+
+## How it fits together
+
+A small always-on cloud box is the **control plane** — the website, the API, auth, routing, billing, and async orchestration. The heavy **GPU compute** lives on home hardware that is never exposed to the internet. A private Tailscale tunnel bridges the two, and generated media is offloaded to object storage so the small box stays off the hot path.
+
+::arch-diagram
+::
+
+The agent reports what it serves every ~30 seconds, so the platform's model list and routing always reflect what is actually online. For the full story — request path, the home k3s cluster, the Hetzner deployment, and storage — see [Architecture](/docs/architecture/overview).
+
+::callout{type="note" title="Two front doors"}
+**Humans** sign in with GitHub and use the dashboard + playground. **Machines** read [`llms.txt`](https://inference.club/llms.txt) and the [OpenAPI spec](https://api.inference.club/openapi.json), then call the API directly. Both use the same key.
+::
