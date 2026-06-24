@@ -4,6 +4,7 @@ description: "A 'healthy' mesh-generation service sat wedged for three days whil
 publishedAt: "2026-06-12"
 author: briancaffey
 tags: [k3s, kubernetes, homelab, architecture, deep-dive]
+image: /images/blog/from-docker-sprawl-to-k3s.png
 image_prompt: "Wide cinematic abstract illustration: four glowing GPU server towers of different sizes connected into one luminous orbital control ring, streams of cyan and violet light flowing from chaotic tangled cables on the left into clean orderly orbital paths on the right, one small node glowing outside the ring still connected by a thin thread of light, dark moody futuristic, soft glow, no text, no words, no letters"
 featured: true
 ---
