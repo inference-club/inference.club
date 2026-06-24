@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {
-  Activity, BookOpen, Boxes, Cpu, ExternalLink, Github, Image as ImageIcon, KeyRound, Server, Sparkles, VenetianMask,
+  Activity, BookOpen, Box, Boxes, Clapperboard, Cpu, ExternalLink, Github, Image as ImageIcon, KeyRound, MessageSquare, Music, Server, Sparkles, VenetianMask,
 } from 'lucide-vue-next'
+import type { Ref } from 'vue'
 import type {
   CatalogModelInfo,
   OwnerServiceManifest,
@@ -9,7 +10,7 @@ import type {
 } from '@/composables/useManifest'
 import { useInferenceRequest } from '@/composables/useInferenceRequest'
 import { useContentSharing } from '@/composables/useContentSharing'
-import { usePagination } from '@/composables/usePagination'
+import { tracksFromRequests } from '@/utils/player'
 import type { Collection, InferenceRequest } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 import CollectionCard from '@/components/CollectionCard.vue'
@@ -32,58 +33,60 @@ const identiconColor = computed(() => {
 // homepage examples), independent of the dev/SSR apiBase used for fetching.
 const PUBLIC_API_BASE = 'https://api.inference.club/v1'
 
-// --- inference requests (public, tabbed, paginated) ------------------------
-// NOTE: registered BEFORE the top-level `await useFetch` below — lifecycle
-// hooks (onMounted/watch) only bind to the component when registered during
-// the synchronous part of setup, i.e. before the first await.
+// --- featured content by modality (public, most recent) --------------------
+// The profile leads with the owner's creative output, one row per modality:
+// images · videos · songs · 3D models · LLM chats. Each is an independent
+// best-effort fetch off the public per-handle requests endpoint (?type=…); an
+// empty or failing modality simply hides its section. Registered BEFORE the
+// top-level `await useFetch` below so the onMounted hook binds to the component
+// (lifecycle hooks only bind during the synchronous part of setup).
 const { listPublicUserRequests } = useInferenceRequest()
-const reqScope = ref<'consumed' | 'served' | 'bookmarked'>('consumed')
-const requests = ref<InferenceRequest[]>([])
-const reqCount = ref(0)
-const reqLoading = ref(false)
-const reqError = ref<string | null>(null)
-const reqPager = usePagination(computed(() => reqCount.value), 10)
-
-const loadRequests = async () => {
-  if (!username.value) return
-  reqLoading.value = true
-  reqError.value = null
-  try {
-    const offset = (reqPager.currentPage.value - 1) * reqPager.currentPageSize.value
-    const res = await listPublicUserRequests(
-      username.value, reqScope.value, reqPager.currentPageSize.value, offset,
-    )
-    requests.value = res.results
-    reqCount.value = res.count
-  } catch (e) {
-    reqError.value = e instanceof Error ? e.message : 'Failed to load inference requests'
-  } finally {
-    reqLoading.value = false
-  }
-}
-
-// Switching tabs resets to page 1; the combined watcher fires the reload.
-watch(reqScope, () => { reqPager.currentPage.value = 1 })
-watch([reqScope, reqPager.currentPage], () => { loadRequests() })
-onMounted(loadRequests)
-
-// Recently generated images — a quick visual strip at the top of the profile.
 const lightbox = useImageLightbox()
-const recentImages = ref<{ url: string; id: string; prompt: string }[]>([])
-const loadRecentImages = async () => {
+
+const MODALITY_LIMIT = 12
+
+const imageReqs = ref<InferenceRequest[]>([])
+const videoReqs = ref<InferenceRequest[]>([])
+const songReqs = ref<InferenceRequest[]>([])
+const modelReqs = ref<InferenceRequest[]>([])
+const chatReqs = ref<InferenceRequest[]>([])
+
+// A single IMAGE request can yield several images — flatten to tiles for the
+// horizontal strip, capped so a prolific generator doesn't blow out the row.
+const imageTiles = computed(() =>
+  imageReqs.value
+    .flatMap((r) => (r.image_urls ?? []).map((url) => ({
+      url, id: String(r.id), prompt: r.prompt_preview || '',
+    })))
+    .slice(0, 20),
+)
+
+// MUSIC requests → player tracks for the global bar (Spotify-style rows).
+const songTracks = computed(() => tracksFromRequests(songReqs.value))
+
+const loadModality = async (
+  type: string,
+  target: Ref<InferenceRequest[]>,
+  keep?: (r: InferenceRequest) => boolean,
+) => {
   if (!username.value) return
   try {
-    const res = await listPublicUserRequests(username.value, 'consumed', 12, 0, { type: 'IMAGE' })
-    recentImages.value = res.results
-      .flatMap((r) => (r.image_urls ?? []).map((url) => ({
-        url, id: String(r.id), prompt: r.prompt_preview || '',
-      })))
-      .slice(0, 20)
+    const res = await listPublicUserRequests(
+      username.value, 'consumed', MODALITY_LIMIT, 0, { type },
+    )
+    target.value = keep ? res.results.filter(keep) : res.results
   } catch {
-    // non-fatal — the strip just stays hidden if this fails
+    // non-fatal — the section just stays hidden if this fails
   }
 }
-onMounted(loadRecentImages)
+
+onMounted(() => {
+  loadModality('IMAGE', imageReqs, (r) => !!r.image_urls?.length)
+  loadModality('VIDEO', videoReqs, (r) => !!r.video_url)
+  loadModality('MUSIC', songReqs, (r) => !!r.output_audio_url)
+  loadModality('MESH', modelReqs, (r) => !!r.model_url)
+  loadModality('LLM', chatReqs)
+})
 
 // Public collections strip.
 const { listPublicCollections } = useContentSharing()
@@ -316,14 +319,14 @@ console.log(resp.choices[0].message.content)`,
       </div>
     </header>
 
-    <!-- recently generated images: a quick visual strip -->
-    <section v-if="recentImages.length" class="mb-10">
+    <!-- featured content by modality: images · videos · songs · 3D · chats -->
+    <section v-if="imageTiles.length" class="mb-10">
       <h2 class="font-semibold flex items-center gap-2 mb-3">
-        <ImageIcon class="size-4 text-fuchsia-500" /> Recently generated
+        <ImageIcon class="size-4 text-fuchsia-500" /> Images
       </h2>
       <div class="flex gap-3 overflow-x-auto pb-2">
         <img
-          v-for="(img, i) in recentImages"
+          v-for="(img, i) in imageTiles"
           :key="i"
           :src="img.url"
           :alt="img.prompt"
@@ -331,6 +334,50 @@ console.log(resp.choices[0].message.content)`,
           loading="lazy"
           class="h-40 w-auto shrink-0 cursor-zoom-in rounded-lg border object-cover transition-opacity hover:opacity-90"
           @click="lightbox.open(img.url)"
+        >
+      </div>
+    </section>
+
+    <section v-if="videoReqs.length" class="mb-10">
+      <h2 class="font-semibold flex items-center gap-2 mb-3">
+        <Clapperboard class="size-4 text-rose-500" /> Videos
+      </h2>
+      <div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <VideoCard v-for="r in videoReqs" :key="r.id" :request="r" />
+      </div>
+    </section>
+
+    <section v-if="songTracks.length" class="mb-10">
+      <h2 class="font-semibold flex items-center gap-2 mb-3">
+        <Music class="size-4 text-emerald-500" /> Songs
+      </h2>
+      <TrackList :tracks="songTracks" :requests="songReqs" />
+    </section>
+
+    <section v-if="modelReqs.length" class="mb-10">
+      <h2 class="font-semibold flex items-center gap-2 mb-3">
+        <Box class="size-4 text-amber-500" /> 3D models
+      </h2>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <InferenceRequestCard
+          v-for="r in modelReqs"
+          :key="r.id"
+          :request="r"
+          :linkable="true"
+        />
+      </div>
+    </section>
+
+    <section v-if="chatReqs.length" class="mb-10">
+      <h2 class="font-semibold flex items-center gap-2 mb-3">
+        <MessageSquare class="size-4 text-sky-500" /> LLM chats
+      </h2>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <InferenceRequestCard
+          v-for="r in chatReqs"
+          :key="r.id"
+          :request="r"
+          :linkable="true"
         />
       </div>
     </section>
@@ -402,86 +449,6 @@ console.log(resp.choices[0].message.content)`,
           :online="provider.is_online"
           :catalog="models"
           :show-command="isOwner"
-        />
-      </div>
-    </section>
-
-    <!-- inference requests: tabbed (made / served), paginated -->
-    <section class="mb-10">
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h2 class="font-semibold flex items-center gap-2">
-          <Activity class="size-4 text-sky-500" /> Inference requests
-          <span v-if="reqCount" class="text-sm font-normal text-muted-foreground">({{ fmtN(reqCount) }})</span>
-        </h2>
-        <div class="inline-flex rounded-md border p-0.5 text-sm">
-          <button
-            class="px-3 py-1 rounded"
-            :class="reqScope === 'consumed' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'"
-            @click="reqScope = 'consumed'"
-          >
-            Made
-          </button>
-          <button
-            class="px-3 py-1 rounded"
-            :class="reqScope === 'served' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'"
-            @click="reqScope = 'served'"
-          >
-            Served
-          </button>
-          <button
-            class="px-3 py-1 rounded"
-            :class="reqScope === 'bookmarked' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'"
-            @click="reqScope = 'bookmarked'"
-          >
-            Bookmarked
-          </button>
-        </div>
-      </div>
-
-      <div v-if="reqLoading && requests.length === 0" class="space-y-3">
-        <Card v-for="i in 3" :key="i" class="p-4 animate-pulse">
-          <div class="space-y-3 w-full">
-            <div class="flex items-center gap-2">
-              <div class="h-6 w-20 bg-muted rounded" />
-              <div class="h-6 w-24 bg-muted rounded" />
-            </div>
-            <div class="h-4 bg-muted rounded w-3/4" />
-            <div class="h-4 bg-muted rounded w-1/2" />
-          </div>
-        </Card>
-      </div>
-
-      <div v-else-if="reqError" class="text-destructive text-sm text-center py-6">
-        {{ reqError }}
-      </div>
-
-      <div
-        v-else-if="requests.length === 0"
-        class="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground"
-      >
-        <template v-if="reqScope === 'bookmarked'">@{{ data.github_login }} hasn't bookmarked any requests yet.</template>
-        <template v-else>@{{ data.github_login }} hasn't {{ reqScope === 'consumed' ? 'made' : 'served' }} any inference requests yet.</template>
-      </div>
-
-      <div v-else class="space-y-3">
-        <InferenceRequestCard
-          v-for="r in requests"
-          :key="r.id"
-          :request="r"
-          :linkable="true"
-          :show-owner="reqScope !== 'consumed'"
-        />
-        <PaginationControls
-          v-if="reqPager.pageCount.value > 1"
-          :current-page="reqPager.currentPage.value"
-          :current-page-size="reqPager.currentPageSize.value"
-          :page-count="reqPager.pageCount.value"
-          :visible-pages="reqPager.visiblePages.value"
-          :is-first-page="reqPager.isFirstPage.value"
-          :is-last-page="reqPager.isLastPage.value"
-          :prev="reqPager.prev"
-          :next="reqPager.next"
-          :on-page-change="(page) => { reqPager.currentPage.value = page }"
         />
       </div>
     </section>
