@@ -325,7 +325,7 @@ def _dispatch_meta(pm) -> dict:
     request used and falls back to listing every GPU on the provider."""
     host_id = ""
     if getattr(pm, "service_id", None):
-        host_id = pm.service.host_id or ""
+        host_id = pm.service.manifest_host_id or ""
     return {"provider_model_id": pm.id, "host_id": host_id}
 
 

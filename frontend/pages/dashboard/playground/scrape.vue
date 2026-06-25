@@ -42,6 +42,8 @@ const run = async () => {
   }
 }
 
+useSubmitHotkey(run)
+
 const copy = async () => {
   if (!result.value?.markdown) return
   try {

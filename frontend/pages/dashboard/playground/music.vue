@@ -132,6 +132,32 @@ const run = async () => {
 }
 const stop = () => controller?.abort()
 
+useSubmitHotkey(run)
+
+// Queue N copies as async jobs (one song per queued job).
+const { queue } = useQueueGenerations()
+const onQueue = (count: number) => {
+  if (!model.value || !prompt.value.trim()) return
+  queue(
+    '/v1/music/generations',
+    {
+      model: model.value,
+      prompt: prompt.value.trim(),
+      lyrics: lyrics.value.trim() || undefined,
+      audio_duration: duration.value,
+      inference_steps: steps.value,
+      guidance_scale: guidance.value,
+      use_random_seed: randomizeSeed.value,
+      seed: randomizeSeed.value ? undefined : seed.value,
+      audio_format: format.value,
+      bpm: num(bpm.value),
+      key_scale: keyScale.value.trim() || undefined,
+    },
+    count,
+    'song',
+  )
+}
+
 const fmtDuration = (s: number) =>
   s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s}s`
 
@@ -195,7 +221,7 @@ onBeforeUnmount(() => {
         </p>
       </div>
       <Select v-model="model" :disabled="loadingModels || !models.length">
-        <SelectTrigger class="w-[18rem] font-mono text-xs">
+        <SelectTrigger class="w-full sm:w-[18rem] font-mono text-xs">
           <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
         </SelectTrigger>
         <SelectContent>
@@ -284,7 +310,7 @@ onBeforeUnmount(() => {
             />
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
             <span class="text-[11px] text-muted-foreground">{{ brief.trim() ? 'Composes from your brief' : 'Surprise me' }}</span>
             <div class="ml-auto flex items-center gap-2">
               <Button v-if="composing" variant="destructive" size="sm" class="gap-2" @click="stopCompose">
@@ -343,17 +369,23 @@ onBeforeUnmount(() => {
               class="mt-1 resize-none text-sm font-mono"
             />
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
             <span class="text-xs text-muted-foreground">{{ prompt.length }} chars</span>
             <div class="ml-auto flex items-center gap-2">
-              <GenerationSharingPicker />
+              <GenerationSharingPicker compact />
               <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
                 <Square class="size-4" /> Stop
               </Button>
-              <Button :disabled="!canRun" class="gap-2" @click="run">
-                <component :is="running ? Loader2 : AudioLines" class="size-4" :class="running ? 'animate-spin' : ''" />
-                Generate
-              </Button>
+              <GenerateButton
+                :disabled="!canRun"
+                :queue-disabled="!model || !prompt.trim()"
+                :running="running"
+                :icon="AudioLines"
+                label="Generate"
+                noun="song"
+                @generate="run"
+                @queue="onQueue"
+              />
             </div>
           </div>
         </Card>

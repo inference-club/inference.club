@@ -156,6 +156,75 @@ class Provider(BaseModel):
         return timezone.now() - self.last_seen_at <= PROVIDER_LAST_SEEN_WINDOW
 
 
+class Host(BaseModel):
+    """A physical machine (node) in a provider's home cluster — long-lived, like
+    the PC it represents. Mirrored from the manifest's ``hosts[]`` and keyed by
+    ``(provider, host_id)`` (the operator-chosen manifest id every request and
+    service already references). Hosts removed from a later manifest are
+    soft-deactivated (``is_active=False``) rather than deleted, so the
+    generations that ran on them keep a stable, navigable home.
+    """
+
+    provider = models.ForeignKey(
+        Provider, on_delete=models.CASCADE, related_name="hosts"
+    )
+    host_id = models.CharField(
+        max_length=255,
+        help_text="The manifest host id (e.g. 'a1', 'spark'); the join key that "
+        "services and requests reference.",
+    )
+    hostname = models.CharField(max_length=255, blank=True, default="")
+    address = models.CharField(max_length=255, blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(
+        default=True,
+        help_text="False once the host disappears from the latest manifest "
+        "(kept for history rather than deleted).",
+    )
+
+    class Meta:
+        ordering = ["host_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "host_id"], name="unique_host_per_provider"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.provider}/{self.host_id}"
+
+
+class Gpu(BaseModel):
+    """One physical GPU on a Host. A node may have several (``index`` 0-based).
+    Declared in the manifest as a host's ``gpu`` (singular, with ``count``) or a
+    ``gpus[]`` list; a singular ``gpu{count:N}`` expands to N rows so each device
+    is independently addressable and linkable.
+    """
+
+    host = models.ForeignKey(Host, on_delete=models.CASCADE, related_name="gpus")
+    index = models.PositiveSmallIntegerField(
+        default=0, help_text="0-based device index on the host."
+    )
+    vendor = models.CharField(max_length=32, blank=True, default="")
+    model = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="GPU model name, e.g. 'NVIDIA GeForce RTX 4090'.",
+    )
+    vram_gb = models.FloatField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["index"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["host", "index"], name="unique_gpu_index_per_host"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.host}/gpu{self.index}:{self.model or self.vendor or '?'}"
+
+
 def service_logo_upload_to(instance, filename: str) -> str:
     """Storage key for a service's uploaded logo:
     ``service_logo/<provider_id>/<uuid>/<filename>``.
@@ -228,7 +297,15 @@ class ProviderService(BaseModel):
         Provider, on_delete=models.CASCADE, related_name="services"
     )
     name = models.CharField(max_length=255)
-    host_id = models.CharField(max_length=255, blank=True, help_text="Manifest host id, for display.")
+    # The raw manifest host id (the join key). Kept as the manifest-truth string;
+    # the normalized link is `host` below, resolved from it at sync time.
+    manifest_host_id = models.CharField(
+        max_length=255, blank=True, help_text="Manifest host id (the join key)."
+    )
+    host = models.ForeignKey(
+        "Host", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="services",
+    )
     engine = models.CharField(max_length=64, blank=True)
     service_type = models.CharField(
         max_length=16, choices=SERVICE_TYPE_CHOICES, default=TYPE_LLM
@@ -578,6 +655,17 @@ class InferenceRequest(BaseModel):
         on_delete=models.SET_NULL,
         related_name="inference_requests",
     )
+    # Where it ran, snapshotted at dispatch — the durable replacement for
+    # resolving host/GPU from dispatch_meta + manifest JSON at serialize time.
+    # Both SET_NULL so soft-deactivating a host never deletes its generations.
+    host = models.ForeignKey(
+        "Host", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="inference_requests",
+    )
+    gpu = models.ForeignKey(
+        "Gpu", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="inference_requests",
+    )
     model_name = models.CharField(max_length=255, blank=True, default="")
     inference_type = models.CharField(max_length=32, choices=INFERENCE_TYPES)
     payload = models.JSONField()
@@ -727,7 +815,31 @@ class InferenceRequest(BaseModel):
                 self.share_token = generate_share_token()
         if not self.public_id:
             self.public_id = generate_public_id()
+        self._resolve_host_gpu(kwargs)
         super().save(*args, **kwargs)
+
+    def _resolve_host_gpu(self, save_kwargs):
+        """Populate the durable ``host``/``gpu`` FKs from the ``dispatch_meta``
+        snapshot, once, the first time a request carries a dispatched host.
+        Idempotent: returns immediately once ``host`` is set, so it costs a
+        query only on the save that records the dispatch. GPU is attributed only
+        when the host has exactly one (we don't snapshot a device index)."""
+        if self.host_id is not None or not self.provider_id:
+            return
+        hid = (self.dispatch_meta or {}).get("host_id")
+        if not hid:
+            return
+        host = Host.objects.filter(provider_id=self.provider_id, host_id=hid).first()
+        if host is None:
+            return
+        self.host = host
+        gpus = list(host.gpus.filter(is_active=True))
+        if len(gpus) == 1:
+            self.gpu = gpus[0]
+        # Honor update_fields-limited saves (the async dispatcher uses them).
+        uf = save_kwargs.get("update_fields")
+        if uf is not None:
+            save_kwargs["update_fields"] = list(set(uf) | {"host", "gpu"})
 
     def is_visible_to(self, user) -> bool:
         """Whether ``user`` may *directly access* this request (by share link or

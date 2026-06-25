@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { AudioLines, Loader2, Mic2, Square } from 'lucide-vue-next'
+import { AudioLines, Mic2, Square } from 'lucide-vue-next'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
 import type { ModelInfo } from '@/composables/usePlayground'
 
@@ -67,6 +67,25 @@ const run = async () => {
 }
 const stop = () => controller?.abort()
 
+useSubmitHotkey(run)
+
+// Queue N copies as async jobs (one TTS clip per queued job).
+const { queue } = useQueueGenerations()
+const onQueue = (count: number) => {
+  if (!model.value || !text.value.trim()) return
+  queue(
+    '/v1/audio/speech',
+    {
+      model: model.value,
+      input: text.value.trim(),
+      voice: voice.value || undefined,
+      response_format: format.value,
+    },
+    count,
+    'clip',
+  )
+}
+
 onMounted(async () => {
   try {
     models.value = await listTtsModels()
@@ -108,7 +127,7 @@ onMounted(async () => {
         </p>
       </div>
       <Select v-model="model" :disabled="loadingModels || !models.length">
-        <SelectTrigger class="w-[18rem] font-mono text-xs">
+        <SelectTrigger class="w-full sm:w-[18rem] font-mono text-xs">
           <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
         </SelectTrigger>
         <SelectContent>
@@ -133,18 +152,24 @@ onMounted(async () => {
             placeholder="Type something to say aloud…"
             class="resize-none text-sm"
           />
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
             <span class="text-xs text-muted-foreground">{{ text.length }} characters</span>
             <ElapsedTimer :running="running" class="text-xs text-muted-foreground" />
             <div class="ml-auto flex items-center gap-2">
-              <GenerationSharingPicker />
+              <GenerationSharingPicker compact />
               <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
                 <Square class="size-4" /> Stop
               </Button>
-              <Button :disabled="!canRun" class="gap-2" @click="run">
-                <component :is="running ? Loader2 : AudioLines" class="size-4" :class="running ? 'animate-spin' : ''" />
-                Synthesize
-              </Button>
+              <GenerateButton
+                :disabled="!canRun"
+                :queue-disabled="!model || !text.trim()"
+                :running="running"
+                :icon="AudioLines"
+                label="Synthesize"
+                noun="clip"
+                @generate="run"
+                @queue="onQueue"
+              />
             </div>
           </div>
         </Card>

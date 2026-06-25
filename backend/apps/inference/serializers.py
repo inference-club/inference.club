@@ -655,16 +655,31 @@ def _gpus_for_host(provider, host_id):
 
 
 def request_host_info(req):
-    """Where a request ran: ``{host_id, gpus}`` resolved from dispatch_meta's
-    ``provider_model_id`` (→ service host) and the provider manifest. Best
-    effort — historical requests whose deployment is gone resolve to what's
-    still known."""
+    """Where a request ran:
+    ``{host_id, hostname, provider_id, gpus:[{index,model,vram_gb}], gpu}``.
+
+    Prefers the durable ``host``/``gpu`` FKs snapshotted at dispatch (survive the
+    manifest changing). Falls back to the legacy dispatch_meta + manifest-JSON
+    walk for rows created before the backfill. ``gpu`` is the specific device the
+    request used when known (single-GPU hosts), else None."""
+    host = req.host if req.host_id else None
+    if host is not None:
+        gpus = [
+            {"index": g.index, "model": g.model, "vram_gb": g.vram_gb}
+            for g in host.gpus.all()
+        ]
+        used = req.gpu
+        return {
+            "host_id": host.host_id,
+            "hostname": host.hostname or "",
+            "provider_id": host.provider_id,
+            "gpus": gpus,
+            "gpu": {"index": used.index, "model": used.model} if used else None,
+        }
+
+    # --- legacy fallback (un-backfilled rows) -------------------------------
     meta = req.dispatch_meta or {}
     provider = req.provider
-    # Prefer the host snapshotted at dispatch time — it survives the
-    # deployment/manifest being removed and avoids a DB lookup. Fall back to
-    # resolving via provider_model_id for older rows (and the async path, which
-    # records only provider_model_id).
     host_id = meta.get("host_id") or None
     pm_id = meta.get("provider_model_id")
     if pm_id and host_id is None:
@@ -675,9 +690,16 @@ def request_host_info(req):
         )
         if pm:
             provider = pm.provider
-            if pm.service_id and pm.service.host_id:
-                host_id = pm.service.host_id
-    return {"host_id": host_id, "gpus": _gpus_for_host(provider, host_id) if provider else []}
+            if pm.service_id and pm.service.manifest_host_id:
+                host_id = pm.service.manifest_host_id
+    models = _gpus_for_host(provider, host_id) if provider else []
+    return {
+        "host_id": host_id,
+        "hostname": "",
+        "provider_id": provider.id if provider else None,
+        "gpus": [{"index": i, "model": m, "vram_gb": None} for i, m in enumerate(models)],
+        "gpu": None,
+    }
 
 
 class ChatThreadListSerializer(serializers.ModelSerializer):
@@ -791,6 +813,7 @@ class InferenceRequestListSerializer(
     video = serializers.SerializerMethodField()
     cover_image_url = serializers.SerializerMethodField()
     gpu_label = serializers.SerializerMethodField()
+    host = serializers.SerializerMethodField()
 
     class Meta:
         model = InferenceRequest
@@ -807,6 +830,7 @@ class InferenceRequestListSerializer(
             *SHARING_FIELDS,
             "latency_ms",
             "gpu_label",
+            "host",
             "usage",
             "audio_seconds",
             "audio_url",
@@ -894,13 +918,18 @@ class InferenceRequestListSerializer(
     def get_has_reasoning(self, obj) -> bool:
         return bool(_extract_reasoning(obj.results))
 
+    def get_host(self, obj):
+        return request_host_info(obj)
+
     def get_gpu_label(self, obj):
         # A short "where it ran" chip for the list rows (e.g. "RTX 4090"). Prefers
-        # the first GPU resolved from the dispatch-time host snapshot, falling back
-        # to the bare host id; None when nothing is known (legacy/unmatched rows).
+        # the specific GPU used, then the host's first GPU, then the bare host id;
+        # None when nothing is known (legacy/unmatched rows).
         info = request_host_info(obj)
+        if info.get("gpu"):
+            return info["gpu"].get("model") or None
         gpus = info.get("gpus") or []
-        return gpus[0] if gpus else (info.get("host_id") or None)
+        return (gpus[0].get("model") if gpus else None) or info.get("host_id") or None
 
 
 class InferenceRequestDetailSerializer(
@@ -1044,6 +1073,8 @@ class ProviderServiceSerializer(serializers.ModelSerializer):
 
     provider = InferenceProviderMiniSerializer(read_only=True)
     models = serializers.SerializerMethodField()
+    # Keep the public API field name `host_id` stable after the model rename.
+    host_id = serializers.CharField(source="manifest_host_id", read_only=True)
 
     class Meta:
         model = ProviderService
@@ -1062,7 +1093,6 @@ class ProviderServiceSerializer(serializers.ModelSerializer):
             "id",
             "provider",
             "name",
-            "host_id",
             "engine",
             "is_active",
             "models",

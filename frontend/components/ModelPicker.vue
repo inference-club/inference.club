@@ -34,7 +34,7 @@ const pick = (id: string) => {
       <Button
         variant="ghost"
         size="sm"
-        class="h-9 gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground hover:text-foreground max-w-[55vw] sm:max-w-[16rem]"
+        class="h-9 min-w-0 flex-1 gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground hover:text-foreground max-w-[55vw] sm:max-w-[16rem] sm:flex-none"
         :disabled="loading || !models.length"
         :title="modelValue || 'Select a model'"
       >

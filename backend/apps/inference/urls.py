@@ -15,6 +15,7 @@ from .views import (
     ProviderClusterHistoryView,
     ProviderClusterRevisionView,
     ProviderClusterStateView,
+    ProviderHostDetailView,
     BookmarkedRequestsView,
     CollectionDetailView,
     CollectionItemView,
@@ -194,6 +195,11 @@ urlpatterns = [
         "providers/<int:id>/manifest/",
         ProviderManifestView.as_view(),
         name="provider-manifest",
+    ),
+    path(
+        "providers/<int:id>/hosts/<str:host_id>/",
+        ProviderHostDetailView.as_view(),
+        name="provider-host-detail",
     ),
     path(
         "providers/<int:id>/cluster/",

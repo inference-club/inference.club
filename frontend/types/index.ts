@@ -65,10 +65,22 @@ export interface ProviderMini {
   is_online?: boolean
 }
 
-// Where a request ran (detail view only), resolved from dispatch metadata.
+// One GPU on a host, as carried on a request's `host` payload.
+export interface RequestGpu {
+  index: number
+  model?: string | null
+  vram_gb?: number | null
+}
+
+// Where a request ran (on both list + detail), snapshotted from the durable
+// host/gpu FKs. `provider_id` + the provider's owner_handle build the node link;
+// `gpu` is the specific device used when known (single-GPU hosts).
 export interface RequestHost {
   host_id?: string | null
-  gpus?: string[]
+  hostname?: string | null
+  provider_id?: number | null
+  gpus?: RequestGpu[]
+  gpu?: { index: number; model?: string | null } | null
 }
 
 export interface ChatMessage {

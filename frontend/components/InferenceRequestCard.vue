@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  Cpu, Server, Zap, Clock, Trash2, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box, Clapperboard, Star, Gauge, Timer, Play, Pause, ListPlus, Music, Waves,
+  Cpu, Server, Zap, Clock, MessageSquare, Radio, ArrowRight, Brain, Github, AudioLines, Image as ImageIcon, Box, Clapperboard, Star, Gauge, Timer, Play, Pause, ListPlus, Music, Waves, HardDrive,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
-import { statusVariant, statusLabel, formatRelative, formatLatency, totalTokens } from '@/utils/inference'
+import { statusVariant, statusLabel, formatRelative, formatLatency, totalTokens, nodeUrl } from '@/utils/inference'
+import { prettyGpuModel } from '@/composables/useMachineForm'
 import { usePlayerStore } from '@/stores/player'
 import { trackFromRequest, formatTrackTime } from '@/utils/player'
 
@@ -88,6 +89,13 @@ const playPauseTrack = () => {
 const queueTrack = () => {
   if (track.value) player.addToQueue([track.value])
 }
+
+// "Where it ran" — the node link + its GPUs, shown as clickable chips.
+const nodeHref = computed(() => nodeUrl(props.request))
+const hostGpus = computed(() => props.request.host?.gpus || [])
+const hostLabel = computed(
+  () => props.request.host?.hostname || props.request.host?.host_id || '',
+)
 </script>
 
 <template>
@@ -106,7 +114,7 @@ const queueTrack = () => {
         <Badge
           v-if="props.request.model_name"
           variant="secondary"
-          class="max-w-full font-mono"
+          class="max-w-[11rem] sm:max-w-[16rem] font-mono"
           :title="props.request.model_name"
         >
           <Cpu class="size-3 shrink-0" />
@@ -124,6 +132,28 @@ const queueTrack = () => {
         <Badge v-else-if="props.request.provider" variant="outline">
           <Server class="size-3" /> {{ props.request.provider.name }}
         </Badge>
+
+        <!-- Where it ran: the host node + its GPU(s), linking to the node page. -->
+        <NuxtLink v-if="hostLabel && nodeHref" :to="nodeHref" @click.stop>
+          <Badge variant="outline" class="cursor-pointer font-mono hover:bg-accent" :title="props.request.host?.host_id || ''">
+            <HardDrive class="size-3" /> {{ hostLabel }}
+          </Badge>
+        </NuxtLink>
+        <Badge v-else-if="hostLabel" variant="outline" class="font-mono">
+          <HardDrive class="size-3" /> {{ hostLabel }}
+        </Badge>
+        <component
+          :is="nodeHref ? 'NuxtLink' : 'span'"
+          v-for="g in hostGpus"
+          :key="g.index"
+          :to="nodeHref ? `${nodeHref}#gpu-${g.index}` : undefined"
+          @click.stop
+        >
+          <Badge variant="secondary" class="font-mono" :class="nodeHref ? 'cursor-pointer hover:bg-accent' : ''">
+            <Cpu class="size-3" /> {{ prettyGpuModel(g.model || '') || g.model }}
+          </Badge>
+        </component>
+
         <Badge v-if="props.request.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">
           <Radio class="size-3" /> streamed
         </Badge>
@@ -143,41 +173,13 @@ const queueTrack = () => {
         <RequestActionBar
           v-if="actions"
           :request="props.request"
+          dense
+          :can-delete="props.linkable && props.request.is_owner"
+          :deleting="deleting"
           @visibility-change="(v) => (displayVisibility = v)"
           @retried="emit('retried', String(props.request.id))"
+          @delete="emit('delete', String(props.request.id))"
         />
-
-        <AlertDialog v-if="props.linkable && props.request.is_owner">
-        <AlertDialogTrigger as-child @click.stop>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="size-8 text-muted-foreground hover:text-destructive shrink-0"
-            :disabled="deleting"
-            aria-label="Delete request"
-          >
-            <Trash2 class="size-4" />
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent @click.stop>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this inference request?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes this request and its stored prompt and
-              response. This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              class="bg-destructive text-white hover:bg-destructive/90"
-              @click="emit('delete', String(props.request.id))"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
       </div>
     </div>
 
@@ -252,52 +254,67 @@ const queueTrack = () => {
       </div>
     </div>
 
-    <!-- MUSIC: prompt → generated song (plays via the global player bar) -->
-    <div v-else-if="isMusic" ref="mediaEl" class="mt-3 grid gap-4 sm:grid-cols-2">
-      <div class="min-w-0">
-        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Prompt</p>
-        <p class="text-sm break-words line-clamp-3">{{ props.request.prompt_preview || '—' }}</p>
-      </div>
-      <div class="min-w-0">
-        <p class="text-2xs uppercase tracking-wider text-muted-foreground mb-0.5">Song</p>
-        <div v-if="track" class="flex items-center gap-3" @click.stop>
-          <div class="relative size-12 shrink-0">
-            <img
-              v-if="track.coverUrl"
-              :src="track.coverUrl"
-              class="size-12 rounded-md border object-cover"
-              :alt="track.title"
-              loading="lazy"
-            />
-            <div v-else class="flex size-12 items-center justify-center rounded-md border bg-muted">
-              <Music class="size-5 text-muted-foreground" />
-            </div>
+    <!-- MUSIC: a tight track row — cover (with play overlay) + prompt-as-title +
+         duration, plays through the global player bar. -->
+    <div v-else-if="isMusic" ref="mediaEl" class="mt-3">
+      <div v-if="track" class="flex items-center gap-3" @click.stop>
+        <!-- Cover doubles as the play/pause control -->
+        <button
+          type="button"
+          class="group/cover relative size-14 shrink-0 overflow-hidden rounded-lg border"
+          :title="isCurrentTrack && player.playing ? 'Pause' : 'Play'"
+          data-testid="card-play-track"
+          @click="playPauseTrack"
+        >
+          <img
+            v-if="track.coverUrl"
+            :src="track.coverUrl"
+            class="size-full object-cover"
+            :alt="track.title"
+            loading="lazy"
+          />
+          <div v-else class="flex size-full items-center justify-center bg-gradient-to-br from-primary/25 to-primary/[0.04]">
+            <Music class="size-6 text-primary/70" />
           </div>
-          <Button
-            size="icon"
-            class="size-9 shrink-0 rounded-full"
-            :title="isCurrentTrack && player.playing ? 'Pause' : 'Play'"
-            data-testid="card-play-track"
-            @click="playPauseTrack"
+          <!-- Always-visible play affordance (no hover on touch); the scrim
+               darkens on hover / while playing. -->
+          <span
+            class="absolute inset-0 flex items-center justify-center text-white drop-shadow transition-colors"
+            :class="isCurrentTrack && player.playing ? 'bg-black/45' : 'bg-black/20 group-hover/cover:bg-black/45'"
           >
-            <Pause v-if="isCurrentTrack && player.playing" class="size-4" />
-            <Play v-else class="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="size-8 shrink-0 text-muted-foreground"
-            title="Add to queue"
-            @click="queueTrack"
-          >
-            <ListPlus class="size-4" />
-          </Button>
-          <span class="text-xs tabular-nums text-muted-foreground">
-            {{ formatTrackTime(track.duration) }}
+            <Pause v-if="isCurrentTrack && player.playing" class="size-6" />
+            <Play v-else class="size-6 translate-x-px" />
           </span>
+        </button>
+
+        <!-- Title (the prompt) + now-playing / duration line -->
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-medium" :title="props.request.prompt_preview || ''">
+            {{ props.request.prompt_preview || 'Untitled track' }}
+          </p>
+          <div class="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span v-if="isCurrentTrack && player.playing" class="eq" aria-hidden="true">
+              <i /><i /><i /><i />
+            </span>
+            <AudioLines v-else class="size-3.5 shrink-0" />
+            <span class="tabular-nums">{{ formatTrackTime(track.duration) }}</span>
+          </div>
         </div>
-        <p v-else class="text-sm text-muted-foreground">—</p>
+
+        <!-- Add to queue -->
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-9 shrink-0 text-muted-foreground"
+          title="Add to queue"
+          @click="queueTrack"
+        >
+          <ListPlus class="size-4" />
+        </Button>
       </div>
+      <p v-else class="text-sm break-words line-clamp-2 text-muted-foreground">
+        {{ props.request.prompt_preview || '—' }}
+      </p>
     </div>
 
     <!-- IMAGE: prompt → generated images (images feature large on the right) -->
@@ -448,3 +465,30 @@ const queueTrack = () => {
     </div>
   </Card>
 </template>
+
+<style scoped>
+/* Tiny "now playing" equalizer for the music track row. */
+.eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 0.75rem;
+}
+.eq i {
+  width: 2px;
+  background: var(--primary);
+  border-radius: 1px;
+  animation: eq 0.9s ease-in-out infinite;
+}
+.eq i:nth-child(1) { height: 40%; animation-delay: -0.2s; }
+.eq i:nth-child(2) { height: 90%; animation-delay: -0.5s; }
+.eq i:nth-child(3) { height: 60%; animation-delay: -0.1s; }
+.eq i:nth-child(4) { height: 80%; animation-delay: -0.35s; }
+@keyframes eq {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eq i { animation: none; }
+}
+</style>

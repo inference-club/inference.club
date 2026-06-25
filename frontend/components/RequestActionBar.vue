@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   Star, Bookmark, MoreHorizontal, Eye, FolderPlus, Flag, RotateCcw, Loader2, Palette, Megaphone,
+  Share2, Link as LinkIcon, Trash2,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { useContentSharing } from '@/composables/useContentSharing'
@@ -11,15 +12,65 @@ import { useAuth } from '@/composables/useAuth'
 import { isRetryable } from '@/utils/inference'
 
 const props = withDefaults(
-  defineProps<{ request: InferenceRequest; showShare?: boolean }>(),
+  defineProps<{
+    request: InferenceRequest
+    showShare?: boolean
+    // Dense mode (used by the cramped card header): fold Share, Feature and
+    // Delete into the ⋯ menu so only Star + Bookmark + ⋯ stay inline.
+    dense?: boolean
+    // Offer a Delete entry in the ⋯ menu (owner only). The host handles it.
+    canDelete?: boolean
+    deleting?: boolean
+  }>(),
   { showShare: true },
 )
 const emit = defineEmits<{
   (e: 'visibility-change', v: Visibility): void
-  (e: 'retried'): void
+  (e: 'retried' | 'delete'): void
 }>()
 
-const { toggleStar, toggleBookmark, toggleFeatured } = useContentSharing()
+const { toggleStar, toggleBookmark, toggleFeatured, shareUrl } = useContentSharing()
+
+// Share affordance is owner-only (only the owner holds the share_token) and
+// pointless for SECRET requests (the link wouldn't resolve for anyone else).
+const shareable = computed(
+  () =>
+    props.showShare &&
+    props.request.is_owner &&
+    !!props.request.share_token &&
+    props.request.visibility !== 'SECRET',
+)
+const shareLink = computed(() => shareUrl(props.request.share_token))
+const shareText = computed(() => {
+  const m = props.request.model_name
+  return m ? `Inference with ${m} on inference.club` : 'Check out this inference on inference.club'
+})
+const copyShareLink = async () => {
+  if (!shareLink.value) return
+  try {
+    await navigator.clipboard.writeText(shareLink.value)
+    toast.success('Share link copied')
+  } catch {
+    toast.error('Could not copy link')
+  }
+}
+const openIntent = (url: string) => window.open(url, '_blank', 'noopener,noreferrer')
+const shareToX = () => {
+  if (!shareLink.value) return
+  openIntent(
+    `https://x.com/intent/tweet?url=${encodeURIComponent(shareLink.value)}` +
+      `&text=${encodeURIComponent(shareText.value)}`,
+  )
+}
+const shareToReddit = () => {
+  if (!shareLink.value) return
+  openIntent(
+    `https://www.reddit.com/submit?url=${encodeURIComponent(shareLink.value)}` +
+      `&title=${encodeURIComponent(shareText.value)}`,
+  )
+}
+
+const deleteOpen = ref(false)
 const { retryInferenceRequest } = useInferenceRequest()
 const { isAuthenticated, user } = useAuth()
 
@@ -190,9 +241,10 @@ const onVisibilityUpdated = (v: Visibility) => {
       <Bookmark class="size-4" :class="bookmarked ? 'fill-current' : ''" />
     </Button>
 
-    <!-- Feature on the home page (staff only, PUBLIC requests only) -->
+    <!-- Feature on the home page (staff only, PUBLIC requests only). Inline only
+         in the expanded layout; dense mode folds it into the ⋯ menu. -->
     <Button
-      v-if="canFeature"
+      v-if="canFeature && !dense"
       variant="ghost"
       size="icon"
       class="size-8"
@@ -204,22 +256,45 @@ const onVisibilityUpdated = (v: Visibility) => {
       <Megaphone class="size-4" :class="featured ? 'fill-current' : ''" />
     </Button>
 
-    <!-- Share (owner only — only the owner is given the share_token). Hidden
-         for SECRET requests, where a shared link wouldn't resolve for anyone
-         else anyway. -->
-    <ShareMenu
-      v-if="showShare && request.is_owner && request.share_token && request.visibility !== 'SECRET'"
-      :request="request"
-    />
+    <!-- Share (owner only — only the owner is given the share_token). Inline in
+         the expanded layout; dense mode folds it into the ⋯ menu as a submenu. -->
+    <ShareMenu v-if="shareable && !dense" :request="request" />
 
-    <!-- Owner menu: visibility + collections -->
+    <!-- Owner menu: visibility + collections, plus (dense) share/feature/delete -->
     <DropdownMenu v-if="request.is_owner">
       <DropdownMenuTrigger as-child>
         <Button variant="ghost" size="icon" class="size-8 text-muted-foreground" title="More">
           <MoreHorizontal class="size-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" class="w-52">
+        <!-- Dense: share lives here as a submenu -->
+        <template v-if="dense && shareable">
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Share2 class="size-4" /> Share
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem @select="copyShareLink">
+                <LinkIcon class="size-4" /> Copy link
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem @select="shareToX">
+                <svg class="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                </svg>
+                Share on X
+              </DropdownMenuItem>
+              <DropdownMenuItem @select="shareToReddit">
+                <svg class="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z" />
+                </svg>
+                Share on Reddit
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </template>
+
         <DropdownMenuItem @select="visEditOpen = true">
           <Eye class="size-4" /> Edit visibility
         </DropdownMenuItem>
@@ -229,6 +304,20 @@ const onVisibilityUpdated = (v: Visibility) => {
         <DropdownMenuItem v-if="isTrack" @select="coverOpen = true">
           <Palette class="size-4" /> Generate cover art
         </DropdownMenuItem>
+
+        <!-- Dense: feature toggle folds in here -->
+        <DropdownMenuItem v-if="dense && canFeature" @select="onFeature">
+          <Megaphone class="size-4" :class="featured ? 'text-emerald-500' : ''" />
+          {{ featured ? 'Unfeature' : 'Feature on home' }}
+        </DropdownMenuItem>
+
+        <!-- Dense: delete folds in here (host handles the emit) -->
+        <template v-if="dense && canDelete">
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" :disabled="deleting" @select="deleteOpen = true">
+            <Trash2 class="size-4" /> Delete
+          </DropdownMenuItem>
+        </template>
       </DropdownMenuContent>
     </DropdownMenu>
 
@@ -266,5 +355,27 @@ const onVisibilityUpdated = (v: Visibility) => {
       v-model:open="reportOpen"
       :request="request"
     />
+
+    <!-- Delete confirmation (dense card menu only — host performs the delete) -->
+    <AlertDialog v-if="dense && canDelete" v-model:open="deleteOpen">
+      <AlertDialogContent @click.stop>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this inference request?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently removes this request and its stored prompt and
+            response. This can't be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            class="bg-destructive text-white hover:bg-destructive/90"
+            @click="emit('delete')"
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

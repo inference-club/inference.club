@@ -152,9 +152,11 @@ const toggleMute = () => {
           </div>
         </NuxtLink>
 
-        <!-- Transport + seek -->
-        <div class="flex min-w-0 flex-1 flex-col items-center gap-1">
-          <div class="flex items-center gap-1 sm:gap-2">
+        <!-- Transport + seek. On mobile this hugs its buttons (shrink-0) and sits
+             to the right of the track title; on sm+ it's the centered flex-1
+             column with the seek bar beneath. -->
+        <div class="flex min-w-0 shrink-0 flex-col items-center gap-1 sm:flex-1">
+          <div class="flex items-center gap-0.5 sm:gap-2">
             <Button
               variant="ghost"
               size="icon"
@@ -241,7 +243,7 @@ const toggleMute = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                class="size-8 text-muted-foreground"
+                class="hidden size-8 text-muted-foreground sm:inline-flex"
                 :title="t('player.queue')"
                 data-testid="player-queue"
               >

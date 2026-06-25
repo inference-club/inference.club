@@ -101,6 +101,8 @@ const run = async () => {
 }
 const stop = () => controller?.abort()
 
+useSubmitHotkey(run)
+
 onMounted(async () => {
   try {
     models.value = await listMeshModels()
@@ -133,7 +135,7 @@ onBeforeUnmount(() => {
         <p class="text-sm text-muted-foreground mt-1">{{ t('model3d.subtitle') }}</p>
       </div>
       <Select v-model="model" :disabled="loadingModels || !models.length">
-        <SelectTrigger class="w-[18rem] font-mono text-xs">
+        <SelectTrigger class="w-full sm:w-[18rem] font-mono text-xs">
           <SelectValue :placeholder="loadingModels ? t('model3d.loadingModels') : t('model3d.selectModel')" />
         </SelectTrigger>
         <SelectContent>
@@ -180,10 +182,10 @@ onBeforeUnmount(() => {
             <Images class="size-4" /> {{ t('model3d.picker.trigger') }}
           </Button>
 
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
             <span class="text-xs text-muted-foreground">{{ t('model3d.timingHint') }}</span>
             <div class="ml-auto flex items-center gap-2">
-              <GenerationSharingPicker />
+              <GenerationSharingPicker compact />
               <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
                 <Square class="size-4" /> {{ t('model3d.stop') }}
               </Button>

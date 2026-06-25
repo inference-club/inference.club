@@ -131,6 +131,8 @@ const run = async () => {
 
 const stop = () => controller?.abort()
 
+useSubmitHotkey(run)
+
 onMounted(async () => {
   try {
     models.value = await listSttModels()
@@ -166,7 +168,7 @@ onBeforeUnmount(() => {
         </p>
       </div>
       <Select v-model="model" :disabled="loadingModels || !models.length">
-        <SelectTrigger class="w-[18rem] font-mono text-xs">
+        <SelectTrigger class="w-full sm:w-[18rem] font-mono text-xs">
           <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
         </SelectTrigger>
         <SelectContent>

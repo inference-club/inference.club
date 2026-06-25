@@ -69,6 +69,17 @@ export function totalTokens(req: InferenceRequest): number | null {
 }
 
 // Tailwind classes for the role label chip on a chat message.
+// The public node-detail URL for the host a request ran on, or null when we
+// can't build one (no host snapshot, or the provider has no public handle).
+// `?provider=` disambiguates handles that own more than one agent.
+export function nodeUrl(req: InferenceRequest): string | null {
+  const handle = req.provider?.owner_handle
+  const hostId = req.host?.host_id
+  if (!handle || !hostId) return null
+  const pid = req.host?.provider_id ?? req.provider?.id
+  return `/${handle}/nodes/${encodeURIComponent(hostId)}${pid ? `?provider=${pid}` : ''}`
+}
+
 export function roleClasses(role: string): string {
   switch (role) {
     case 'user':

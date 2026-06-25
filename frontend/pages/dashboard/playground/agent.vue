@@ -477,18 +477,18 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
             @keydown="onKeydown"
             @input="(e) => { const t = e.target as HTMLTextAreaElement; t.style.height='auto'; t.style.height = Math.min(t.scrollHeight, 192) + 'px' }"
           />
-          <div class="flex items-center gap-1.5 px-2.5 pb-2.5">
+          <div class="flex min-w-0 items-center gap-1.5 px-2.5 pb-2.5">
             <ModelPicker v-model="model" :models="models" :loading="loadingModels" />
             <select
               v-if="skills.length"
               v-model="skill"
-              class="h-9 rounded-full border bg-background px-3 text-xs text-muted-foreground outline-none hover:text-foreground"
+              class="h-9 min-w-0 shrink rounded-full border bg-background px-3 text-xs text-muted-foreground outline-none hover:text-foreground"
               title="Pick a skill to focus the agent"
             >
               <option value="">No skill</option>
               <option v-for="s in skills" :key="s.name" :value="s.name">{{ s.title }}</option>
             </select>
-            <div class="ml-auto flex items-center gap-1">
+            <div class="ml-auto flex shrink-0 items-center gap-1">
               <Button
                 v-if="sending"
                 variant="destructive"

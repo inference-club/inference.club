@@ -151,6 +151,39 @@ const run = async () => {
 }
 const stop = () => controller?.abort()
 
+useSubmitHotkey(run)
+
+// Queue N copies as async jobs (text- or image-to-video; the first-frame image
+// rides along as a data URI, which the async path accepts).
+const { queue } = useQueueGenerations()
+const onQueue = async (count: number) => {
+  if (!model.value || !prompt.value.trim()) return
+  const [w, h] = resolution.value.split('x').map((v) => Number(v))
+  const image = source.value ? await blobToDataUrl(source.value.blob) : undefined
+  queue(
+    '/v1/videos/generations',
+    {
+      model: model.value,
+      prompt: prompt.value.trim(),
+      negative_prompt: negativePrompt.value.trim() || undefined,
+      image,
+      image_strength: image ? imageStrength.value : undefined,
+      duration: duration.value,
+      num_frames: num(numFrames.value),
+      fps: Number(fps.value),
+      width: w,
+      height: h,
+      num_inference_steps: steps.value,
+      guidance_scale: guidance.value,
+      enhance_prompt: enhancePrompt.value,
+      use_random_seed: randomizeSeed.value,
+      seed: randomizeSeed.value ? undefined : seed.value,
+    },
+    count,
+    'video',
+  )
+}
+
 // Populate the form from a "Reproduce in playground" handoff, if any. (The
 // first-frame image isn't re-attached — text + controls only.)
 const applyPrefill = () => {
@@ -214,7 +247,7 @@ onBeforeUnmount(() => {
         </p>
       </div>
       <Select v-model="model" :disabled="loadingModels || !models.length">
-        <SelectTrigger class="w-[18rem] font-mono text-xs">
+        <SelectTrigger class="w-full sm:w-[18rem] font-mono text-xs">
           <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
         </SelectTrigger>
         <SelectContent>
@@ -294,17 +327,23 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
             <span class="text-xs text-muted-foreground">{{ prompt.length }} chars</span>
             <div class="ml-auto flex items-center gap-2">
-              <GenerationSharingPicker />
+              <GenerationSharingPicker compact />
               <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
                 <Square class="size-4" /> Stop
               </Button>
-              <Button :disabled="!canRun" class="gap-2" @click="run">
-                <component :is="running ? Loader2 : Film" class="size-4" :class="running ? 'animate-spin' : ''" />
-                Generate
-              </Button>
+              <GenerateButton
+                :disabled="!canRun"
+                :queue-disabled="!model || !prompt.trim()"
+                :running="running"
+                :icon="Film"
+                label="Generate"
+                noun="video"
+                @generate="run"
+                @queue="onQueue"
+              />
             </div>
           </div>
         </Card>

@@ -81,8 +81,10 @@ logger = logging.getLogger("django")
 # Owner-attribution querysets need the user + their GitHub social_auth row.
 def _requests_with_owner():
     return InferenceRequest.objects.select_related(
-        "provider", "provider__manifest", "user", "cover_request"
-    ).prefetch_related("user__social_auth", "assets", "cover_request__assets")
+        "provider", "provider__manifest", "user", "cover_request", "host", "gpu"
+    ).prefetch_related(
+        "user__social_auth", "assets", "cover_request__assets", "host__gpus"
+    )
 
 
 def _annotate_viewer_flags(qs, user):
@@ -1406,6 +1408,127 @@ def _sync_resource_groups(provider, parsed) -> None:
             g.delete()
 
 
+def _host_gpus(host: dict) -> list[dict]:
+    """Normalize a manifest host's GPU declaration into a flat list of
+    ``{index, vendor, model, vram_gb}`` — one entry per physical device.
+
+    Supports both shapes the codebase already produces: a singular ``gpu``
+    object (``{vendor, vram_gb, count, model?}``) which expands to ``count``
+    identical devices, and a ``gpus[]`` list (each ``{model?, vendor?, vram_gb?,
+    index?}``), as emitted by the kubernetes-discovery agent path.
+    """
+    out: list[dict] = []
+    raw_list = host.get("gpus")
+    if isinstance(raw_list, list) and raw_list:
+        for i, g in enumerate(raw_list):
+            if isinstance(g, dict):
+                idx = g.get("index")
+                out.append({
+                    "index": idx if isinstance(idx, int) else i,
+                    "vendor": str(g.get("vendor") or ""),
+                    "model": str(g.get("model") or ""),
+                    "vram_gb": g.get("vram_gb") if isinstance(g.get("vram_gb"), (int, float)) else None,
+                })
+            elif g:
+                out.append({"index": i, "vendor": "", "model": str(g), "vram_gb": None})
+        return out
+    gpu = host.get("gpu")
+    if isinstance(gpu, dict):
+        count = gpu.get("count", 1)
+        count = count if isinstance(count, int) and count >= 1 else 1
+        vram = gpu.get("vram_gb") if isinstance(gpu.get("vram_gb"), (int, float)) else None
+        for i in range(count):
+            out.append({
+                "index": i,
+                "vendor": str(gpu.get("vendor") or ""),
+                "model": str(gpu.get("model") or ""),
+                "vram_gb": vram,
+            })
+    elif isinstance(gpu, str) and gpu.strip():
+        out.append({"index": 0, "vendor": "", "model": gpu.strip(), "vram_gb": None})
+    return out
+
+
+def _sync_hosts_and_gpus(provider, parsed) -> dict:
+    """Mirror the manifest's ``hosts[]`` (and their GPUs) into Host + Gpu rows.
+
+    Returns ``{host_id: Host}`` for the services sync to link against. Hosts /
+    GPUs that vanish from the manifest are soft-deactivated (``is_active=False``)
+    rather than deleted, so the generations that ran on them keep a stable home.
+    """
+    from .models import Gpu, Host
+
+    hosts = parsed.get("hosts") if isinstance(parsed, dict) else None
+    if not isinstance(hosts, list):
+        hosts = []
+
+    existing = {h.host_id: h for h in provider.hosts.all()}
+    declared_ids: set[str] = set()
+    result: dict[str, Host] = {}
+
+    for h in hosts:
+        if not isinstance(h, dict):
+            continue
+        hid = h.get("id")
+        if not isinstance(hid, str) or not hid.strip():
+            continue
+        hid = hid.strip()
+        declared_ids.add(hid)
+        hostname = str(h.get("hostname") or "")
+        address = str(h.get("address") or "")
+        notes = str(h.get("notes") or "")
+
+        host = existing.get(hid)
+        if host is None:
+            host = Host.objects.create(
+                provider=provider, host_id=hid, hostname=hostname,
+                address=address, notes=notes, is_active=True,
+            )
+        else:
+            fields = []
+            for attr, val in (("hostname", hostname), ("address", address),
+                              ("notes", notes), ("is_active", True)):
+                if getattr(host, attr) != val:
+                    setattr(host, attr, val)
+                    fields.append(attr)
+            if fields:
+                host.save(update_fields=fields + ["modified_on"])
+        result[hid] = host
+
+        # Upsert this host's GPUs by index; deactivate any beyond the declared set.
+        gpus = _host_gpus(h)
+        existing_gpus = {g.index: g for g in host.gpus.all()}
+        declared_idx = set()
+        for gd in gpus:
+            declared_idx.add(gd["index"])
+            g = existing_gpus.get(gd["index"])
+            if g is None:
+                Gpu.objects.create(host=host, **gd, is_active=True)
+            else:
+                fields = []
+                for attr in ("vendor", "model", "vram_gb"):
+                    if getattr(g, attr) != gd[attr]:
+                        setattr(g, attr, gd[attr])
+                        fields.append(attr)
+                if not g.is_active:
+                    g.is_active = True
+                    fields.append("is_active")
+                if fields:
+                    g.save(update_fields=fields + ["modified_on"])
+        for idx, g in existing_gpus.items():
+            if idx not in declared_idx and g.is_active:
+                g.is_active = False
+                g.save(update_fields=["is_active", "modified_on"])
+
+    # Soft-deactivate hosts no longer in the manifest (preserve for history).
+    for hid, host in existing.items():
+        if hid not in declared_ids and host.is_active:
+            host.is_active = False
+            host.save(update_fields=["is_active", "modified_on"])
+
+    return result
+
+
 def sync_provider_models_from_manifest(provider, parsed) -> int:
     """Mirror the manifest into ProviderService + ProviderModel rows.
 
@@ -1421,6 +1544,9 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
     declared_service_names = {s["name"] for s in services_data}
     existing_services = {s.name: s for s in provider.services.all()}
 
+    # Normalize hosts + GPUs first so services can link to a real Host row.
+    hosts_by_id = _sync_hosts_and_gpus(provider, parsed)
+
     service_by_name: dict[str, ProviderService] = {}
     for sd in services_data:
         svc = existing_services.get(sd["name"])
@@ -1428,7 +1554,8 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
             svc = ProviderService.objects.create(
                 provider=provider,
                 name=sd["name"],
-                host_id=sd["host_id"],
+                manifest_host_id=sd["host_id"],
+                host=hosts_by_id.get(sd["host_id"]),
                 engine=sd["engine"],
                 service_type=sd["service_type"],
                 declared_features=sd["features"],
@@ -1438,9 +1565,13 @@ def sync_provider_models_from_manifest(provider, parsed) -> int:
             )
         else:
             fields = []
-            if svc.host_id != sd["host_id"]:
-                svc.host_id = sd["host_id"]
-                fields.append("host_id")
+            if svc.manifest_host_id != sd["host_id"]:
+                svc.manifest_host_id = sd["host_id"]
+                fields.append("manifest_host_id")
+            resolved_host = hosts_by_id.get(sd["host_id"])
+            if svc.host_id != (resolved_host.id if resolved_host else None):
+                svc.host = resolved_host
+                fields.append("host")
             if svc.engine != sd["engine"]:
                 svc.engine = sd["engine"]
                 fields.append("engine")
@@ -1883,6 +2014,87 @@ def _cluster_provider_or_404(request, provider_id, require_k8s=True):
         if not isinstance(parsed, dict) or parsed.get("discovery") != "kubernetes":
             raise Http404("provider's manifest is not kubernetes-derived")
     return provider
+
+
+class ProviderHostDetailView(APIView):
+    """GET /api/inference/providers/<id>/hosts/<host_id>/ — one node's specs,
+    GPUs, the services running on it, and the generations made on it with stats.
+
+    Public whenever the owner's profile is public (a node page is part of the
+    cluster storefront); the owner additionally sees private recent rows and the
+    LAN address. Works for static manifests too (``require_k8s=False``) — live
+    VRAM/util is overlaid client-side from the separate ``/cluster/`` proxy."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, id, host_id):
+        from django.db.models import Avg, Count, Sum
+
+        from .models import Host
+        from .serializers import (
+            InferenceProviderMiniSerializer,
+            InferenceRequestListSerializer,
+            ProviderServiceSerializer,
+        )
+
+        provider = _cluster_provider_or_404(request, id, require_k8s=False)
+        host = get_object_or_404(Host, provider=provider, host_id=host_id)
+        is_owner = request.user.is_authenticated and provider.user_id == request.user.id
+
+        gpus = [
+            {"index": g.index, "vendor": g.vendor, "model": g.model,
+             "vram_gb": g.vram_gb, "is_active": g.is_active}
+            for g in host.gpus.all().order_by("index")
+        ]
+        services = ProviderServiceSerializer(
+            host.services.filter(is_active=True).prefetch_related("models"),
+            many=True, context={"request": request},
+        ).data
+
+        on_host = InferenceRequest.objects.filter(host=host)
+        agg = on_host.aggregate(
+            total=Count("id"),
+            avg_latency_ms=Avg("latency_ms"),
+            total_completion_tokens=Sum("completion_tokens"),
+        )
+        by_modality = {
+            r["inference_type"]: r["n"]
+            for r in on_host.values("inference_type").annotate(n=Count("id"))
+        }
+        # Recent list respects per-viewer visibility (owner sees private rows).
+        visible = (
+            _annotate_viewer_flags(
+                _requests_with_owner().filter(host=host).filter(
+                    visible_list_q(request.user)
+                ),
+                request.user,
+            )
+            .order_by("-created_on")[:12]
+        )
+        recent = InferenceRequestListSerializer(
+            visible, many=True, context={"request": request}
+        ).data
+
+        return Response({
+            "host_id": host.host_id,
+            "hostname": host.hostname,
+            "address": host.address if is_owner else "",
+            "notes": host.notes,
+            "is_active": host.is_active,
+            "is_owner": is_owner,
+            "provider": InferenceProviderMiniSerializer(
+                provider, context={"request": request}
+            ).data,
+            "gpus": gpus,
+            "services": services,
+            "stats": {
+                "total": agg["total"] or 0,
+                "avg_latency_ms": agg["avg_latency_ms"],
+                "total_completion_tokens": agg["total_completion_tokens"] or 0,
+                "by_modality": by_modality,
+            },
+            "recent": recent,
+        })
 
 
 class ProviderClusterStateView(APIView):

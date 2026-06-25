@@ -17,7 +17,9 @@ from apps.inference.serializers import (
 def _provider(*hosts):
     """A stand-in provider whose manifest declares ``hosts`` — enough for
     _gpus_for_host, which only reads ``provider.manifest.parsed['hosts']``."""
-    return SimpleNamespace(manifest=SimpleNamespace(parsed={"hosts": list(hosts)}))
+    return SimpleNamespace(
+        id=1, manifest=SimpleNamespace(parsed={"hosts": list(hosts)})
+    )
 
 
 class TestGpusForHost:
@@ -50,25 +52,42 @@ class TestGpusForHost:
 
 
 class TestRequestHostInfo:
-    """request_host_info prefers the host snapshotted on the request (no DB
-    hit) over re-deriving it. The DB-fallback branch is covered by the API
-    tests; here we lock in the stored-host_id fast path, which is pure."""
+    """request_host_info prefers the durable ``host`` FK; when it's absent
+    (un-backfilled legacy rows, mocked here with ``host=None``) it falls back to
+    the dispatch_meta host_id + manifest-JSON walk. We lock in that pure fallback
+    branch; the FK fast path is covered by the API tests."""
 
-    def test_prefers_stored_host_id(self):
+    def test_legacy_fallback_uses_stored_host_id(self):
         req = SimpleNamespace(
+            host=None, host_id=None,
+            gpu=None,
             dispatch_meta={"provider_model_id": 7, "host_id": "a1"},
             provider=_provider(TestGpusForHost.A, TestGpusForHost.B),
         )
-        assert request_host_info(req) == {"host_id": "a1", "gpus": ["RTX 4090"]}
+        assert request_host_info(req) == {
+            "host_id": "a1",
+            "hostname": "",
+            "provider_id": 1,
+            "gpus": [{"index": 0, "model": "RTX 4090", "vram_gb": None}],
+            "gpu": None,
+        }
 
     def test_blank_stored_host_with_no_pm_is_unknown(self):
         # Sync request whose service had no host_id, multi-host provider →
         # "unknown", never a union of every GPU.
         req = SimpleNamespace(
+            host=None, host_id=None,
+            gpu=None,
             dispatch_meta={"provider_model_id": None, "host_id": ""},
             provider=_provider(TestGpusForHost.A, TestGpusForHost.B),
         )
-        assert request_host_info(req) == {"host_id": None, "gpus": []}
+        assert request_host_info(req) == {
+            "host_id": None,
+            "hostname": "",
+            "provider_id": 1,
+            "gpus": [],
+            "gpu": None,
+        }
 
 
 class TestExtractMessages:

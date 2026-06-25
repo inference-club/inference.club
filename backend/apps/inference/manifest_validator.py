@@ -139,23 +139,43 @@ def validate(parsed: dict, raw_yaml: str = "") -> list[str]:
         else:
             seen_host_ids.add(host_id)
 
+        def _check_gpu(gpu, gprefix):
+            vendor = gpu.get("vendor")
+            if vendor is not None and vendor not in GPU_VENDORS:
+                errors.append(
+                    f"{gprefix}.vendor: must be one of {sorted(GPU_VENDORS)}, got {vendor!r}"
+                )
+            vram = gpu.get("vram_gb")
+            if vram is not None and (not isinstance(vram, (int, float)) or vram < 0):
+                errors.append(f"{gprefix}.vram_gb: must be a non-negative number")
+            model = gpu.get("model")
+            if model is not None and (not isinstance(model, str) or len(model) > MAX_STRING_LEN):
+                errors.append(f"{gprefix}.model: must be a string up to {MAX_STRING_LEN} chars")
+            idx = gpu.get("index")
+            if idx is not None and (not isinstance(idx, int) or idx < 0):
+                errors.append(f"{gprefix}.index: must be a non-negative integer")
+
+        # Singular ``gpu`` object (with an optional ``count`` to expand) …
         gpu = host.get("gpu")
         if gpu is not None:
             if not isinstance(gpu, dict):
                 errors.append(f"{prefix}.gpu: must be an object if present")
             else:
-                vendor = gpu.get("vendor")
-                if vendor is not None and vendor not in GPU_VENDORS:
-                    errors.append(
-                        f"{prefix}.gpu.vendor: must be one of "
-                        f"{sorted(GPU_VENDORS)}, got {vendor!r}"
-                    )
-                vram = gpu.get("vram_gb")
-                if vram is not None and (not isinstance(vram, (int, float)) or vram < 0):
-                    errors.append(f"{prefix}.gpu.vram_gb: must be a non-negative number")
+                _check_gpu(gpu, f"{prefix}.gpu")
                 count = gpu.get("count", 1)
                 if not isinstance(count, int) or count < 1:
                     errors.append(f"{prefix}.gpu.count: must be a positive integer")
+        # … or a ``gpus[]`` list (one entry per device, as the k8s path emits).
+        gpus = host.get("gpus")
+        if gpus is not None:
+            if not isinstance(gpus, list):
+                errors.append(f"{prefix}.gpus: must be a list if present")
+            else:
+                for g_idx, g in enumerate(gpus):
+                    if not isinstance(g, dict):
+                        errors.append(f"{prefix}.gpus[{g_idx}]: must be an object")
+                    else:
+                        _check_gpu(g, f"{prefix}.gpus[{g_idx}]")
 
         for field in ("hostname", "address", "notes"):
             val = host.get(field)

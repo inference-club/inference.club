@@ -234,6 +234,16 @@ export function useAsyncJobs() {
   const cancelJob = (id: string | number) => post(`/v1/jobs/${id}/cancel`)
   const retryJob = (id: string | number) => post(`/v1/jobs/${id}/retry`)
 
+  // --- batches (enqueue N requests at once) ---
+  // Submit a list of {endpoint, body} items as one batch of queued jobs. The
+  // dispatcher serializes them per provider/service capacity (one at a time
+  // when the target service's max_concurrent is 1), so this is how a playground
+  // queues several generations without overrunning the single live node.
+  const enqueueBatch = (
+    requests: { endpoint: string; body: Record<string, unknown> }[],
+    label?: string,
+  ) => post<{ id: number; status: string }>('/v1/batches', { requests, label })
+
   // --- workflows ---
   const listRuns = () =>
     get<{ data: WorkflowRunSummary[] }>('/v1/workflows/runs').then((r) => r.data)
@@ -279,7 +289,7 @@ export function useAsyncJobs() {
   const queueSummary = () => get<QueueSummary>('/api/inference/queue/summary/')
 
   return {
-    listJobs, getJob, cancelJob, retryJob,
+    listJobs, getJob, cancelJob, retryJob, enqueueBatch,
     listRuns, getRun, startRun, resolveGate, listTemplates, startFromTemplate,
     fetchSuggestions, queueSummary, rerunStep,
     listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow,

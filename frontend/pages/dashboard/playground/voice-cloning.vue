@@ -116,6 +116,8 @@ const run = async () => {
 }
 const stop = () => controller?.abort()
 
+useSubmitHotkey(run)
+
 onMounted(async () => {
   try {
     models.value = await vc.listVoiceModels()
@@ -255,7 +257,7 @@ const removeSample = async (s: VoiceSample) => {
           Clone a voice from your samples and speak any script. Use [S1]/[S2] for dialogue.
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <Dialog v-model:open="manageOpen">
           <DialogTrigger as-child>
             <Button variant="outline" class="gap-2">
@@ -390,7 +392,7 @@ const removeSample = async (s: VoiceSample) => {
         </Dialog>
 
         <Select v-model="model" :disabled="loadingModels || !models.length">
-          <SelectTrigger class="w-[16rem] font-mono text-xs">
+          <SelectTrigger class="w-full sm:w-[16rem] font-mono text-xs">
             <SelectValue :placeholder="loadingModels ? 'Loading models…' : 'Select a model'" />
           </SelectTrigger>
           <SelectContent>

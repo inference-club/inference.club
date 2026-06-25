@@ -9,8 +9,9 @@ import { useInferenceRequestStore } from '@/stores/inferenceRequest'
 import { usePlaygroundPrefill, REPRODUCE_ROUTES } from '@/composables/usePlaygroundPrefill'
 import { useAuth } from '@/composables/useAuth'
 import {
-  statusVariant, formatAbsolute, formatLatency, totalTokens, roleClasses,
+  statusVariant, formatAbsolute, formatLatency, totalTokens, roleClasses, nodeUrl,
 } from '@/utils/inference'
+import { prettyGpuModel } from '@/composables/useMachineForm'
 
 definePageMeta({
   layout: 'app',
@@ -29,6 +30,7 @@ const backTo = computed(() =>
 )
 
 const req = computed(() => store.currentRequest)
+const reqNodeUrl = computed(() => (req.value ? nodeUrl(req.value) : null))
 const isStt = computed(() => req.value?.inference_type === 'STT')
 const isImage = computed(() => req.value?.inference_type === 'IMAGE')
 // Source image(s) for an edit: prefer the plural list, fall back to the single.
@@ -243,19 +245,22 @@ onMounted(() => {
             </dt>
             <dd class="mt-0.5 flex flex-wrap items-center gap-1.5">
               <component
-                :is="req.provider?.owner_handle ? 'NuxtLink' : 'span'"
+                :is="reqNodeUrl ? 'NuxtLink' : 'span'"
                 v-if="req.host?.host_id"
-                :to="req.provider?.owner_handle ? `/${req.provider.owner_handle}/cluster` : undefined"
+                :to="reqNodeUrl || undefined"
                 class="font-mono text-xs"
-                :class="req.provider?.owner_handle ? 'underline-offset-2 hover:underline' : ''"
-              >{{ req.host.host_id }}</component>
-              <span
+                :class="reqNodeUrl ? 'underline-offset-2 hover:underline' : ''"
+              >{{ req.host.hostname || req.host.host_id }}</component>
+              <component
+                :is="reqNodeUrl ? 'NuxtLink' : 'span'"
                 v-for="g in (req.host?.gpus || [])"
-                :key="g"
+                :key="g.index"
+                :to="reqNodeUrl ? `${reqNodeUrl}#gpu-${g.index}` : undefined"
                 class="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-2xs"
+                :class="reqNodeUrl ? 'hover:bg-accent' : ''"
               >
-                <Cpu class="size-3" /> {{ g }}
-              </span>
+                <Cpu class="size-3" /> {{ prettyGpuModel(g.model || '') || g.model }}
+              </component>
             </dd>
           </div>
           <div>

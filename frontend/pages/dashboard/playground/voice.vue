@@ -586,7 +586,7 @@ const onTtsModelChange = async () => {
           Hands-free voice chat — speak, and the agent replies out loud.
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <Button
           v-if="hasAnyAudio"
           variant="ghost"

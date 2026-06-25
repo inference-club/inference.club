@@ -217,6 +217,16 @@ const runRender = async () => {
 }
 const stopRender = () => renderController?.abort()
 
+// ⌘/Ctrl+Enter advances the guided flow: make the first frame while there isn't
+// one, otherwise render the video.
+useSubmitHotkey(() => {
+  if (!frame.value) {
+    if (canGenerateImage.value) runImage()
+  } else if (canRender.value) {
+    runRender()
+  }
+})
+
 const download = () => {
   if (!result.value) return
   const a = document.createElement('a')

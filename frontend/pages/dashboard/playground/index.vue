@@ -733,7 +733,7 @@ onBeforeUnmount(() => {
 
             <!-- Bottom row: model picker + privacy + options live in the
                  composer (the pattern other modalities can adopt). -->
-            <div class="flex items-center gap-1.5 px-2.5 pb-2.5">
+            <div class="flex min-w-0 items-center gap-1.5 px-2.5 pb-2.5">
               <input
                 ref="fileInput"
                 type="file"
@@ -755,7 +755,7 @@ onBeforeUnmount(() => {
 
               <ModelPicker v-model="model" :models="models" :loading="loadingModels" />
 
-              <div class="ml-auto flex items-center gap-1">
+              <div class="ml-auto flex shrink-0 items-center gap-1">
                 <GenerationSharingPicker compact />
                 <Button
                   variant="ghost"
