@@ -16,6 +16,7 @@ from django.http import StreamingHttpResponse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.response import Response
 from .throttling import AccountTypeScopedRateThrottle, anon_scope_rate, is_anon_account
 from rest_framework.views import APIView
@@ -235,10 +236,46 @@ def _ensure_stream_usage(body) -> None:
         so["include_usage"] = True
 
 
+class BinaryPassthroughRenderer(BaseRenderer):
+    """Permissive renderer so the OpenAI-compatible binary endpoints (TTS audio,
+    voice cloning, image/video/glb bytes) don't return ``406 Not Acceptable``
+    when a client sends a concrete ``Accept`` header. The official OpenAI SDK,
+    for example, sends ``Accept: application/octet-stream`` on
+    ``audio.speech.create``; DRF's default JSON-only content negotiation
+    rejected it even though the view returns valid audio.
+
+    Successful binary responses are plain Django ``HttpResponse`` objects and
+    bypass DRF rendering entirely, so this renderer only needs to (a) let
+    content negotiation succeed for any ``Accept`` and (b) still emit a sane
+    body if a JSON error ``Response`` happens to be negotiated under a binary
+    ``Accept`` header.
+    """
+
+    media_type = "*/*"
+    format = "bin"
+    charset = None
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if isinstance(data, (bytes, bytearray)):
+            return bytes(data)
+        if data is None:
+            return b""
+        if isinstance(data, str):
+            return data.encode("utf-8")
+        # DRF error Response (a dict) negotiated under a binary Accept header:
+        # emit valid JSON so OpenAI-style clients can still parse the error.
+        return json.dumps(data).encode("utf-8")
+
+
 class _RateLimitHeadersMixin:
     """Adds ``X-RateLimit-{Limit,Remaining,Reset}`` headers to responses, so
     OpenAI-style clients and scripts can see their headroom on every call.
     Reflects state *after* this request was counted."""
+
+    # JSONRenderer stays first so normal ``application/json`` / ``*/*`` requests
+    # keep rendering JSON exactly as before; the passthrough only kicks in for
+    # concrete binary ``Accept`` headers that would otherwise 406.
+    renderer_classes = [JSONRenderer, BinaryPassthroughRenderer]
 
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
