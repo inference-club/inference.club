@@ -83,3 +83,33 @@ class TestAgentHeartbeat:
     def test_requires_auth(self, provider):
         resp = APIClient().post(HEARTBEAT, {"name": "club-host-k8s"}, format="json")
         assert resp.status_code in (401, 403)
+
+    def test_beacon_records_tailnet_ip_for_dialing(self, api_client, provider):
+        """The reported tailnet IP becomes the dial target, so the backend reaches
+        the live node even after Tailscale renames it (club-host-1 → -1-1)."""
+        resp = api_client.post(
+            HEARTBEAT,
+            {"name": "club-host-k8s", "tailnet_addr": "100.68.155.114"},
+            format="json",
+        )
+        assert resp.status_code == 200
+        provider.refresh_from_db()
+        assert provider.tailnet_addr == "100.68.155.114"
+        # dial_host now prefers the IP over the (possibly drifted) hostname
+        assert provider.dial_host == "100.68.155.114"
+        assert provider.tailnet_base_url == "http://100.68.155.114:443/v1"
+
+    def test_beacon_rejects_non_tailnet_addr(self, api_client, provider):
+        """An agent can't steer the SOCKS proxy at a LAN/arbitrary host: only
+        addresses in Tailscale's 100.64.0.0/10 range are accepted."""
+        for bad in ("192.168.1.10", "10.0.0.5", "8.8.8.8", "not-an-ip", "100.68.155.114; rm"):
+            resp = api_client.post(
+                HEARTBEAT,
+                {"name": "club-host-k8s", "tailnet_addr": bad},
+                format="json",
+            )
+            assert resp.status_code == 200  # heartbeat still succeeds
+            provider.refresh_from_db()
+            assert provider.tailnet_addr == ""  # but the bad addr is ignored
+            # dial falls back to the canonical hostname
+            assert provider.dial_host == "club-host-1"

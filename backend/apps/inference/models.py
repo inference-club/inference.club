@@ -97,7 +97,18 @@ class Provider(BaseModel):
         max_length=255,
         blank=True,
         help_text="Tailscale MagicDNS hostname inside the inference.club tailnet "
-        "(e.g. 'club-host-17'). Empty until the agent has registered.",
+        "(e.g. 'club-host-17'). Empty until the agent has registered. Kept as a "
+        "human-readable label; the dial target is tailnet_addr when set.",
+    )
+    tailnet_addr = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="The agent's actual tailnet IP, reported on its heartbeat once "
+        "it has joined (e.g. '100.68.155.114'). Preferred dial target: it routes "
+        "straight over WireGuard via the SOCKS proxy, so it's immune to MagicDNS "
+        "hostname drift when a node rejoins and Tailscale uniquifies its name "
+        "(club-host-1 → club-host-1-1). Falls back to tailnet_hostname when empty.",
     )
     agent_port = models.PositiveIntegerField(default=443)
     accepting_requests = models.BooleanField(
@@ -126,30 +137,37 @@ class Provider(BaseModel):
         return f"{self.user_id}:{self.name}"
 
     @property
-    def tailnet_base_url(self) -> str:
-        """Plain HTTP via the *short* MagicDNS name.
+    def dial_host(self) -> str:
+        """The host the backend connects to over the tailnet SOCKS proxy.
 
-        Tailscale's userspace SOCKS5 resolves short MagicDNS names within the
-        tailnet but doesn't reliably resolve FQDNs like
-        ``host.<tailnet>.ts.net``. We don't need the FQDN since there's no
-        TLS to validate (the agent serves HTTP and the WireGuard tunnel
-        already encrypts the wire).
+        Prefers the agent-reported tailnet IP (``tailnet_addr``), which the
+        SOCKS proxy routes straight over WireGuard — no MagicDNS lookup, so it
+        survives Tailscale renaming the node on rejoin. Falls back to the short
+        MagicDNS hostname for older agents that don't report their IP yet.
+
+        We don't use the FQDN (``host.<tailnet>.ts.net``): there's no TLS to
+        validate (the agent serves plain HTTP and WireGuard already encrypts the
+        wire), and the userspace SOCKS5 resolver doesn't reliably resolve FQDNs.
         """
-        host = self.tailnet_hostname
+        return self.tailnet_addr or self.tailnet_hostname
+
+    @property
+    def tailnet_base_url(self) -> str:
+        host = self.dial_host
         if not host:
             return ""
         return f"http://{host}:{self.agent_port}/v1"
 
     @property
     def healthz_url(self) -> str:
-        host = self.tailnet_hostname
+        host = self.dial_host
         if not host:
             return ""
         return f"http://{host}:{self.agent_port}/healthz"
 
     @property
     def is_online(self) -> bool:
-        if not self.is_active or not self.tailnet_hostname:
+        if not self.is_active or not self.dial_host:
             return False
         if self.last_seen_at is None:
             return False

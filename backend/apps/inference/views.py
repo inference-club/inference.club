@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 import time
 from datetime import timedelta
@@ -642,6 +643,28 @@ class AgentRegisterView(APIView):
         )
 
 
+# Tailscale hands out node addresses from the 100.64.0.0/10 CGNAT range.
+_TAILNET_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _valid_tailnet_addr(value) -> str:
+    """Return a trusted tailnet IPv4 string, or '' if not a usable address.
+
+    Guards the SOCKS dial target: we only accept an IPv4 inside Tailscale's
+    100.64.0.0/10 range so an agent can't steer the proxy at a LAN host.
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    try:
+        ip = ipaddress.ip_address(raw)
+    except ValueError:
+        return ""
+    if ip.version != 4 or ip not in _TAILNET_CGNAT:
+        return ""
+    return str(ip)
+
+
 class AgentHeartbeatView(APIView):
     """POST /api/inference/agent/heartbeat/ — lightweight liveness beacon.
 
@@ -678,7 +701,16 @@ class AgentHeartbeatView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         now = timezone.now()
-        Provider.objects.filter(id=provider.id).update(last_seen_at=now)
+        updates = {"last_seen_at": now}
+        # The agent reports its actual tailnet IP once it has joined, so the
+        # backend dials the live node directly instead of a MagicDNS hostname
+        # that Tailscale may have renamed on rejoin (club-host-1 → club-host-1-1).
+        # Only accept addresses in Tailscale's 100.64.0.0/10 (CGNAT) range so a
+        # misbehaving agent can't point the SOCKS proxy at arbitrary hosts.
+        addr = _valid_tailnet_addr(request.data.get("tailnet_addr"))
+        if addr and addr != provider.tailnet_addr:
+            updates["tailnet_addr"] = addr
+        Provider.objects.filter(id=provider.id).update(**updates)
         return Response(
             {"provider_id": provider.id, "online": True, "last_seen_at": now},
             status=status.HTTP_200_OK,
