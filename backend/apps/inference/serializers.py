@@ -221,17 +221,56 @@ def _stringify_content(content) -> str:
             if isinstance(p, dict):
                 if isinstance(p.get("text"), str):
                     parts.append(p["text"])
-                else:
+                elif p.get("type") not in ("image_url", "video_url", "input_audio"):
+                    # Media parts are rendered separately (see _message_media);
+                    # only mark genuinely-unknown part types in the text.
                     parts.append(f"[{p.get('type', 'part')}]")
         return "\n".join(parts)
     return ""
 
 
-def _extract_messages(payload) -> list[dict]:
-    """Return the request as a list of ``{role, content}`` messages.
+_MEDIA_KIND_BY_TYPE = {
+    "image_url": "image",
+    "video_url": "video",
+    "input_audio": "audio",
+}
 
-    Handles chat (``messages``) and legacy completions (``prompt``).
-    """
+
+def _message_media(content, request) -> list[dict]:
+    """Renderable media for a message's multimodal ``content`` — resolves a
+    stored asset ref (``asset_id``, written by the proxy when it slims inline
+    base64; PRD 17 §6) to its gated URL, and passes through any plain
+    (non-base64) image/video URL. Base64 parts with no asset ref aren't
+    renderable (legacy requests stored before the slimming existed)."""
+    if not isinstance(content, list):
+        return []
+    out = []
+    for p in content:
+        if not isinstance(p, dict):
+            continue
+        kind = _MEDIA_KIND_BY_TYPE.get(p.get("type"))
+        if not kind:
+            continue
+        aid = p.get("asset_id")
+        url = None
+        if aid:
+            path = f"/api/inference/assets/{aid}/"
+            url = request.build_absolute_uri(path) if request is not None else path
+        else:
+            holder = p.get(p.get("type"))
+            u = holder.get("url") if isinstance(holder, dict) else None
+            if isinstance(u, str) and u and not u.startswith("data:"):
+                url = request.build_absolute_uri(u) if (request is not None and u.startswith("/")) else u
+        if url:
+            out.append({"kind": kind, "url": url})
+    return out
+
+
+def _extract_messages(payload, request=None) -> list[dict]:
+    """Return the request as a list of ``{role, content, media}`` messages.
+
+    Handles chat (``messages``) and legacy completions (``prompt``). ``media``
+    is the renderable attachment list (empty for text-only turns)."""
     if not isinstance(payload, dict):
         return []
     msgs = payload.get("messages")
@@ -243,12 +282,13 @@ def _extract_messages(payload) -> list[dict]:
                     {
                         "role": m.get("role", ""),
                         "content": _stringify_content(m.get("content")),
+                        "media": _message_media(m.get("content"), request),
                     }
                 )
         return out
     prompt = payload.get("prompt")
     if isinstance(prompt, str):
-        return [{"role": "user", "content": prompt}]
+        return [{"role": "user", "content": prompt, "media": []}]
     return []
 
 
@@ -1048,7 +1088,7 @@ class InferenceRequestDetailSerializer(
         return request_host_info(obj)
 
     def get_messages(self, obj) -> list[dict]:
-        return _extract_messages(obj.payload)
+        return _extract_messages(obj.payload, self.context.get("request"))
 
     def get_response_text(self, obj) -> str:
         return _extract_response_text(obj.results)

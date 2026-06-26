@@ -522,6 +522,13 @@ onMounted(() => {
                 {{ m.role || 'message' }}
               </span>
             </div>
+            <div v-if="m.media?.length" class="mb-2 flex flex-wrap gap-2">
+              <template v-for="(media, mi) in m.media" :key="`media-${mi}`">
+                <img v-if="media.kind === 'image'" :src="media.url" alt="attachment" class="max-h-56 rounded-md border" />
+                <video v-else-if="media.kind === 'video'" :src="media.url" controls class="max-h-56 rounded-md border" />
+                <audio v-else :src="media.url" controls class="w-full" />
+              </template>
+            </div>
             <MarkdownRenderer :content="m.content" />
           </div>
         </div>

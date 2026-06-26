@@ -56,6 +56,19 @@
 > Messages list). That needs the proxy ref-resolution (store ref, inline base64
 > to the provider, bind assets to the request) + serializer `content_parts`, and
 > is the remaining V1 task before V2 (the Library UI).
+>
+> **Progress** — **V1 part 2b SHIPPED (2026-06-25):** the **request-log** half.
+> The sync chat proxy now slims the stored `payload` (inline base64 → a gated
+> asset ref, via the client-supplied `asset_id`) while forwarding the base64 to
+> the model and stripping `asset_id` so the upstream never sees a non-schema key;
+> referenced uploads are **bound to the request** (first-use-wins) so their
+> audience follows it. The serializer surfaces a per-message `media` list
+> (`_message_media`) and `_stringify_content` no longer emits `[image_url]`
+> placeholders for renderable media; the request-detail Conversation now renders
+> image/audio/video. Text-only requests are a no-op (zero hot-path cost). Async
+> chat keeps inline base64 (the dispatcher forwards it later) — a documented
+> follow-up. 10 slimming/binding/render unit tests; full inference suite green
+> (551). **V1 COMPLETE.** Next: V2 — the `/dashboard/media` Library UI.
 
 ---
 

@@ -53,7 +53,7 @@ class TestKindRoutedGCSStorage:
         # readable. This pins the classification so a newly-added kind can't be
         # made public by omission.
         non_public = {k for k, _ in MediaAsset.KIND_CHOICES} - MediaAsset.PUBLIC_KINDS
-        assert non_public == {"INPUT_AUDIO", "INPUT_DOC", "OUTPUT_DOC"}
+        assert non_public == {"INPUT_AUDIO", "INPUT_VIDEO", "INPUT_DOC", "OUTPUT_DOC"}
         storage = KindRoutedGCSStorage()
         for k in non_public:
             backend = storage._backend(f"{k.lower()}/42/abc123/file.bin")

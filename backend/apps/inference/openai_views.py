@@ -548,6 +548,114 @@ class ModelsView(_RateLimitHeadersMixin, APIView):
         return Response({"object": "list", "data": list(seen.values())})
 
 
+# --- inline-media slimming for the stored payload (PRD 17 §6) ----------------
+# A chat turn with an attached image arrives with the bytes inlined as a base64
+# ``data:`` URL. We must still forward those bytes to the model, but storing
+# them in InferenceRequest.payload is what made old requests render the literal
+# "[image_url]" placeholder (and bloated the row). So: forward the base64 to the
+# provider unchanged, but store a slimmed copy that references the uploaded
+# MediaAsset (by the client-supplied ``asset_id``) instead — small + renderable.
+
+_STRIPPED_MEDIA = "[stored as asset]"
+
+
+def _slim_media_part(part):
+    """Return ``(slim_part, asset_id)`` for one content part. If the part has
+    inline base64, the copy points at the asset's gated URL (when an asset_id
+    was supplied) and drops the bytes. Non-media / already-slim parts pass
+    through unchanged (``slim_part is part``)."""
+    if not isinstance(part, dict):
+        return part, None
+    aid = part.get("asset_id")
+    ptype = part.get("type")
+    if ptype in ("image_url", "video_url"):
+        holder = part.get(ptype)
+        url = holder.get("url") if isinstance(holder, dict) else None
+        if isinstance(url, str) and url.startswith("data:"):
+            ref = f"/api/inference/assets/{aid}/" if aid else _STRIPPED_MEDIA
+            slim = {"type": ptype, ptype: {"url": ref}}
+            if aid:
+                slim["asset_id"] = aid
+            return slim, aid
+    elif ptype == "input_audio":
+        holder = part.get("input_audio")
+        if isinstance(holder, dict) and isinstance(holder.get("data"), str) and holder["data"]:
+            slim = {"type": "input_audio", "input_audio": {"format": holder.get("format", "")}}
+            if aid:
+                slim["asset_id"] = aid
+            return slim, aid
+    return part, aid
+
+
+def _slim_payload_for_storage(body):
+    """A storage copy of a chat body with inline base64 media replaced by asset
+    refs; the forwarded ``body`` is left untouched. Returns
+    ``(payload, asset_ids)``. A no-op (returns ``body`` itself) for text-only
+    requests, so the common path costs nothing."""
+    if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
+        return body, []
+    asset_ids = []
+    new_msgs = []
+    any_change = False
+    for m in body["messages"]:
+        content = m.get("content") if isinstance(m, dict) else None
+        if not isinstance(content, list):
+            new_msgs.append(m)
+            continue
+        slim_parts = []
+        msg_changed = False
+        for p in content:
+            slim, aid = _slim_media_part(p)
+            if aid:
+                asset_ids.append(aid)
+            if slim is not p:
+                msg_changed = True
+            slim_parts.append(slim)
+        if msg_changed:
+            nm = dict(m)
+            nm["content"] = slim_parts
+            new_msgs.append(nm)
+            any_change = True
+        else:
+            new_msgs.append(m)
+    if not any_change and not asset_ids:
+        return body, []
+    slim_body = dict(body)
+    slim_body["messages"] = new_msgs
+    return slim_body, asset_ids
+
+
+def _strip_asset_ids(body):
+    """Remove the inference.club ``asset_id`` sibling from every content part in
+    place, so the upstream model server never sees a key outside the OpenAI
+    content schema (vLLM rejects unknown keys). Called on the forwarded body."""
+    if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
+        return
+    for m in body["messages"]:
+        content = m.get("content") if isinstance(m, dict) else None
+        if isinstance(content, list):
+            for p in content:
+                if isinstance(p, dict):
+                    p.pop("asset_id", None)
+
+
+def _bind_assets_to_request(user, ir, asset_ids):
+    """Bind the referenced uploads to this request so their audience follows it
+    (and they carry provenance). First use wins — an asset stays homed to the
+    request it first appeared in. Best-effort; never breaks the inference."""
+    ids = [a for a in dict.fromkeys(asset_ids) if a]
+    if not ids:
+        return
+    try:
+        from .models import MediaAsset
+
+        MediaAsset.objects.filter(
+            public_id__in=ids, user=user, inference_request__isnull=True
+        ).update(inference_request=ir)
+    except Exception as e:  # storage/db hiccup must not fail the request
+        logger.warning("asset bind failed: %s", e)
+
+
 class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
     """Shared proxy logic for /v1/chat/completions and /v1/completions."""
 
@@ -606,6 +714,9 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         if go_async:
             job_body = dict(body)
             job_body["model"] = canonical or model_name or ""
+            # Async keeps the inline base64 (the dispatcher forwards it later),
+            # but the asset_id sibling still must not reach the model server.
+            _strip_asset_ids(job_body)
             return _enqueue_async(
                 request, self.inference_type, job_body,
                 visibility, collection_name, model_name=canonical or model_name or "",
@@ -622,6 +733,11 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         if stream and isinstance(body, dict):
             # Opt into streamed token usage so streams report tokens too.
             _ensure_stream_usage(body)
+        # Store a slimmed payload (inline base64 → asset refs) but forward the
+        # base64 to the provider; strip the asset_id sibling so the upstream
+        # never sees a non-schema key (PRD 17 §6).
+        stored_payload, asset_ids = _slim_payload_for_storage(body)
+        _strip_asset_ids(body)
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
@@ -630,11 +746,12 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
             # aggregate one model across providers, not per served-name variant.
             model_name=canonical or model_name or "",
             inference_type=self.inference_type,
-            payload=body,
+            payload=stored_payload,
             status="PROCESSING",
             visibility=visibility or "",
         )
         file_into_collection(request.user, ir, collection_name)
+        _bind_assets_to_request(request.user, ir, asset_ids)
         started = time.monotonic()
 
         try:

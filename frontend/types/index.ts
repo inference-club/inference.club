@@ -83,9 +83,16 @@ export interface RequestHost {
   gpu?: { index: number; model?: string | null } | null
 }
 
+export interface MessageMedia {
+  kind: 'image' | 'audio' | 'video'
+  url: string
+}
+
 export interface ChatMessage {
   role: string
   content: string
+  // Renderable attachments resolved from stored asset refs (PRD 17 §6).
+  media?: MessageMedia[]
 }
 
 export interface InferenceRequest {

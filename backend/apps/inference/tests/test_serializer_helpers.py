@@ -93,10 +93,12 @@ class TestRequestHostInfo:
 class TestExtractMessages:
     def test_chat_messages(self):
         payload = {"messages": [{"role": "user", "content": "hi"}]}
-        assert _extract_messages(payload) == [{"role": "user", "content": "hi"}]
+        assert _extract_messages(payload) == [{"role": "user", "content": "hi", "media": []}]
 
     def test_legacy_completions_prompt(self):
-        assert _extract_messages({"prompt": "hey"}) == [{"role": "user", "content": "hey"}]
+        assert _extract_messages({"prompt": "hey"}) == [
+            {"role": "user", "content": "hey", "media": []}
+        ]
 
     def test_empty_or_bad(self):
         assert _extract_messages({}) == []
@@ -108,13 +110,17 @@ class TestStringifyContent:
         assert _stringify_content("hello") == "hello"
 
     def test_multimodal_parts(self):
+        # Media parts are rendered separately now (see _message_media), so they
+        # no longer pollute the flattened text; genuinely-unknown types still do.
         content = [
             {"type": "text", "text": "describe this"},
             {"type": "image_url", "image_url": {"url": "x"}},
+            {"type": "mystery"},
         ]
         out = _stringify_content(content)
         assert "describe this" in out
-        assert "[image_url]" in out
+        assert "[image_url]" not in out
+        assert "[mystery]" in out
 
 
 class TestResponseText:

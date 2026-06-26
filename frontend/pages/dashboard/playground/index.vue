@@ -257,13 +257,17 @@ const base64FromDataUrl = (dataUrl: string) => dataUrl.split(',', 2)[1] ?? dataU
 
 const mediaPart = (a: Attachment) => {
   const src = a.dataUrl || a.url || ''
-  if (a.kind === 'image') return { type: 'image_url', image_url: { url: src } }
+  // The proxy uses asset_id to store a slim, renderable reference (and strips
+  // this key before forwarding to the model) — PRD 17 §6.
+  const ref = a.assetId ? { asset_id: a.assetId } : {}
+  if (a.kind === 'image') return { type: 'image_url', image_url: { url: src }, ...ref }
   if (a.kind === 'audio')
     return {
       type: 'input_audio',
       input_audio: { data: base64FromDataUrl(a.dataUrl || ''), format: audioFormat(a.mime) },
+      ...ref,
     }
-  return { type: 'video_url', video_url: { url: src } }
+  return { type: 'video_url', video_url: { url: src }, ...ref }
 }
 
 // A hydrated thread carries only the gated asset URL (no base64). Before a
