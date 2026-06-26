@@ -43,6 +43,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     titleKey: 'dashboard.groups.media',
     icon: Play,
     items: [
+      { titleKey: 'dashboard.items.library', url: '/dashboard/media' },
       { titleKey: 'dashboard.items.gallery', url: '/dashboard/inference/gallery' },
       { titleKey: 'dashboard.items.music', url: '/dashboard/music' },
       { titleKey: 'dashboard.items.videos', url: '/dashboard/watch' },

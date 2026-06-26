@@ -69,6 +69,17 @@
 > chat keeps inline base64 (the dispatcher forwards it later) — a documented
 > follow-up. 10 slimming/binding/render unit tests; full inference suite green
 > (551). **V1 COMPLETE.** Next: V2 — the `/dashboard/media` Library UI.
+>
+> **Progress** — **V2 SHIPPED (2026-06-25):** the `/dashboard/media` Library —
+> owner-scoped grid (backed by `GET /v1/files` via `useUploads`) with kind
+> filters (images/audio/video/docs) and a source toggle (uploads vs used-in-a-
+> request), image thumbnails + per-kind icons, a per-item visibility corner, and
+> a detail Sheet (preview, metadata, where-used from provenance, a Private⇄Public
+> toggle wired to `PATCH /v1/files`, and delete). Added a **Library** nav entry
+> (all 7 locales; note the i18n guard was already red on `main` for 83 unrelated
+> untranslated keys). Compiles clean. **Remaining:** V3 — re-process actions
+> (transcribe/edit/animate/describe from the Library) + migrating the
+> per-modality playgrounds onto `/v1/files`.
 
 ---
 
