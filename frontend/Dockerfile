@@ -13,12 +13,15 @@ RUN corepack enable
 # so this stage intentionally copies nothing — `yarn install` runs at
 # container start against the mounted lockfile. ----
 FROM base AS dev
-# Force chokidar/Vite to poll for file changes — fs events don't always
-# propagate reliably across the macOS↔Linux bind mount, so HMR can miss
-# edits without this. Costs a bit of idle CPU.
-ENV CHOKIDAR_USEPOLLING=true \
-    WATCHPACK_POLLING=true \
-    NUXT_HOST=0.0.0.0 \
+# File watching uses native fs events (no polling). This relies on Docker
+# Desktop's VirtioFS sharing, which propagates macOS→Linux inotify events
+# across the bind mount reliably — unlike the old gRPC FUSE, where events were
+# dropped and polling was the workaround. Polling forced Vite/chokidar to stat
+# the whole tree on a tight loop, pegging a couple of CPU cores at idle and
+# making HMR/builds crawl. If you ever fall back to gRPC FUSE and HMR misses
+# edits, re-enable polling via the compose env (set the two POLLING vars to a
+# non-empty value) rather than here.
+ENV NUXT_HOST=0.0.0.0 \
     NUXT_PORT=3000
 EXPOSE 3000
 CMD ["sh", "-c", "yarn install --frozen-lockfile && yarn dev --host 0.0.0.0 --port 3000"]

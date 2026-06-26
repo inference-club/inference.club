@@ -217,6 +217,14 @@ services:
       # fails, and retries in a loop (sluggish UI + console ws errors). Must
       # match the host side of the 3100:3000 port mapping below.
       NUXT_VITE_HMR_CLIENT_PORT: "3100"
+      # Disable filesystem polling — VirtioFS delivers native fs events, so
+      # Vite/chokidar watch without stat-looping the whole tree (which pegged
+      # ~2 CPU cores at idle and made HMR/builds crawl). MUST be empty, not
+      # "false": these are read as booleans where any non-empty string — even
+      # "false" — is truthy and re-enables polling. Empty here also overrides
+      # any value still baked in an older dev image.
+      CHOKIDAR_USEPOLLING: ""
+      WATCHPACK_POLLING: ""
     volumes:
       - ./frontend:/app
       # Named volume shadows the host's frontend/node_modules — the host
