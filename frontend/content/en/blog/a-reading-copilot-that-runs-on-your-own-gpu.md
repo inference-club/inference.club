@@ -50,6 +50,13 @@ So the extension's only allegiance is to your cluster. The trust boundary is ide
 The extension requires an inference.club account and an API token — the same token your account already has, shown in `/dashboard/settings`. There's nothing to sign up for separately. If you self-host the whole platform, point the base URL at your own deployment and it works exactly the same.
 ::
 
+::blog-note{type="update" date="2026-06-26"}
+This post describes the first release. The extension has grown a lot since —
+vision attachments, an immersive speed reader, per-URL history, ten themes, and
+an advanced mode that shows you the exact bytes sent to the model. The follow-up
+tour is [Reading the web with my own AI: the extension, a month in](/blog/reading-the-web-with-my-own-ai).
+::
+
 ## What it does today
 
 The first release is deliberately small and sharp. Two surfaces, two actions.
