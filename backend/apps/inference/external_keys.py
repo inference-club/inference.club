@@ -23,6 +23,17 @@ class ExternalService:
     docs_url: str = ""
     # settings attribute holding an instance-wide fallback key (optional).
     env_setting: str = ""
+    # "tool" (an agent-tool key, e.g. Brave) or "llm_provider" (an external
+    # OpenAI-compatible cloud the user can run LLM inference against — PRD 19).
+    category: str = "tool"
+    # For llm_provider services: the OpenAI-compatible API root the user's key
+    # authenticates against, and the path under it that lists models.
+    base_url: str = ""
+    models_path: str = "/models"
+
+
+CATEGORY_TOOL = "tool"
+CATEGORY_LLM_PROVIDER = "llm_provider"
 
 
 # The known services users can store keys for. Brave is wired today; the others
@@ -47,9 +58,45 @@ EXTERNAL_SERVICES = [
         description="Hosted LLM fallback when local models are unavailable (planned).",
         docs_url="https://platform.openai.com/api-keys",
     ),
+    # --- external LLM providers (PRD 19): OpenAI-compatible clouds the user
+    # brings a key for and pins models from. base_url is the /v1 root. ---
+    ExternalService(
+        slug="openrouter",
+        name="OpenRouter",
+        description="Hundreds of models from many labs behind one key.",
+        docs_url="https://openrouter.ai/keys",
+        category=CATEGORY_LLM_PROVIDER,
+        base_url="https://openrouter.ai/api/v1",
+    ),
+    ExternalService(
+        slug="nvidia",
+        name="NVIDIA NIM",
+        description="NVIDIA-hosted models from build.nvidia.com.",
+        docs_url="https://build.nvidia.com/",
+        category=CATEGORY_LLM_PROVIDER,
+        base_url="https://integrate.api.nvidia.com/v1",
+    ),
+    ExternalService(
+        slug="groq",
+        name="Groq",
+        description="Very fast inference on Groq LPUs.",
+        docs_url="https://console.groq.com/keys",
+        category=CATEGORY_LLM_PROVIDER,
+        base_url="https://api.groq.com/openai/v1",
+    ),
 ]
 
 _BY_SLUG = {s.slug: s for s in EXTERNAL_SERVICES}
+
+
+def llm_providers() -> list[ExternalService]:
+    """The external LLM-provider services (PRD 19)."""
+    return [s for s in EXTERNAL_SERVICES if s.category == CATEGORY_LLM_PROVIDER]
+
+
+def is_llm_provider(slug: str) -> bool:
+    svc = _BY_SLUG.get(slug)
+    return bool(svc and svc.category == CATEGORY_LLM_PROVIDER)
 
 
 def get_service(slug: str) -> Optional[ExternalService]:

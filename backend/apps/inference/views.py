@@ -320,6 +320,7 @@ class ApiKeyListView(APIView):
                 "name": svc.name,
                 "description": svc.description,
                 "docs_url": svc.docs_url,
+                "category": svc.category,
                 "is_set": is_set,
                 "hint": hint,
                 "updated": row.modified_on if row else None,
