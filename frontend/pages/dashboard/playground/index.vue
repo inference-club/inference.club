@@ -19,7 +19,8 @@ import {
   X,
 } from 'lucide-vue-next'
 import { usePlayground, type ChatUsage, type ModelInfo, type TokenLogprob } from '@/composables/usePlayground'
-import { useChatThreads, type StoredMessage } from '@/composables/useChatThreads'
+import { useChatThreads, type StoredMessage, type StoredAttachment } from '@/composables/useChatThreads'
+import { useUploads } from '@/composables/useUploads'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
 
 definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.chat' })
@@ -29,8 +30,14 @@ interface Attachment {
   id: string
   kind: MediaKind
   name: string
-  dataUrl: string
+  dataUrl: string // base64 data: URL — for live inference + instant preview
   mime: string
+  // Set once the file is persisted to the Media Library (/v1/files). `url` is
+  // the gated asset URL we store in the thread so reopening re-renders the
+  // media; `upload` is the in-flight persistence we await before saving.
+  assetId?: string
+  url?: string
+  upload?: Promise<void>
 }
 interface Msg {
   role: 'user' | 'assistant'
@@ -47,6 +54,7 @@ interface Msg {
 
 const { listModels, sendChat } = usePlayground()
 const { createThread, updateThread, getThread } = useChatThreads()
+const { uploadFile } = useUploads()
 const { listTtsModels, synthesize } = useTextToSpeech()
 
 // The saved chat thread this conversation persists to (null until the first
@@ -163,12 +171,33 @@ const onFiles = async (e: Event) => {
       continue
     }
     attachments.value.push({ id: uid(), kind, name: f.name, dataUrl: await blobToDataUrl(f), mime: f.type })
+    startUpload(attachments.value[attachments.value.length - 1], f)
   }
   if (fileInput.value) fileInput.value.value = '' // allow re-selecting the same file
 }
 
 const removeAttachment = (id: string) => {
   attachments.value = attachments.value.filter((a) => a.id !== id)
+}
+
+// Persist an attachment to the Media Library (/v1/files) in the background. The
+// resulting gated URL + opaque id are what we store in the thread, so an old
+// conversation re-renders its media. Non-fatal: the live request still works
+// from the inline base64 even if this upload fails.
+const KIND_TO_BACKEND: Record<MediaKind, string> = {
+  image: 'INPUT_IMAGE',
+  audio: 'INPUT_AUDIO',
+  video: 'INPUT_VIDEO',
+}
+const startUpload = (a: Attachment, blob: Blob) => {
+  a.upload = uploadFile(blob, { name: a.name, kind: KIND_TO_BACKEND[a.kind] })
+    .then((f) => {
+      a.assetId = f.public_id
+      a.url = f.url
+    })
+    .catch((e) => {
+      console.warn('Attachment upload failed', e)
+    })
 }
 
 // --- mic recording ---------------------------------------------------------
@@ -193,6 +222,7 @@ const toggleMic = async () => {
         id: uid(), kind: 'audio', name: `recording.${ext}`,
         dataUrl: await blobToDataUrl(blob), mime,
       })
+      startUpload(attachments.value[attachments.value.length - 1], blob)
       recording.value = false
     }
     recorder.start()
@@ -226,13 +256,38 @@ const audioFormat = (mime: string): string => {
 const base64FromDataUrl = (dataUrl: string) => dataUrl.split(',', 2)[1] ?? dataUrl
 
 const mediaPart = (a: Attachment) => {
-  if (a.kind === 'image') return { type: 'image_url', image_url: { url: a.dataUrl } }
+  const src = a.dataUrl || a.url || ''
+  if (a.kind === 'image') return { type: 'image_url', image_url: { url: src } }
   if (a.kind === 'audio')
     return {
       type: 'input_audio',
-      input_audio: { data: base64FromDataUrl(a.dataUrl), format: audioFormat(a.mime) },
+      input_audio: { data: base64FromDataUrl(a.dataUrl || ''), format: audioFormat(a.mime) },
     }
-  return { type: 'video_url', video_url: { url: a.dataUrl } }
+  return { type: 'video_url', video_url: { url: src } }
+}
+
+// A hydrated thread carries only the gated asset URL (no base64). Before a
+// follow-up turn re-sends that history to the model, fetch the bytes back
+// (credentialed — the owner can read their own asset) and inline them, and let
+// any in-flight uploads finish. Best-effort: on failure mediaPart falls back to
+// the URL.
+const ensureAttachmentBytes = async (history: Msg[]) => {
+  const jobs: Promise<unknown>[] = []
+  for (const m of history) {
+    for (const a of m.attachments ?? []) {
+      if (a.upload) jobs.push(a.upload)
+      if (!a.dataUrl && a.url) {
+        jobs.push(
+          fetch(a.url, { credentials: 'include' })
+            .then((r) => r.blob())
+            .then(blobToDataUrl)
+            .then((d) => { a.dataUrl = d })
+            .catch(() => {}),
+        )
+      }
+    }
+  }
+  await Promise.all(jobs)
 }
 
 const buildBody = (history: Msg[]) => {
@@ -289,6 +344,18 @@ const serializeMessages = (): StoredMessage[] =>
       if (m.usage) out.usage = m.usage
       if (m.logprobs?.length) out.logprobs = m.logprobs
       if (m.reasoningLogprobs?.length) out.reasoningLogprobs = m.reasoningLogprobs
+      // Persist uploaded attachments by their gated URL (only those that
+      // finished uploading) — never the base64, which stays out of the thread.
+      const atts = (m.attachments ?? []).filter((a) => a.url)
+      if (atts.length) {
+        out.attachments = atts.map((a): StoredAttachment => ({
+          kind: a.kind,
+          name: a.name,
+          url: a.url!,
+          ...(a.mime ? { mime: a.mime } : {}),
+          ...(a.assetId ? { asset_id: a.assetId } : {}),
+        }))
+      }
       return out
     })
 
@@ -297,6 +364,13 @@ const serializeMessages = (): StoredMessage[] =>
 // Non-fatal: a failed save never interrupts chatting.
 const persistThread = async () => {
   if (!messages.value.some((m) => m.role === 'assistant' && m.done && !m.error)) return
+  // Let any in-flight attachment uploads finish so their gated URLs make it
+  // into the saved thread.
+  await Promise.allSettled(
+    messages.value.flatMap(
+      (m) => (m.attachments ?? []).map((a) => a.upload).filter(Boolean) as Promise<void>[],
+    ),
+  )
   const payload = { model: model.value, messages: serializeMessages() }
   try {
     if (!threadId.value) {
@@ -323,6 +397,15 @@ const hydrateFromThread = async (publicId: string) => {
       usage: m.usage,
       logprobs: m.logprobs,
       reasoningLogprobs: m.reasoningLogprobs,
+      attachments: (m.attachments ?? []).map((a) => ({
+        id: uid(),
+        kind: a.kind,
+        name: a.name,
+        dataUrl: '',
+        mime: a.mime || '',
+        url: a.url,
+        assetId: a.asset_id,
+      })),
       done: true,
     }))
     if (t.has_logprobs) showLogprobs.value = true
@@ -348,6 +431,9 @@ const send = async () => {
   // A fresh send always re-anchors to the bottom, even if they'd scrolled up.
   autoScroll.value = true
   await scrollDown(true)
+  // Hydrated turns carry only the gated URL — refill their base64 so the model
+  // receives the media on a follow-up turn.
+  await ensureAttachmentBytes(history)
 
   const start = performance.now()
   try {
@@ -635,9 +721,9 @@ onBeforeUnmount(() => {
               <!-- Attachments (user) -->
               <div v-if="m.attachments?.length" class="flex flex-wrap gap-2">
                 <template v-for="a in m.attachments" :key="a.id">
-                  <img v-if="a.kind === 'image'" :src="a.dataUrl" :alt="a.name" class="max-h-48 rounded-lg border" />
-                  <audio v-else-if="a.kind === 'audio'" :src="a.dataUrl" controls class="h-10" />
-                  <video v-else :src="a.dataUrl" controls class="max-h-48 rounded-lg border" />
+                  <img v-if="a.kind === 'image'" :src="a.dataUrl || a.url" :alt="a.name" class="max-h-48 rounded-lg border" />
+                  <audio v-else-if="a.kind === 'audio'" :src="a.dataUrl || a.url" controls class="h-10" />
+                  <video v-else :src="a.dataUrl || a.url" controls class="max-h-48 rounded-lg border" />
                 </template>
               </div>
 

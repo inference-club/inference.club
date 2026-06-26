@@ -148,6 +148,15 @@ onBeforeUnmount(() => player.dispose())
               </details>
             </div>
 
+            <!-- User-uploaded attachments (image / audio / video) -->
+            <div v-if="m.attachments?.length" class="flex flex-wrap gap-2">
+              <template v-for="(a, ai) in m.attachments" :key="`att-${ai}`">
+                <img v-if="a.kind === 'image'" :src="a.url" :alt="a.name" class="max-h-56 rounded-md border" />
+                <video v-else-if="a.kind === 'video'" :src="a.url" controls class="max-h-56 rounded-md border" />
+                <audio v-else :src="a.url" controls class="w-full" />
+              </template>
+            </div>
+
             <!-- Body, with a per-message replay button when audio is stored -->
             <div class="flex items-start gap-2">
               <button

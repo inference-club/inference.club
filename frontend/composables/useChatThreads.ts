@@ -11,6 +11,18 @@ export interface AudioClip {
   url: string
 }
 
+// A persisted user attachment (uploaded image/audio/video) on a saved turn.
+// We store the gated MediaAsset URL + opaque id — never the base64 bytes — so
+// reopening a thread re-renders the media (PRD 17 §6) without bloating the
+// stored messages blob.
+export interface StoredAttachment {
+  kind: 'image' | 'audio' | 'video'
+  name: string
+  url: string
+  mime?: string
+  asset_id?: string
+}
+
 // A persisted tool invocation from a saved Agent turn (slim — enough to
 // re-render the trace card, including any generated media).
 export interface StoredToolCall {
@@ -34,6 +46,7 @@ export interface StoredMessage {
   model?: string
   audio?: AudioClip[]
   tools?: StoredToolCall[]
+  attachments?: StoredAttachment[]
 }
 
 export type ThreadSource = 'chat' | 'agent' | 'voice'

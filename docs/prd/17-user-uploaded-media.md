@@ -41,6 +41,21 @@
 > chat/agent attachment **persistence + rendering** (the placeholder fix) — store
 > uploads as assets referenced (not base64) in payloads/threads, resolve refs to
 > a provider-fetchable form at dispatch, render in request-detail + chat-thread.
+>
+> **Progress** — **V1 part 2a SHIPPED (2026-06-25):** the **chat-thread** half of
+> the placeholder fix. New shared `useUploads` composable (the one client for
+> `/v1/files`); the chat playground now uploads each attachment to the Library in
+> the background, persists the gated asset **URL + opaque id** in the
+> `ChatThread` (never the base64), and re-renders image/audio/video on reopen —
+> both in the live history and the `/dashboard/chats/<id>` viewer. Continuing a
+> hydrated thread refetches the bytes (credentialed) so the model still receives
+> the media; in-flight uploads are awaited before save. The agent playground has
+> no user-upload UI, so nothing to change there. **Still open:** the
+> **InferenceRequest request-log** half — the `/v1/chat/completions` proxy still
+> stores base64 in `payload` (renders as `[image_url]` in the request-detail
+> Messages list). That needs the proxy ref-resolution (store ref, inline base64
+> to the provider, bind assets to the request) + serializer `content_parts`, and
+> is the remaining V1 task before V2 (the Library UI).
 
 ---
 
