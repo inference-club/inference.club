@@ -717,32 +717,32 @@ class QueueSummaryView(APIView):
 
 
 class MediaAssetDetailView(APIView):
-    """``GET /v1/assets/<id>`` — JSON metadata + provenance for one media asset
-    (PRD 12 §5.1). Distinct from ``/api/inference/assets/<id>/`` (which serves
+    """``GET /v1/assets/<ref>`` — JSON metadata + provenance for one media asset
+    (PRD 12 §5.1). Distinct from ``/api/inference/assets/<ref>/`` (which serves
     the *bytes*): this returns the kind, sizes, ``metadata``, a browser URL, the
     job that produced it, and its ``derived_from``/``derivatives`` provenance
-    edges. Public-kind assets are readable by anyone; everything else is
-    owner-only, matching ``MediaAssetView``.
+    edges. Access is the single audience rule (``MediaAsset.is_visible_to``),
+    matching ``MediaAssetView``. ``ref`` is the opaque public_id or legacy PK.
     """
 
     permission_classes = [AllowAny]
 
-    def get(self, request, id):
+    def get(self, request, ref):
         from .models import MediaAsset
         from .serializers import MediaAssetDetailSerializer
 
-        asset = (
-            MediaAsset.objects.select_related("inference_request")
-            .prefetch_related("derived_from", "derivatives")
-            .filter(id=id)
-            .first()
+        qs = MediaAsset.objects.select_related("inference_request").prefetch_related(
+            "derived_from", "derivatives"
         )
+        if isinstance(ref, str) and ref.isdigit():
+            asset = qs.filter(pk=int(ref)).first()
+        else:
+            asset = qs.filter(public_id=ref).first()
         if asset is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        if asset.kind not in MediaAsset.PUBLIC_KINDS:
-            if not request.user.is_authenticated or asset.user_id != request.user.id:
-                return Response(
-                    {"detail": "Not your asset."}, status=status.HTTP_403_FORBIDDEN
-                )
+        if not asset.is_visible_to(request.user):
+            return Response(
+                {"detail": "Not your asset."}, status=status.HTTP_403_FORBIDDEN
+            )
         data = MediaAssetDetailSerializer(asset, context={"request": request}).data
         return Response(data)

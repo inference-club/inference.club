@@ -341,20 +341,22 @@ def _input_audio_url(obj, request) -> str | None:
     )
     if asset is None:
         return None
-    path = f"/api/inference/assets/{asset.id}/"
-    return request.build_absolute_uri(path)
+    return asset_url(asset, request)
 
 
 def asset_url(asset, request) -> str | None:
-    """Browser-facing URL for one asset. Public kinds stored on GCS get the
-    direct public-bucket URL — browsers fetch from storage.googleapis.com
-    with immutable caching instead of streaming through the app. Otherwise
-    (MinIO/FS, or private kinds) fall back to the backend's asset route."""
-    if settings.MEDIA_DIRECT_PUBLIC_URLS and asset.kind in MediaAsset.PUBLIC_KINDS:
-        return asset.file.url
+    """Browser-facing URL for one asset — always the **owner-gated app route**
+    keyed by the opaque ``public_id`` (docs/prd/17-user-uploaded-media.md §4.3).
+
+    We deliberately never emit a direct public-bucket URL here: every byte must
+    pass the audience check in ``MediaAssetView``, which then redirects
+    world-public media to the CDN (cacheable) and streams everything else. This
+    is what closes the leak where a SECRET request's image was world-readable by
+    its raw storage URL."""
     if request is None:
         return None
-    return request.build_absolute_uri(f"/api/inference/assets/{asset.id}/")
+    ref = asset.public_id or asset.id
+    return request.build_absolute_uri(f"/api/inference/assets/{ref}/")
 
 
 def _asset_urls(obj, request, kind: str) -> list[str]:
@@ -420,9 +422,9 @@ class MediaAssetDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = MediaAsset
         fields = [
-            "id", "kind", "content_type", "size_bytes", "duration_seconds",
-            "metadata", "url", "produced_by", "derived_from", "derivatives",
-            "created_on",
+            "id", "public_id", "kind", "visibility", "content_type",
+            "size_bytes", "duration_seconds", "metadata", "url", "produced_by",
+            "derived_from", "derivatives", "created_on",
         ]
 
     def get_url(self, obj):

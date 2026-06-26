@@ -37,7 +37,11 @@ def _asset(user, kind, **kw):
 
 
 def test_public_asset_readable_by_anyone(owner):
-    asset = _asset(owner, MediaAsset.OUTPUT_VIDEO, duration_seconds=12.5)
+    # A standalone asset is owner-only by default; an explicitly PUBLIC one is
+    # readable by anyone (PRD 17 §4.1).
+    asset = _asset(
+        owner, MediaAsset.OUTPUT_VIDEO, duration_seconds=12.5, visibility="PUBLIC"
+    )
     client = APIClient()  # anonymous
     resp = client.get(f"/v1/assets/{asset.id}")
     assert resp.status_code == 200
@@ -88,13 +92,17 @@ def test_record_derivation_links_and_serializes(owner):
 
     video.record_derivation([audio, image, subs])
 
+    # these standalone assets are owner-only by default — read them as the owner
+    c = APIClient()
+    c.force_authenticate(owner)
+
     # the video lists its three sources
-    body = APIClient().get(f"/v1/assets/{video.id}").json()
+    body = c.get(f"/v1/assets/{video.id}").json()
     src_ids = {s["id"] for s in body["derived_from"]}
     assert src_ids == {audio.id, image.id, subs.id}
 
     # each source lists the video as a derivative (reverse edge)
-    audio_body = APIClient().get(f"/v1/assets/{audio.id}").json()
+    audio_body = c.get(f"/v1/assets/{audio.id}").json()
     assert [d["id"] for d in audio_body["derivatives"]] == [video.id]
 
 

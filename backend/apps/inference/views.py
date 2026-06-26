@@ -3019,46 +3019,64 @@ class OpenAPISchemaView(APIView):
         return JsonResponse(_openapi_spec())
 
 
-class MediaAssetView(APIView):
-    """``GET /api/inference/assets/<id>/`` — serve a stored media asset.
+def _lookup_media_asset(ref):
+    """Resolve an asset by opaque ``public_id`` (new, unguessable URLs) or by
+    sequential PK (legacy URLs already out in shared links). select_related the
+    parent request so the audience check costs no extra query. 404 if missing."""
+    qs = MediaAsset.objects.select_related("inference_request")
+    if isinstance(ref, str) and ref.isdigit():
+        return get_object_or_404(qs, pk=int(ref))
+    return get_object_or_404(qs, public_id=ref)
 
-    Public kinds on GCS 302 to the public bucket; everything else (private
-    input audio, or any kind on MinIO/local disk) streams through the app so
-    one URL shape works across storage backends and the owner gate applies.
+
+def serve_media_asset(request, asset):
+    """Audience-gate then serve one asset's bytes — shared by the legacy asset
+    route and the ``/v1/files/<ref>/content`` route (PRD 17 §4).
+
+    Every byte passes ``MediaAsset.is_visible_to`` (the owner always; a
+    request-bound asset follows its request's visibility; a standalone asset its
+    own). Only then is it served — world-public media in the public bucket 302s
+    to the CDN (cacheable); everything else streams through the app so a
+    non-public asset's permanent storage URL is never handed out.
     """
+    from django.conf import settings
+    from django.http import FileResponse, HttpResponseRedirect
+
+    if not asset.is_visible_to(request.user):
+        raise PermissionDenied("Not your asset.")
+
+    world_public = asset.is_world_public
+    # Where the bytes physically live today (V0/V1 leave kind-based bucket
+    # routing untouched — see PRD 17 §4.3; the physical move is later work).
+    in_public_bucket = asset.kind in MediaAsset.PUBLIC_KINDS
+
+    if settings.MEDIA_DIRECT_PUBLIC_URLS and world_public and in_public_bucket:
+        resp = HttpResponseRedirect(asset.file.url)
+        resp["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
+    try:
+        fh = asset.file.open("rb")
+    except (FileNotFoundError, ValueError):
+        raise Http404("asset file missing")
+    resp = FileResponse(
+        fh, content_type=asset.content_type or "application/octet-stream"
+    )
+    resp["Content-Disposition"] = (
+        f'inline; filename="{(asset.file.name or "asset").rsplit("/", 1)[-1]}"'
+    )
+    resp["Cache-Control"] = (
+        "public, max-age=31536000, immutable" if world_public else "private, no-store"
+    )
+    return resp
+
+
+class MediaAssetView(APIView):
+    """``GET /api/inference/assets/<ref>/`` — serve a stored media asset's bytes,
+    audience-gated. ``ref`` is the opaque public_id (legacy int PK still
+    resolves, now gated). See ``serve_media_asset``."""
 
     permission_classes = [AllowAny]
 
-    def get(self, request, id):
-        from django.conf import settings
-        from django.http import FileResponse, HttpResponseRedirect
-
-        asset = get_object_or_404(MediaAsset, id=id)
-        if asset.kind not in MediaAsset.PUBLIC_KINDS:
-            if not request.user.is_authenticated or asset.user_id != request.user.id:
-                raise PermissionDenied("Not your asset.")
-        # Public assets on GCS: send the browser to the bucket instead of
-        # streaming the bytes ourselves. Kept (rather than changing every
-        # caller) so pre-GCS URLs in shared links keep working. The asset's
-        # key never changes, so the redirect itself is immutable-cacheable.
-        if asset.kind in MediaAsset.PUBLIC_KINDS and settings.MEDIA_DIRECT_PUBLIC_URLS:
-            resp = HttpResponseRedirect(asset.file.url)
-            resp["Cache-Control"] = "public, max-age=31536000, immutable"
-            return resp
-        try:
-            fh = asset.file.open("rb")
-        except (FileNotFoundError, ValueError):
-            raise Http404("asset file missing")
-        resp = FileResponse(
-            fh, content_type=asset.content_type or "application/octet-stream"
-        )
-        resp["Content-Disposition"] = (
-            f'inline; filename="{(asset.file.name or "asset").rsplit("/", 1)[-1]}"'
-        )
-        # Public images are cacheable; private assets must not be cached by
-        # shared proxies.
-        if asset.kind in MediaAsset.PUBLIC_KINDS:
-            resp["Cache-Control"] = "public, max-age=31536000, immutable"
-        else:
-            resp["Cache-Control"] = "private, no-store"
-        return resp
+    def get(self, request, ref):
+        return serve_media_asset(request, _lookup_media_asset(ref))

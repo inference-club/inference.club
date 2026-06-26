@@ -499,6 +499,14 @@ IMAGE_ALLOWED_CONTENT_TYPES = {
     "application/octet-stream",
 }
 
+# ---- generic Media Library upload guardrail (PRD 17) --------------------
+# Catch-all cap for /v1/files uploads whose kind has no tighter per-modality
+# limit (video, documents). 100 MB by default; the image/audio caps above still
+# apply to their kinds.
+MEDIA_MAX_UPLOAD_BYTES = int(
+    os.environ.get("MEDIA_MAX_UPLOAD_BYTES", str(100 * 1024 * 1024))
+)
+
 # ---- text-to-speech (TTS) guardrails ------------------------------------
 TTS_MAX_INPUT_CHARS = int(os.environ.get("TTS_MAX_INPUT_CHARS", "5000"))
 # Default voice + language when the client omits them. The Riva/Magpie NIM

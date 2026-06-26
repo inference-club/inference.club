@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .file_views import FileContentView, FileDetailView, FilesView
 from .job_views import (
     BatchDetailView,
     BatchListCreateView,
@@ -94,8 +95,15 @@ urlpatterns = [
     path("scrape", ScrapeView.as_view(), name="scrape"),
     path("scrape/", ScrapeView.as_view()),
     # --- media assets + provenance (PRD 12) ---
-    path("assets/<int:id>", MediaAssetDetailView.as_view(), name="asset-detail"),
-    path("assets/<int:id>/", MediaAssetDetailView.as_view()),
+    path("assets/<str:ref>", MediaAssetDetailView.as_view(), name="asset-detail"),
+    path("assets/<str:ref>/", MediaAssetDetailView.as_view()),
+    # --- user-uploaded media: the /v1/files Library API (PRD 17) ---
+    path("files", FilesView.as_view(), name="files"),
+    path("files/", FilesView.as_view()),
+    path("files/<str:ref>/content", FileContentView.as_view(), name="file-content"),
+    path("files/<str:ref>/content/", FileContentView.as_view()),
+    path("files/<str:ref>", FileDetailView.as_view(), name="file-detail"),
+    path("files/<str:ref>/", FileDetailView.as_view()),
     # --- narration studio (PRD 12 §5.4) ---
     path("studio/voices", StudioVoicesView.as_view(), name="studio-voices"),
     path("studio/voices/", StudioVoicesView.as_view()),

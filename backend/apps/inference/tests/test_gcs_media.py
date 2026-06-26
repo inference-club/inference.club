@@ -80,11 +80,18 @@ class TestAssetUrls:
     def user(self):
         return User.objects.create_user(email="gcs@example.com", password="x")
 
-    def test_public_asset_url_is_direct_when_gcs(self, user):
+    def test_asset_url_is_always_the_gated_app_route(self, user):
+        # Even for a public kind under GCS, the URL is the owner-gated app route
+        # keyed by the opaque public_id — never a direct storage URL (PRD 17
+        # §4.3). The byte route itself decides whether to redirect to the CDN.
+        from rest_framework.test import APIRequestFactory
+
         asset = _asset(user, MediaAsset.OUTPUT_IMAGE, "img.png")
+        req = APIRequestFactory().get("/")
         with override_settings(MEDIA_DIRECT_PUBLIC_URLS=True):
-            assert asset_url(asset, None) == asset.file.url
-        # Without GCS the app route is the URL, and it needs a request.
+            url = asset_url(asset, req)
+        assert url.endswith(f"/api/inference/assets/{asset.public_id}/")
+        # ...and it needs a request to build an absolute URL.
         assert asset_url(asset, None) is None
 
     def test_private_asset_url_stays_on_app_route(self, user):
@@ -92,10 +99,14 @@ class TestAssetUrls:
         with override_settings(MEDIA_DIRECT_PUBLIC_URLS=True):
             assert asset_url(asset, None) is None  # never a direct URL
 
-    def test_asset_route_redirects_public_kind_to_storage(self, user):
+    def test_asset_route_redirects_world_public_to_storage(self, user):
+        # A world-public asset (here, explicitly PUBLIC) whose bytes sit in the
+        # public bucket 302s straight to the CDN.
         asset = _asset(user, MediaAsset.OUTPUT_IMAGE, "img.png")
+        asset.visibility = "PUBLIC"
+        asset.save(update_fields=["visibility"])
         with override_settings(MEDIA_DIRECT_PUBLIC_URLS=True):
-            resp = APIClient().get(f"/api/inference/assets/{asset.id}/")
+            resp = APIClient().get(f"/api/inference/assets/{asset.public_id}/")
         assert resp.status_code == 302
         assert resp["Location"] == asset.file.url
         assert resp["Cache-Control"] == "public, max-age=31536000, immutable"

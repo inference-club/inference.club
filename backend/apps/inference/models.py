@@ -36,6 +36,12 @@ VISIBILITY_CHOICES = (
 VISIBILITY_VALUES = {c[0] for c in VISIBILITY_CHOICES}
 # New content defaults to unlisted unless the owner picked another default.
 DEFAULT_VISIBILITY = VISIBILITY_UNLISTED
+# Uploaded media (and any standalone MediaAsset not bound to a request) defaults
+# to owner-only — "private by default" in the sense the user means it (see
+# docs/prd/17-user-uploaded-media.md §4). SECRET, not PRIVATE, because PRIVATE in
+# this vocabulary means "any full member"; an upload should start out visible to
+# nobody but its owner.
+DEFAULT_ASSET_VISIBILITY = VISIBILITY_SECRET
 
 
 def generate_share_token() -> str:
@@ -1001,6 +1007,7 @@ class MediaAsset(BaseModel):
     OUTPUT_AUDIO = "OUTPUT_AUDIO"
     INPUT_IMAGE = "INPUT_IMAGE"
     OUTPUT_IMAGE = "OUTPUT_IMAGE"
+    INPUT_VIDEO = "INPUT_VIDEO"  # user-uploaded video (PRD 17), e.g. to transcribe
     OUTPUT_MODEL = "OUTPUT_MODEL"  # generated 3D mesh (GLB), image-to-3D
     OUTPUT_VIDEO = "OUTPUT_VIDEO"  # generated video (MP4), text/image-to-video
     # --- media pipeline (PRD 12) ---
@@ -1012,6 +1019,7 @@ class MediaAsset(BaseModel):
         (OUTPUT_AUDIO, "Output audio"),
         (INPUT_IMAGE, "Input image"),
         (OUTPUT_IMAGE, "Output image"),
+        (INPUT_VIDEO, "Input video"),
         (OUTPUT_MODEL, "Output 3D model"),
         (OUTPUT_VIDEO, "Output video"),
         (INPUT_DOC, "Input document"),
@@ -1040,6 +1048,21 @@ class MediaAsset(BaseModel):
         on_delete=models.SET_NULL,
         related_name="assets",
     )
+    # Opaque, unguessable public identifier used in every external URL/reference
+    # (``/api/inference/assets/<public_id>/``) instead of the sequential PK, so
+    # assets can't be enumerated. Mirrors InferenceRequest.public_id.
+    public_id = models.CharField(
+        max_length=64, unique=True, null=True, blank=True
+    )
+    # The asset's own audience, consulted only when it is NOT bound to a request
+    # (a standalone upload / library item). When bound, the parent request's
+    # visibility governs instead — see ``is_visible_to``. Defaults to owner-only.
+    visibility = models.CharField(
+        max_length=12,
+        choices=VISIBILITY_CHOICES,
+        default=DEFAULT_ASSET_VISIBILITY,
+        db_index=True,
+    )
     kind = models.CharField(max_length=16, choices=KIND_CHOICES)
     file = models.FileField(upload_to=media_asset_upload_to, max_length=512)
     content_type = models.CharField(max_length=128, blank=True, default="")
@@ -1066,6 +1089,11 @@ class MediaAsset(BaseModel):
     def __str__(self):
         return f"{self.kind} asset {self.pk} for {self.user_id}"
 
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = generate_public_id()
+        super().save(*args, **kwargs)
+
     def record_derivation(self, sources) -> None:
         """Record that this asset was produced from ``sources`` (MediaAsset
         instances or ids). Idempotent; ignores self-links and falsy ids."""
@@ -1073,6 +1101,47 @@ class MediaAsset(BaseModel):
         ids = [i for i in ids if i and i != self.pk]
         if ids:
             self.derived_from.add(*ids)
+
+    def is_visible_to(self, user) -> bool:
+        """Whether ``user`` may access this asset's bytes/metadata — the single
+        audience rule for all media (docs/prd/17-user-uploaded-media.md §4.1):
+
+        1. the owner always can;
+        2. an asset bound to an inference request **follows that request's**
+           visibility (share the request → its media follows);
+        3. a standalone asset is governed by its own ``visibility``, defaulting
+           to owner-only.
+        """
+        if (
+            user is not None
+            and getattr(user, "is_authenticated", False)
+            and self.user_id == user.id
+        ):
+            return True  # owner always
+        if self.inference_request_id is not None:
+            return self.inference_request.is_visible_to(user)
+        # Standalone: evaluate its own visibility with the shared tier semantics.
+        # The opaque public_id is the unguessable capability for UNLISTED, the
+        # same role share_token plays for requests.
+        if self.visibility in (VISIBILITY_PUBLIC, VISIBILITY_UNLISTED):
+            return True
+        if self.visibility == VISIBILITY_PRIVATE:
+            return _is_member_viewer(user)
+        return False  # SECRET — owner only
+
+    @property
+    def is_world_public(self) -> bool:
+        """True when the *bytes* may be served from a world-readable URL (the
+        public bucket / cacheable CDN) — i.e. the effective audience includes
+        anonymous, link-holding visitors. PUBLIC and UNLISTED qualify; PRIVATE
+        (members-only) and SECRET do not, so their bytes must never leave the
+        owner-gated path."""
+        v = (
+            self.inference_request.visibility
+            if self.inference_request_id is not None
+            else self.visibility
+        )
+        return v in (VISIBILITY_PUBLIC, VISIBILITY_UNLISTED)
 
 
 class VoiceSample(BaseModel):
