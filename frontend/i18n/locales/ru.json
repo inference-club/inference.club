@@ -161,6 +161,7 @@
       "apiReference": "Справочник API",
       "general": "Общие",
       "routing": "Маршрутизация",
+      "fallback": "Резерв",
       "usage": "Использование",
       "access": "Доступ",
       "token": "Токен",

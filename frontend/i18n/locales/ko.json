@@ -161,6 +161,7 @@
       "apiReference": "API 참조",
       "general": "일반",
       "routing": "라우팅",
+      "fallback": "대체 모델",
       "usage": "사용량",
       "access": "접근",
       "token": "토큰",

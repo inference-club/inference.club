@@ -178,3 +178,101 @@ def test_pin_unknown_provider_404(user):
     assert _client(user).post(
         "/api/inference/providers/notaprovider/pins", {"model_id": "x"}, format="json"
     ).status_code == 404
+
+
+# --- agent loop routes to the external cloud too (V2) -----------------------
+
+
+def test_agent_dispatch_resolves_external_when_keyed(user):
+    from apps.inference.agent import _agent_dispatch
+
+    set_user_api_key(user, "groq", "gsk_test")
+    disp, err = _agent_dispatch(user, "groq:llama-3.3-70b")
+    assert err is None
+    assert disp["provider"] is None
+    assert disp["endpoint"] == "https://api.groq.com/openai/v1/chat/completions"
+    assert disp["headers"]["Authorization"] == "Bearer gsk_test"
+    assert disp["model"] == "llama-3.3-70b"
+    assert disp["verify"] is True and disp["proxies"] is None
+
+
+def test_agent_dispatch_missing_key_message(user):
+    from apps.inference.agent import _agent_dispatch
+
+    disp, err = _agent_dispatch(user, "openrouter:foo/bar")
+    assert disp is None and "API key" in err
+
+
+def test_agent_call_model_routes_external(user):
+    from apps.inference.agent import _call_model
+
+    set_user_api_key(user, "groq", "gsk_test")
+    captured = {}
+
+    def fake_post(url, **kw):
+        captured["url"] = url
+        captured["kw"] = kw
+        return _fake_resp(
+            {
+                "choices": [{"message": {"role": "assistant", "content": "hi"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            }
+        )
+
+    with patch("apps.inference.agent.requests.post", side_effect=fake_post):
+        msg, usage, err = _call_model(
+            user, "groq:llama-3.3-70b", [{"role": "user", "content": "hi"}], None
+        )
+
+    assert err is None and msg["content"] == "hi"
+    assert captured["url"] == "https://api.groq.com/openai/v1/chat/completions"
+    assert captured["kw"]["headers"]["Authorization"] == "Bearer gsk_test"
+    assert captured["kw"]["verify"] is True
+    ir = InferenceRequest.objects.filter(user=user).latest("created_on")
+    assert ir.provider_id is None
+    assert ir.dispatch_meta["external_provider"] == "groq"
+
+
+# --- fallback model (V3) ----------------------------------------------------
+
+
+def test_chat_falls_back_when_no_provider(user):
+    set_user_api_key(user, "groq", "gsk_test")
+    user.fallback_model = "groq:llama-3.3-70b"
+    user.save(update_fields=["fallback_model"])
+    captured = {}
+
+    def fake_post(url, **kw):
+        captured["url"] = url
+        return _fake_resp({"choices": [{"message": {"content": "hi"}}], "usage": {}})
+
+    with patch("apps.inference.openai_views.requests.post", side_effect=fake_post):
+        resp = _client(user).post(
+            "/v1/chat/completions",
+            {"model": "does-not-exist", "messages": [{"role": "user", "content": "hi"}]},
+            format="json",
+        )
+    # the requested model resolved to nothing local → fell back to the cloud
+    assert resp.status_code == 200
+    assert captured["url"] == "https://api.groq.com/openai/v1/chat/completions"
+
+
+def test_no_fallback_when_unset(user):
+    resp = _client(user).post(
+        "/v1/chat/completions",
+        {"model": "does-not-exist", "messages": [{"role": "user", "content": "hi"}]},
+        format="json",
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["type"] == "no_provider"
+
+
+def test_agent_dispatch_falls_back(user):
+    from apps.inference.agent import _agent_dispatch
+
+    set_user_api_key(user, "groq", "gsk_test")
+    user.fallback_model = "groq:llama-3.3-70b"
+    user.save(update_fields=["fallback_model"])
+    disp, err = _agent_dispatch(user, "does-not-exist")
+    assert err is None
+    assert disp["endpoint"].startswith("https://api.groq.com")

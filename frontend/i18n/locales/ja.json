@@ -161,6 +161,7 @@
       "apiReference": "APIリファレンス",
       "general": "一般",
       "routing": "ルーティング",
+      "fallback": "フォールバック",
       "usage": "使用量",
       "access": "アクセス",
       "token": "トークン",

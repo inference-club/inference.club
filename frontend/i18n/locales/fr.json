@@ -161,6 +161,7 @@
       "apiReference": "Référence API",
       "general": "Général",
       "routing": "Routage",
+      "fallback": "Repli",
       "usage": "Utilisation",
       "access": "Accès",
       "token": "Jeton",

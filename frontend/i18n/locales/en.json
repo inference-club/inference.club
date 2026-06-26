@@ -165,6 +165,7 @@
       "apiReference": "API reference",
       "general": "General",
       "routing": "Routing",
+      "fallback": "Fallback",
       "usage": "Usage",
       "access": "Access",
       "token": "Token",

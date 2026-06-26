@@ -64,27 +64,78 @@ def _accumulate(total: dict, usage: dict) -> None:
             pass
 
 
+def _agent_dispatch(user, model_name):
+    """Resolve an agent model call, falling back to the user's ``fallback_model``
+    when the requested one has no available node (PRD 19 §7). One hop only."""
+    disp, err = _dispatch_one(user, model_name)
+    if err:
+        fb = (getattr(user, "fallback_model", "") or "").strip()
+        if fb and fb != model_name:
+            disp2, err2 = _dispatch_one(user, fb)
+            if not err2:
+                return disp2, None
+    return disp, err
+
+
+def _dispatch_one(user, model_name):
+    """Resolve where an agent model call should go — an external cloud (PRD 19)
+    or a tailnet provider — mirroring the chat proxy. Returns ``(dispatch,
+    error)``; ``dispatch`` is a dict of endpoint/model/canonical/provider/verify/
+    proxies/headers/dispatch_meta. ``provider`` is None for external clouds."""
+    from .external_providers import (
+        external_model_missing_key,
+        resolve_external_target,
+    )
+    from .openai_views import _find_provider_for_model, _model_slug
+    from .views import _tailnet_proxies
+
+    ext = resolve_external_target(user, model_name)
+    if ext is not None:
+        return {
+            "endpoint": ext.base_url + "/chat/completions",
+            "model": ext.upstream_model,
+            "canonical": ext.public_id,
+            "provider": None,
+            "verify": True,
+            "proxies": None,
+            "headers": ext.headers,
+            "dispatch_meta": {
+                "external_provider": ext.slug,
+                "external_label": ext.label,
+                "model": ext.upstream_model,
+            },
+        }, None
+    if external_model_missing_key(user, model_name):
+        slug = model_name.split(":", 1)[0]
+        return None, f"Add your {slug} API key in Settings → API keys to use this model."
+    pm = _find_provider_for_model(user, model_name)
+    if pm is None:
+        return None, f"No online provider serving model '{model_name}' for this user."
+    return {
+        "endpoint": pm.provider.tailnet_base_url.rstrip("/") + "/chat/completions",
+        "model": pm.name or model_name,
+        "canonical": _model_slug(pm),
+        "provider": pm.provider,
+        "verify": False,
+        "proxies": _tailnet_proxies(),
+        "headers": None,
+        "dispatch_meta": {},
+    }, None
+
+
 def _call_model(user, model_name, messages, specs) -> tuple[Optional[dict], dict, Optional[str]]:
     """One non-streaming chat completion. Records an InferenceRequest (LLM) for
     metering. Returns ``(assistant_message, usage, error)``. When ``specs`` is
     provided but the upstream rejects the request (400 — e.g. a model with no
     tool parser), retries once without tools so the loop degrades gracefully."""
-    from .openai_views import (
-        UPSTREAM_TIMEOUT_SECONDS,
-        _find_provider_for_model,
-        _model_slug,
-        _usage_tokens,
-    )
-    from .views import _tailnet_proxies
+    from .openai_views import UPSTREAM_TIMEOUT_SECONDS, _usage_tokens
 
-    pm = _find_provider_for_model(user, model_name)
-    if pm is None:
-        return None, {}, f"No online provider serving model '{model_name}' for this user."
+    disp, err = _agent_dispatch(user, model_name)
+    if err:
+        return None, {}, err
 
-    provider = pm.provider
-    served = pm.name
-    canonical = _model_slug(pm)
-    body = {"model": served or model_name, "messages": messages, "stream": False}
+    provider = disp["provider"]
+    body = {"model": disp["model"], "messages": messages, "stream": False}
     if specs:
         body["tools"] = specs
         body["tool_choice"] = "auto"
@@ -92,7 +143,8 @@ def _call_model(user, model_name, messages, specs) -> tuple[Optional[dict], dict
     ir = InferenceRequest.objects.create(
         user=user,
         provider=provider,
-        model_name=canonical or model_name or "",
+        dispatch_meta=disp["dispatch_meta"],
+        model_name=disp["canonical"] or model_name or "",
         inference_type="LLM",
         payload={
             "messages": messages,
@@ -101,13 +153,13 @@ def _call_model(user, model_name, messages, specs) -> tuple[Optional[dict], dict
         },
         status="PROCESSING",
     )
-    endpoint = provider.tailnet_base_url.rstrip("/") + "/chat/completions"
     started = time.monotonic()
 
     def _do_post(payload):
         return requests.post(
-            endpoint, json=payload, timeout=UPSTREAM_TIMEOUT_SECONDS,
-            verify=False, proxies=_tailnet_proxies(),
+            disp["endpoint"], json=payload, timeout=UPSTREAM_TIMEOUT_SECONDS,
+            verify=disp["verify"], proxies=disp["proxies"],
+            headers=disp["headers"] or None,
         )
 
     try:
@@ -139,9 +191,11 @@ def _call_model(user, model_name, messages, specs) -> tuple[Optional[dict], dict
         "status", "results", "prompt_tokens", "completion_tokens",
         "total_tokens", "latency_ms", "modified_on",
     ])
-    from .models import Provider
-    from django.utils import timezone
-    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+    if provider is not None:
+        from django.utils import timezone
+
+        from .models import Provider
+        Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
 
     msg = _extract_message(data)
     if msg is None:
@@ -159,24 +213,16 @@ def _stream_model(user, model_name, messages, specs) -> Iterator[dict]:
     the sentinel BEFORE any delta is emitted, so the caller can fall back to a
     non-streaming call cleanly.
     """
-    from .openai_views import (
-        UPSTREAM_TIMEOUT_SECONDS,
-        _find_provider_for_model,
-        _model_slug,
-    )
-    from .views import _tailnet_proxies
+    from .openai_views import UPSTREAM_TIMEOUT_SECONDS
 
-    pm = _find_provider_for_model(user, model_name)
-    if pm is None:
-        yield {"type": "_result", "message": None, "usage": {},
-               "error": f"No online provider serving model '{model_name}' for this user."}
+    disp, err = _agent_dispatch(user, model_name)
+    if err:
+        yield {"type": "_result", "message": None, "usage": {}, "error": err}
         return
 
-    provider = pm.provider
-    served = pm.name
-    canonical = _model_slug(pm)
+    provider = disp["provider"]
     body = {
-        "model": served or model_name,
+        "model": disp["model"],
         "messages": messages,
         "stream": True,
         "stream_options": {"include_usage": True},
@@ -188,7 +234,8 @@ def _stream_model(user, model_name, messages, specs) -> Iterator[dict]:
     ir = InferenceRequest.objects.create(
         user=user,
         provider=provider,
-        model_name=canonical or model_name or "",
+        dispatch_meta=disp["dispatch_meta"],
+        model_name=disp["canonical"] or model_name or "",
         inference_type="LLM",
         payload={
             "messages": messages,
@@ -198,13 +245,13 @@ def _stream_model(user, model_name, messages, specs) -> Iterator[dict]:
         },
         status="PROCESSING",
     )
-    endpoint = provider.tailnet_base_url.rstrip("/") + "/chat/completions"
     started = time.monotonic()
 
     try:
         upstream = requests.post(
-            endpoint, json=body, timeout=UPSTREAM_TIMEOUT_SECONDS,
-            verify=False, proxies=_tailnet_proxies(), stream=True,
+            disp["endpoint"], json=body, timeout=UPSTREAM_TIMEOUT_SECONDS,
+            verify=disp["verify"], proxies=disp["proxies"],
+            headers=disp["headers"] or None, stream=True,
         )
     except requests.RequestException as e:
         _finalize_error(ir, started, str(e))
@@ -288,10 +335,11 @@ def _stream_model(user, model_name, messages, specs) -> Iterator[dict]:
         "status", "results", "prompt_tokens", "completion_tokens",
         "total_tokens", "latency_ms", "modified_on",
     ])
-    from django.utils import timezone
+    if provider is not None:
+        from django.utils import timezone
 
-    from .models import Provider
-    Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
+        from .models import Provider
+        Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
 
     yield {"type": "_result", "message": msg, "usage": usage, "error": None}
 

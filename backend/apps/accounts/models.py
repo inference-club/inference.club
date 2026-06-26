@@ -87,6 +87,17 @@ class CustomUser(AbstractUser):
         ),
     )
 
+    # A model id (local slug or an external `provider:model`) used as a fallback
+    # for LLM inference when the requested model has no available node, or the
+    # call errors/times out (PRD 19 §7). Blank = no fallback.
+    fallback_model = models.CharField(
+        _("fallback model"),
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="LLM model to fall back to when the chosen one is unavailable.",
+    )
+
     # Default visibility applied to new inference requests (see
     # docs/prd/01-content-sharing.md). Choices mirror
     # apps.inference.models.VISIBILITY_CHOICES; kept as a plain CharField here to

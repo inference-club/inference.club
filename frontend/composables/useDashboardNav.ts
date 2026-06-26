@@ -100,6 +100,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     items: [
       { titleKey: 'dashboard.items.general', url: '/dashboard/settings/general' },
       { titleKey: 'dashboard.items.routing', url: '/dashboard/settings/routing' },
+      { titleKey: 'dashboard.items.fallback', url: '/dashboard/settings/fallback' },
       { titleKey: 'dashboard.items.usage', url: '/dashboard/settings/usage' },
       { titleKey: 'dashboard.items.access', url: '/dashboard/settings/access' },
       { titleKey: 'dashboard.items.token', url: '/dashboard/settings/token' },

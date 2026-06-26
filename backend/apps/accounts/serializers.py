@@ -30,6 +30,7 @@ class UserSerializer(serializers.ModelSerializer):
             "use_anon_alias",
             "alias_regenerated_at",
             "routing_preference",
+            "fallback_model",
             "default_request_visibility",
             "default_collection_name",
             "public_profile_enabled",
@@ -67,6 +68,7 @@ class AccountUpdateSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             "routing_preference",
+            "fallback_model",
             "default_request_visibility",
             "default_collection_name",
             "public_profile_enabled",

@@ -15,6 +15,7 @@ interface User {
   use_anon_alias: boolean
   alias_regenerated_at: string | null
   routing_preference: 'ANY' | 'PREFER_OWN' | 'ONLY_OWN'
+  fallback_model: string
   default_request_visibility: 'PUBLIC' | 'UNLISTED' | 'PRIVATE' | 'SECRET'
   default_collection_name: string
   public_profile_enabled: boolean
@@ -295,6 +296,7 @@ export const useAuth = () => {
       Pick<
         User,
         | 'routing_preference'
+        | 'fallback_model'
         | 'default_request_visibility'
         | 'default_collection_name'
         | 'public_profile_enabled'

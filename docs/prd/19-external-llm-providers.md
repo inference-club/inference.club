@@ -16,6 +16,19 @@
 >
 > **Author:** Brian (product direction) · drafted with Claude Code.
 
+> **Progress** — **V0–V3 implemented (2026-06-26), branch
+> `feat/external-llm-providers-prd-19`:** registry entries for the 3 providers
+> (V0); `PinnedModel` + browse/pin API + `external_providers.py` resolver +
+> catalog cache, the chat proxy refactored into a shared `_create_and_forward`
+> that routes pinned `provider:model` ids to the cloud (HTTPS + user Bearer key),
+> `/v1/models` injection, and the picker provider badge + Browse-&-pin UI (V1);
+> the agent loop's shared `_agent_dispatch` so external models work in the agent
+> too (V2); `CustomUser.fallback_model` + a `/dashboard/settings/fallback` page +
+> proxy/agent fallback on no-provider/transport-error, one hop, 4xx pass through
+> (V3). Migrations `inference 0044`, `accounts 0009`. Tests in
+> `test_external_providers.py`. **Not done:** V4 (async/title/narration external
+> support, key validation).
+
 ---
 
 ## 1. Summary

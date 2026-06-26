@@ -161,6 +161,7 @@
       "apiReference": "API 参考",
       "general": "常规",
       "routing": "路由",
+      "fallback": "备用模型",
       "usage": "用量",
       "access": "访问",
       "token": "Token",

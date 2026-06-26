@@ -695,6 +695,29 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
     inference_type = ""  # set by subclass
 
     def post(self, request):
+        """Run the request once; if it failed because no node serves the model or
+        the call errored/timed out, retry once on the user's fallback model
+        (PRD 19 §7). Provider 4xx (bad request, rate limit, no credits) pass
+        through unchanged — we only rescue 'no node' / transport failures, so a
+        flaky-but-billed call never silently double-bills."""
+        body = request.data
+        model_name = body.get("model") if isinstance(body, dict) else None
+        resp = self._post_once(request)
+        fb = (getattr(request.user, "fallback_model", "") or "").strip()
+        if (
+            fb
+            and fb != model_name
+            and getattr(resp, "status_code", 200) in (404, 502)
+            and isinstance(getattr(resp, "data", None), dict)
+            and (resp.data.get("error") or {}).get("type") in ("no_provider", "upstream_error")
+        ):
+            logger.info("Falling back to '%s' (primary '%s' unavailable)", fb, model_name)
+            if isinstance(body, dict):
+                body["model"] = fb
+            resp = self._post_once(request)
+        return resp
+
+    def _post_once(self, request):
         body = request.data
         # Popped here so the verbatim body forward (and stored payload) never
         # includes the inference.club sharing extensions.
