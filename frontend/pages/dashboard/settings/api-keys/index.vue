@@ -130,6 +130,13 @@ onMounted(load)
             <Trash2 class="size-4" />
           </Button>
         </div>
+
+        <!-- External LLM providers: browse + pin models once a key is set. -->
+        <ProviderModelPins
+          v-if="svc.category === 'llm_provider' && svc.is_set"
+          :slug="svc.service"
+          :label="svc.name"
+        />
       </div>
     </div>
   </div>

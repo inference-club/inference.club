@@ -6,6 +6,7 @@ import { computed, ref } from 'vue'
 import { Check, ChevronsUpDown } from 'lucide-vue-next'
 import type { ModelInfo } from '@/composables/usePlayground'
 import { MODALITY_META } from '@/utils/modelCapabilities'
+import { Badge } from '@/components/ui/badge'
 
 const props = defineProps<{
   models: ModelInfo[]
@@ -16,11 +17,16 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
 const open = ref(false)
 const selected = computed(() => props.models.find((m) => m.id === props.modelValue))
-// Drop the org prefix for the pill so a long id doesn't dominate the composer.
-const shortName = computed(() => {
-  const id = props.modelValue || ''
-  return id.includes('/') ? id.split('/').pop() : id
-})
+
+// A clean label for a model: external models strip their `provider:` prefix and
+// org path (and prefer the catalog display name); local models show their id.
+const label = (m?: ModelInfo, id?: string) => {
+  if (!m) return id || ''
+  let base = m.id
+  if (m.external) base = m.display_name || m.id.split(':').slice(1).join(':')
+  return base.includes('/') ? base.split('/').pop()! : base
+}
+const shortName = computed(() => label(selected.value, props.modelValue))
 
 const pick = (id: string) => {
   emit('update:modelValue', id)
@@ -40,6 +46,9 @@ const pick = (id: string) => {
       >
         <ReadinessDot v-if="selected" :online="true" />
         <span class="truncate">{{ loading ? 'Loading…' : shortName || 'Select model' }}</span>
+        <Badge v-if="selected?.external" variant="secondary" class="shrink-0 px-1.5 py-0 text-[10px] font-normal">
+          {{ selected.provider_label }}
+        </Badge>
         <ChevronsUpDown class="size-3.5 shrink-0 opacity-60" />
       </Button>
     </PopoverTrigger>
@@ -57,7 +66,10 @@ const pick = (id: string) => {
           @click="pick(m.id)"
         >
           <ReadinessDot :online="true" />
-          <span class="font-mono truncate flex-1">{{ m.id }}</span>
+          <span class="font-mono truncate flex-1">{{ m.external ? label(m) : m.id }}</span>
+          <Badge v-if="m.external" variant="secondary" class="shrink-0 px-1.5 py-0 text-[10px] font-normal">
+            {{ m.provider_label }}
+          </Badge>
           <component
             :is="MODALITY_META[mod]?.icon"
             v-for="mod in m.input_modalities.filter((x) => x !== 'text')"

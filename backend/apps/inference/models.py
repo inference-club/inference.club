@@ -1749,3 +1749,45 @@ class Variant(BaseModel):
 
     def __str__(self):
         return f"variant {self.pk} of segment#{self.segment_id}"
+
+
+class PinnedModel(BaseModel):
+    """A model a user pinned from an external LLM provider (OpenRouter / NVIDIA /
+    Groq) — see docs/prd/19-external-llm-providers.md §5.
+
+    External providers expose hundreds of models; rather than flood the picker,
+    a user pins the handful they want and only those appear. ``model_id`` is the
+    provider's upstream id (e.g. ``anthropic/claude-3.7-sonnet``); the id used
+    everywhere in inference.club is the namespaced ``{provider}:{model_id}``,
+    which the routing resolver splits back apart. Capabilities are snapshotted
+    from the provider catalog at pin time so the picker can badge them without a
+    live fetch.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="pinned_models",
+    )
+    # External provider slug from external_keys (openrouter / nvidia / groq).
+    provider = models.CharField(max_length=32, db_index=True)
+    # The provider's upstream model id (may contain '/').
+    model_id = models.CharField(max_length=200)
+    display_name = models.CharField(max_length=200, blank=True, default="")
+    context_length = models.IntegerField(null=True, blank=True)
+    input_modalities = models.JSONField(default=list, blank=True)
+    supported_features = models.JSONField(default=list, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["provider", "model_id"]
+        unique_together = [("user", "provider", "model_id")]
+        indexes = [models.Index(fields=["user", "provider"])]
+
+    def __str__(self):
+        return f"{self.public_id} (user {self.user_id})"
+
+    @property
+    def public_id(self) -> str:
+        """The namespaced id used as the model id throughout inference.club."""
+        return f"{self.provider}:{self.model_id}"

@@ -7,6 +7,8 @@ export interface ApiKeyInfo {
   name: string
   description: string
   docs_url: string
+  // 'tool' or 'llm_provider' (external LLM clouds you can pin models from — PRD 19).
+  category: string
   is_set: boolean
   hint: string
   updated: string | null

@@ -545,6 +545,35 @@ class ModelsView(_RateLimitHeadersMixin, APIView):
                     "owned_by": pm.provider.name,
                     **_model_caps(pm),
                 }
+
+        # 3) The user's pinned external-provider models (PRD 19) — routed over
+        # HTTPS with the user's own key. Only models they've pinned appear, and
+        # only for providers whose key is set (else the model couldn't run).
+        from .external_keys import get_service, get_user_api_key
+
+        keyed = {}
+        for pin in request.user.pinned_models.all():
+            if pin.provider not in keyed:
+                keyed[pin.provider] = bool(get_user_api_key(request.user, pin.provider))
+            if not keyed[pin.provider]:
+                continue
+            svc = get_service(pin.provider)
+            label = svc.name if svc else pin.provider
+            seen[pin.public_id] = {
+                "id": pin.public_id,
+                "object": "model",
+                "created": int(pin.created_on.timestamp()),
+                "owned_by": label,
+                "service_type": "llm",
+                "input_modalities": pin.input_modalities or ["text"],
+                "output_modalities": ["text"],
+                "supported_features": pin.supported_features or [],
+                "context_length": pin.context_length,
+                "external": True,
+                "provider": pin.provider,
+                "provider_label": label,
+                "display_name": pin.display_name or pin.model_id,
+            }
         return Response({"object": "list", "data": list(seen.values())})
 
 
@@ -684,6 +713,53 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         if isinstance(body, dict):
             _clamp_max_tokens(body)
 
+        # --- external cloud provider (PRD 19): a pinned OpenRouter/NVIDIA/Groq
+        # model the user holds a key for, forwarded over real HTTPS with the
+        # user's Bearer key (no tailnet, no SOCKS). Runs inline even if async was
+        # requested (the async dispatcher is tailnet-only for now). ---
+        from .external_keys import get_service
+        from .external_providers import (
+            external_model_missing_key,
+            resolve_external_target,
+        )
+
+        ext = resolve_external_target(request.user, model_name)
+        if ext is not None:
+            if isinstance(body, dict):
+                body["model"] = ext.upstream_model  # send the upstream id
+            return self._create_and_forward(
+                request,
+                body=body,
+                visibility=visibility,
+                collection_name=collection_name,
+                endpoint=ext.base_url + self.upstream_path,
+                headers=ext.headers,
+                verify=True,
+                proxies=None,
+                provider=None,
+                dispatch_meta={
+                    "external_provider": ext.slug,
+                    "external_label": ext.label,
+                    "model": ext.upstream_model,
+                },
+                canonical_model=ext.public_id,
+            )
+        if external_model_missing_key(request.user, model_name):
+            slug = model_name.split(":", 1)[0]
+            svc = get_service(slug)
+            return Response(
+                {
+                    "error": {
+                        "message": (
+                            f"Add your {svc.name if svc else slug} API key in "
+                            "Settings → API keys to use this model."
+                        ),
+                        "type": "missing_api_key",
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         provider_model = _find_provider_for_model(request.user, model_name)
         if provider_model is None:
             message = (
@@ -728,23 +804,43 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         if isinstance(body, dict) and served_name:
             body["model"] = served_name
 
-        endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
-        stream = bool(body.get("stream"))
+        return self._create_and_forward(
+            request,
+            body=body,
+            visibility=visibility,
+            collection_name=collection_name,
+            endpoint=provider.tailnet_base_url.rstrip("/") + self.upstream_path,
+            headers=None,
+            # verify=False because tailnet HTTPS uses a Tailscale-issued cert
+            # bound to the device's full *.ts.net hostname, and we may proxy by
+            # the short MagicDNS name. The wire is encrypted by WireGuard.
+            verify=False,
+            proxies=_tailnet_proxies(),
+            provider=provider,
+            dispatch_meta=_dispatch_meta(provider_model),
+            # Record the canonical (pooled) id so dashboards/leaderboards
+            # aggregate one model across providers, not per served-name variant.
+            canonical_model=canonical or model_name or "",
+        )
+
+    def _create_and_forward(self, request, *, body, visibility, collection_name,
+                            endpoint, headers, verify, proxies, provider,
+                            dispatch_meta, canonical_model):
+        """Shared forward tail for tailnet and external targets: create the
+        InferenceRequest, POST to ``endpoint``, and return the streamed/buffered
+        response. Slims inline base64 into asset refs for storage (PRD 17 §6)
+        while forwarding the real bytes."""
+        stream = bool(body.get("stream")) if isinstance(body, dict) else False
         if stream and isinstance(body, dict):
             # Opt into streamed token usage so streams report tokens too.
             _ensure_stream_usage(body)
-        # Store a slimmed payload (inline base64 → asset refs) but forward the
-        # base64 to the provider; strip the asset_id sibling so the upstream
-        # never sees a non-schema key (PRD 17 §6).
         stored_payload, asset_ids = _slim_payload_for_storage(body)
         _strip_asset_ids(body)
         ir = InferenceRequest.objects.create(
             user=request.user,
             provider=provider,
-            dispatch_meta=_dispatch_meta(provider_model),
-            # Record the canonical (pooled) id so dashboards/leaderboards
-            # aggregate one model across providers, not per served-name variant.
-            model_name=canonical or model_name or "",
+            dispatch_meta=dispatch_meta,
+            model_name=canonical_model,
             inference_type=self.inference_type,
             payload=stored_payload,
             status="PROCESSING",
@@ -755,16 +851,14 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
         started = time.monotonic()
 
         try:
-            # verify=False because tailnet HTTPS uses a Tailscale-issued cert
-            # bound to the device's full *.ts.net hostname, and we may proxy
-            # by the short MagicDNS name. The wire is encrypted by WireGuard.
             upstream = requests.post(
                 endpoint,
                 json=body,
                 stream=stream,
                 timeout=UPSTREAM_TIMEOUT_SECONDS,
-                verify=False,
-                proxies=_tailnet_proxies(),
+                verify=verify,
+                proxies=proxies,
+                headers=headers or None,
             )
         except requests.RequestException as e:
             ir.status = "REQUESTED"
@@ -779,7 +873,7 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
 
         if not upstream.ok:
             # Pass through the upstream error body so the OpenAI client sees
-            # a useful message.
+            # a useful message (provider 429/402 etc. surface verbatim).
             ir.status = "REQUESTED"
             ir.results = {"upstream_status": upstream.status_code}
             ir.latency_ms = int((time.monotonic() - started) * 1000)

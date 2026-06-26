@@ -37,6 +37,14 @@ export interface ModelInfo {
   // 'llm' | 'stt' | 'tts' — which /v1 surface this model serves. Lets the chat
   // playground hide transcription-only models (and vice versa).
   service_type: string
+  // Set for external cloud providers (OpenRouter/NVIDIA/Groq, PRD 19): the
+  // picker badges these so it's clear who serves the model. `provider` is the
+  // slug, `provider_label` the display name; `display_name` is the friendly
+  // model name from the provider catalog.
+  external?: boolean
+  provider?: string
+  provider_label?: string
+  display_name?: string
 }
 
 export function usePlayground() {
@@ -60,6 +68,10 @@ export function usePlayground() {
       supported_features: m.supported_features ?? [],
       context_length: m.context_length ?? null,
       service_type: m.service_type ?? 'llm',
+      external: m.external ?? false,
+      provider: m.provider,
+      provider_label: m.provider_label,
+      display_name: m.display_name,
     }))
   }
 

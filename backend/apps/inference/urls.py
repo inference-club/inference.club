@@ -1,6 +1,7 @@
 from django.urls import path
 from .openai_views import RetryInferenceRequestView
 from .job_views import QueueSummaryView
+from .external_provider_views import ProviderModelsView, ProviderPinsView
 from .views import (
     AgentHeartbeatView,
     AgentManifestView,
@@ -143,6 +144,11 @@ urlpatterns = [
     ),
     path("api-keys/", ApiKeyListView.as_view(), name="api-key-list"),
     path("api-keys/<str:service>/", ApiKeyDetailView.as_view(), name="api-key-detail"),
+    # External LLM providers: browse a provider's catalog + pin models (PRD 19).
+    path("providers/<slug:slug>/models", ProviderModelsView.as_view(), name="provider-models"),
+    path("providers/<slug:slug>/models/", ProviderModelsView.as_view()),
+    path("providers/<slug:slug>/pins", ProviderPinsView.as_view(), name="provider-pins"),
+    path("providers/<slug:slug>/pins/", ProviderPinsView.as_view()),
     path("agent/register/", AgentRegisterView.as_view(), name="agent-register"),
     path("agent/heartbeat/", AgentHeartbeatView.as_view(), name="agent-heartbeat"),
     path("agent/manifest/", AgentManifestView.as_view(), name="agent-manifest"),
