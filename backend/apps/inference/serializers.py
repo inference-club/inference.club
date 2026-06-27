@@ -424,16 +424,36 @@ def _input_audio_url(obj, request) -> str | None:
 
 
 def asset_url(asset, request) -> str | None:
-    """Browser-facing URL for one asset — always the **owner-gated app route**
-    keyed by the opaque ``public_id`` (docs/prd/17-user-uploaded-media.md §4.3).
+    """Browser-facing URL for one asset.
 
-    We deliberately never emit a direct public-bucket URL here: every byte must
-    pass the audience check in ``MediaAssetView``, which then redirects
-    world-public media to the CDN (cacheable) and streams everything else. This
-    is what closes the leak where a SECRET request's image was world-readable by
-    its raw storage URL."""
+    **World-public** media that physically lives in the public bucket is linked
+    **directly** at its bucket/CDN URL. That keeps it to a single cross-origin
+    hop (page origin → storage.googleapis.com), so the CORS ``Origin`` survives
+    and CORS-mode loads work: the music visualizer reads the audio through a
+    Web Audio ``AnalyserNode`` (``crossOrigin`` <audio>) and ``<model-viewer>``
+    fetches the GLB. Routing those through the gated app route instead produces a
+    *second* origin hop (page → api.<domain> → bucket); the Fetch spec then
+    resets ``Origin`` to ``null`` on the final hop, the bucket omits
+    ``Access-Control-Allow-Origin``, and the browser blocks the load. The gated
+    route would 302 to this very URL anyway (``serve_media_asset``), so emitting
+    it directly exposes nothing that wasn't already world-readable.
+
+    Everything else keeps the **owner-gated app route** keyed by the opaque
+    ``public_id`` (docs/prd/17-user-uploaded-media.md §4.3): every byte then
+    passes the audience check in ``MediaAssetView``, which streams non-public
+    media so a SECRET request's bytes never get a raw, world-reachable storage
+    URL."""
     if request is None:
         return None
+    if (
+        settings.MEDIA_DIRECT_PUBLIC_URLS
+        and asset.kind in MediaAsset.PUBLIC_KINDS
+        and asset.is_world_public
+    ):
+        try:
+            return asset.file.url
+        except Exception:
+            pass  # fall back to the gated route if the bucket URL can't be built
     ref = asset.public_id or asset.id
     return request.build_absolute_uri(f"/api/inference/assets/{ref}/")
 
@@ -444,6 +464,9 @@ def _asset_urls(obj, request, kind: str) -> list[str]:
     out = []
     for a in obj.assets.all():
         if a.kind == kind:
+            # Prime the FK cache: these assets all belong to `obj`, so this
+            # spares asset_url's is_world_public check a per-asset query.
+            a.inference_request = obj
             url = asset_url(a, request)
             if url:
                 out.append(url)

@@ -80,13 +80,29 @@ class TestAssetUrls:
     def user(self):
         return User.objects.create_user(email="gcs@example.com", password="x")
 
-    def test_asset_url_is_always_the_gated_app_route(self, user):
-        # Even for a public kind under GCS, the URL is the owner-gated app route
-        # keyed by the opaque public_id — never a direct storage URL (PRD 17
-        # §4.3). The byte route itself decides whether to redirect to the CDN.
+    def test_world_public_asset_url_is_the_direct_bucket_url(self, user):
+        # A world-public asset in a public kind links straight at the bucket/CDN
+        # URL — one origin hop, so CORS-mode loads (music visualizer, GLB
+        # viewer) keep their Origin. This is the same URL the gated route would
+        # 302 to, so it leaks nothing world-readable.
         from rest_framework.test import APIRequestFactory
 
         asset = _asset(user, MediaAsset.OUTPUT_IMAGE, "img.png")
+        asset.visibility = "PUBLIC"
+        asset.save(update_fields=["visibility"])
+        req = APIRequestFactory().get("/")
+        with override_settings(MEDIA_DIRECT_PUBLIC_URLS=True):
+            url = asset_url(asset, req)
+        assert url == asset.file.url
+        assert "/api/inference/assets/" not in url
+
+    def test_non_public_visibility_stays_on_gated_route(self, user):
+        # A public KIND but non-world-public visibility (default SECRET) must
+        # still go through the owner-gated app route (PRD 17 §4.3) — never a
+        # direct storage URL.
+        from rest_framework.test import APIRequestFactory
+
+        asset = _asset(user, MediaAsset.OUTPUT_IMAGE, "img.png")  # default SECRET
         req = APIRequestFactory().get("/")
         with override_settings(MEDIA_DIRECT_PUBLIC_URLS=True):
             url = asset_url(asset, req)
@@ -94,8 +110,12 @@ class TestAssetUrls:
         # ...and it needs a request to build an absolute URL.
         assert asset_url(asset, None) is None
 
-    def test_private_asset_url_stays_on_app_route(self, user):
+    def test_private_kind_asset_url_stays_on_app_route(self, user):
+        # Even world-public visibility can't turn a PRIVATE-bucket kind into a
+        # direct URL — the kind gate fails first.
         asset = _asset(user, MediaAsset.INPUT_AUDIO, "clip.wav")
+        asset.visibility = "PUBLIC"
+        asset.save(update_fields=["visibility"])
         with override_settings(MEDIA_DIRECT_PUBLIC_URLS=True):
             assert asset_url(asset, None) is None  # never a direct URL
 
