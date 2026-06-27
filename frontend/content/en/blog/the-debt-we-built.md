@@ -4,6 +4,7 @@ description: "An honest accounting of the technical debt in inference.club after
 publishedAt: 2026-06-25
 author: briancaffey
 tags: [engineering, refactoring, deep-dive, architecture]
+image: /images/blog/the-debt-we-built.png
 image_prompt: "Wide cinematic abstract illustration: a tangle of glowing parallel wires running left to right, many of them near-identical and redundant, slowly converging into a single clean bright cyan-and-violet conduit at the right edge, sense of consolidation and order emerging from sprawl, dark moody futuristic, soft glow, no text, no words, no letters"
 ---
 

@@ -4,6 +4,7 @@ description: "A couple of weeks ago I shipped a deliberately tiny reading copilo
 publishedAt: "2026-06-26"
 author: briancaffey
 tags: [browser-extension, privacy, llm-inference]
+image: /images/blog/reading-the-web-with-my-own-ai.png
 image_prompt: "Wide cinematic abstract illustration: a translucent vertical side panel of cyan and violet light docked beside a softly glowing page of flowing abstract particles, one bright focal point isolated in a beam as the stream rushes past it (a speed-reading motif), a small glowing house containing a GPU in the distance feeding light into the panel, faint shimmering bands of different color palettes along one edge, dark moody futuristic, soft glow, no text, no words, no letters"
 ---
 
