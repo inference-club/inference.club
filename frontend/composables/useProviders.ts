@@ -1,4 +1,5 @@
 import type { OwnerServiceManifest } from '@/composables/useManifest'
+import type { AccessPolicy } from '@/composables/useServices'
 
 export interface PaginatedResponse<T> {
   count: number
@@ -22,6 +23,8 @@ export interface Provider {
   is_active: boolean
   is_online: boolean
   accepting_requests: boolean
+  access_policy: AccessPolicy
+  allowed_github_users: string[]
   registered_at: string | null
   last_seen_at: string | null
   models: ProviderModel[]
@@ -119,6 +122,34 @@ export const useProviders = () => {
     }
   }
 
+  const updateProviderAccess = async (
+    providerId: number,
+    payload: { access_policy: AccessPolicy; allowed_github_users: string[] },
+  ) => {
+    error.value = null
+    const csrfToken = import.meta.client
+      ? document.cookie
+          .split('; ')
+          .find(c => c.startsWith('csrftoken='))
+          ?.split('=')[1]
+      : undefined
+    const updated = await $fetch<Provider>(
+      `${config.public.apiBase}/api/inference/providers/${providerId}/`,
+      {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
+        body: payload,
+      },
+    )
+    const p = providers.value.find(x => x.id === providerId)
+    if (p) {
+      p.access_policy = updated.access_policy
+      p.allowed_github_users = updated.allowed_github_users
+    }
+    return updated
+  }
+
   return {
     providers,
     onlineProviders,
@@ -128,6 +159,7 @@ export const useProviders = () => {
     fetchProviders,
     refreshModels,
     setAcceptingRequests,
+    updateProviderAccess,
   }
 }
 

@@ -5,9 +5,11 @@ from django.db.models import Sum
 from rest_framework import serializers
 
 from .models import (
+    ACCESS_RESTRICTED,
     ChatThread,
     Collection,
     ContentReport,
+    Host,
     InferenceRequest,
     MediaAsset,
     Provider,
@@ -124,6 +126,34 @@ class ServiceManifestSerializer(serializers.ModelSerializer):
         return _parsed_with_service_meta(obj, include_ids=True)
 
 
+class AccessPolicyValidationMixin:
+    """Shared validation for the ``access_policy`` + ``allowed_github_users``
+    pair used at every gating level — cluster (Provider), node (Host) and
+    service (ProviderService). Normalizes the allowlist and clears it whenever
+    the policy isn't RESTRICTED."""
+
+    def validate_allowed_github_users(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Must be a list of GitHub usernames.")
+        cleaned, seen = [], set()
+        for entry in value:
+            if not isinstance(entry, str):
+                raise serializers.ValidationError("Each username must be a string.")
+            handle = entry.strip().lstrip("@")
+            key = handle.lower()
+            if handle and key not in seen:
+                seen.add(key)
+                cleaned.append(handle)
+        return cleaned
+
+    def validate(self, attrs):
+        # Only RESTRICTED keeps an allowlist.
+        policy = attrs.get("access_policy", getattr(self.instance, "access_policy", None))
+        if policy != ACCESS_RESTRICTED:
+            attrs["allowed_github_users"] = []
+        return attrs
+
+
 class ProviderSerializer(serializers.ModelSerializer):
     # Only active models — inactive rows are kept for history (e.g. a model
     # removed from the manifest) but must not show in the dashboard / profile.
@@ -147,6 +177,8 @@ class ProviderSerializer(serializers.ModelSerializer):
             "is_active",
             "is_online",
             "accepting_requests",
+            "access_policy",
+            "allowed_github_users",
             "registered_at",
             "last_seen_at",
             "models",
@@ -155,12 +187,19 @@ class ProviderSerializer(serializers.ModelSerializer):
         ]
 
 
-class ProviderUpdateSerializer(serializers.ModelSerializer):
-    """Owner-editable provider settings — currently just the pause/kill switch."""
+class ProviderUpdateSerializer(AccessPolicyValidationMixin, serializers.ModelSerializer):
+    """Owner-editable provider settings: the pause/kill switch and the
+    cluster-level access policy."""
 
     class Meta:
         model = Provider
-        fields = ["id", "name", "accepting_requests"]
+        fields = [
+            "id",
+            "name",
+            "accepting_requests",
+            "access_policy",
+            "allowed_github_users",
+        ]
         read_only_fields = ["id", "name"]
 
 
@@ -1110,7 +1149,7 @@ class InferenceRequestDetailSerializer(
         return round(obj.completion_tokens / (gen_ms / 1000), 1)
 
 
-class ProviderServiceSerializer(serializers.ModelSerializer):
+class ProviderServiceSerializer(AccessPolicyValidationMixin, serializers.ModelSerializer):
     """Owner-facing view of one of their services + its access policy."""
 
     provider = InferenceProviderMiniSerializer(read_only=True)
@@ -1143,26 +1182,25 @@ class ProviderServiceSerializer(serializers.ModelSerializer):
     def get_models(self, obj) -> list[str]:
         return [m.name for m in obj.models.all() if m.is_active]
 
-    def validate_allowed_github_users(self, value):
-        if not isinstance(value, list):
-            raise serializers.ValidationError("Must be a list of GitHub usernames.")
-        cleaned, seen = [], set()
-        for entry in value:
-            if not isinstance(entry, str):
-                raise serializers.ValidationError("Each username must be a string.")
-            handle = entry.strip().lstrip("@")
-            key = handle.lower()
-            if handle and key not in seen:
-                seen.add(key)
-                cleaned.append(handle)
-        return cleaned
 
-    def validate(self, attrs):
-        # Normalize: only RESTRICTED keeps an allowlist.
-        policy = attrs.get("access_policy", getattr(self.instance, "access_policy", None))
-        if policy != ProviderService.ACCESS_RESTRICTED:
-            attrs["allowed_github_users"] = []
-        return attrs
+class HostAccessSerializer(AccessPolicyValidationMixin, serializers.ModelSerializer):
+    """Owner-facing view + write of one physical node's access policy (the
+    node-level gate, between the cluster and the service)."""
+
+    provider_id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Host
+        fields = [
+            "id",
+            "provider_id",
+            "host_id",
+            "hostname",
+            "is_active",
+            "access_policy",
+            "allowed_github_users",
+        ]
+        read_only_fields = ["id", "provider_id", "host_id", "hostname", "is_active"]
 
 
 class InferenceRequestVisibilitySerializer(serializers.ModelSerializer):

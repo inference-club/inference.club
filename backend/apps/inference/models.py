@@ -85,6 +85,31 @@ def visible_list_q(user) -> Q:
     return Q(visibility=VISIBILITY_PUBLIC)
 
 
+# Access-policy values shared by Provider (machine-level) and ProviderService
+# (service-level) gating. A non-owner must clear BOTH gates to route a request.
+ACCESS_PRIVATE = "PRIVATE"  # only the owner
+ACCESS_AUTHENTICATED = "AUTHENTICATED"  # any signed-in inference.club member
+ACCESS_RESTRICTED = "RESTRICTED"  # an explicit GitHub-username allowlist
+ACCESS_POLICY_CHOICES = (
+    (ACCESS_PRIVATE, "Only me"),
+    (ACCESS_AUTHENTICATED, "Any inference.club member"),
+    (ACCESS_RESTRICTED, "Specific GitHub users"),
+)
+
+
+def policy_grants(policy, allowed_github_users, github_login) -> bool:
+    """Evaluate an access policy for a *non-owner*. The owner-always-allowed
+    check lives at each call site; this only judges the policy itself."""
+    if policy == ACCESS_AUTHENTICATED:
+        return True
+    if policy == ACCESS_RESTRICTED:
+        if not github_login:
+            return False
+        allowed = {u.strip().lower() for u in (allowed_github_users or [])}
+        return github_login.strip().lower() in allowed
+    return False  # PRIVATE
+
+
 class Provider(BaseModel):
     """A user-owned agent reachable over the inference.club Tailscale network.
 
@@ -92,6 +117,12 @@ class Provider(BaseModel):
     Tailscale auth key, and joins the tailnet. The server reaches it by its
     tailnet hostname (e.g. ``club-host-17``) on ``agent_port``.
     """
+
+    # Shared access-policy values, aliased onto the class for convenient
+    # ``Provider.ACCESS_*`` references (mirrors ProviderService).
+    ACCESS_PRIVATE = ACCESS_PRIVATE
+    ACCESS_AUTHENTICATED = ACCESS_AUTHENTICATED
+    ACCESS_RESTRICTED = ACCESS_RESTRICTED
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -121,6 +152,22 @@ class Provider(BaseModel):
         default=True,
         help_text="Kill switch — when False the node is excluded from routing "
         "for everyone (including the owner), so it serves no inference.",
+    )
+    # Machine-level access gate. Independent of accepting_requests (the kill
+    # switch that stops the node serving *anyone*, owner included): this decides
+    # which OTHER members may route to this node at all. It's combined with each
+    # service's own policy — a non-owner must clear both gates. Defaults to
+    # AUTHENTICATED so the per-service policy stays the effective gate until the
+    # owner deliberately tightens the whole machine.
+    access_policy = models.CharField(
+        max_length=16,
+        choices=ACCESS_POLICY_CHOICES,
+        default=ACCESS_AUTHENTICATED,
+    )
+    allowed_github_users = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="GitHub usernames allowed when access_policy is RESTRICTED.",
     )
     registered_at = models.DateTimeField(null=True, blank=True)
     last_seen_at = models.DateTimeField(
@@ -179,6 +226,15 @@ class Provider(BaseModel):
             return False
         return timezone.now() - self.last_seen_at <= PROVIDER_LAST_SEEN_WINDOW
 
+    def grants_access_to(self, user, github_login: str | None) -> bool:
+        """Whether ``user`` may route to *any* service on this node, per the
+        machine-level policy. The owner always can; otherwise the policy
+        decides. (The accepting_requests kill switch is enforced separately, at
+        the routing query level.)"""
+        if self.user_id == getattr(user, "id", None):
+            return True
+        return policy_grants(self.access_policy, self.allowed_github_users, github_login)
+
 
 class Host(BaseModel):
     """A physical machine (node) in a provider's home cluster — long-lived, like
@@ -205,6 +261,26 @@ class Host(BaseModel):
         help_text="False once the host disappears from the latest manifest "
         "(kept for history rather than deleted).",
     )
+    # Node-level access gate. Sits between the cluster (Provider) gate and the
+    # per-service gate: locks a single physical machine (e.g. a DGX Spark) so a
+    # non-owner can't route to ANY service on it, whatever that service's own
+    # policy. Defaults to AUTHENTICATED so the node imposes no extra restriction
+    # until the owner tightens it.
+    access_policy = models.CharField(
+        max_length=16,
+        choices=ACCESS_POLICY_CHOICES,
+        default=ACCESS_AUTHENTICATED,
+    )
+    allowed_github_users = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="GitHub usernames allowed when access_policy is RESTRICTED.",
+    )
+
+    # Shared access-policy values, aliased for convenient ``Host.ACCESS_*`` refs.
+    ACCESS_PRIVATE = ACCESS_PRIVATE
+    ACCESS_AUTHENTICATED = ACCESS_AUTHENTICATED
+    ACCESS_RESTRICTED = ACCESS_RESTRICTED
 
     class Meta:
         ordering = ["host_id"]
@@ -216,6 +292,14 @@ class Host(BaseModel):
 
     def __str__(self):
         return f"{self.provider}/{self.host_id}"
+
+    def grants_access_to(self, user, github_login: str | None) -> bool:
+        """Whether ``user`` may route to any service on this physical node, per
+        the node-level policy. The owner always can; otherwise the policy
+        decides."""
+        if self.provider.user_id == getattr(user, "id", None):
+            return True
+        return policy_grants(self.access_policy, self.allowed_github_users, github_login)
 
 
 class Gpu(BaseModel):
@@ -307,15 +391,13 @@ class ProviderService(BaseModel):
         (TYPE_AUDIO_ENHANCE, "Audio enhancement"),
     )
 
-    # Who may route inference requests to this service.
-    ACCESS_PRIVATE = "PRIVATE"  # only the owner (default; preserves prior behavior)
-    ACCESS_AUTHENTICATED = "AUTHENTICATED"  # any signed-in inference.club member
-    ACCESS_RESTRICTED = "RESTRICTED"  # an explicit GitHub-username allowlist
-    ACCESS_POLICY_CHOICES = (
-        (ACCESS_PRIVATE, "Only me"),
-        (ACCESS_AUTHENTICATED, "Any inference.club member"),
-        (ACCESS_RESTRICTED, "Specific GitHub users"),
-    )
+    # Who may route inference requests to this service. The values are shared
+    # with Provider (machine-level gating); aliased here so the existing
+    # ``ProviderService.ACCESS_*`` references keep working.
+    ACCESS_PRIVATE = ACCESS_PRIVATE  # only the owner (default; preserves prior behavior)
+    ACCESS_AUTHENTICATED = ACCESS_AUTHENTICATED  # any signed-in inference.club member
+    ACCESS_RESTRICTED = ACCESS_RESTRICTED  # an explicit GitHub-username allowlist
+    ACCESS_POLICY_CHOICES = ACCESS_POLICY_CHOICES
 
     provider = models.ForeignKey(
         Provider, on_delete=models.CASCADE, related_name="services"
@@ -391,19 +473,19 @@ class ProviderService(BaseModel):
 
     def grants_access_to(self, user, github_login: str | None) -> bool:
         """Whether ``user`` (whose GitHub handle is ``github_login``) may route
-        to this service. The owner always can; otherwise the policy decides."""
+        to this service. The owner always can; otherwise the request must clear
+        every gate in turn: the cluster (Provider), the physical node (Host, if
+        the service is linked to one), and finally this service's own policy."""
         if self.provider.user_id == getattr(user, "id", None):
             return True
         if not self.is_active:
             return False
-        if self.access_policy == self.ACCESS_AUTHENTICATED:
-            return True
-        if self.access_policy == self.ACCESS_RESTRICTED:
-            if not github_login:
-                return False
-            allowed = {u.strip().lower() for u in (self.allowed_github_users or [])}
-            return github_login.strip().lower() in allowed
-        return False  # PRIVATE
+        # Cluster gate, then node gate, then the service-level policy.
+        if not self.provider.grants_access_to(user, github_login):
+            return False
+        if self.host_id and not self.host.grants_access_to(user, github_login):
+            return False
+        return policy_grants(self.access_policy, self.allowed_github_users, github_login)
 
 
 def slugify_model_id(value: str) -> str:

@@ -34,6 +34,8 @@ from .views import (
     RateLimitUsageView,
     ProviderManifestView,
     ProviderModelsCatalogView,
+    ProviderHostListView,
+    ProviderHostAccessUpdateView,
     ProviderServiceListView,
     ProviderServiceUpdateView,
     ServiceLogoView,
@@ -191,6 +193,12 @@ urlpatterns = [
         "services/<int:pk>/logo/",
         ServiceLogoView.as_view(),
         name="service-logo",
+    ),
+    path("hosts/", ProviderHostListView.as_view(), name="host-list"),
+    path(
+        "hosts/<int:id>/",
+        ProviderHostAccessUpdateView.as_view(),
+        name="host-detail",
     ),
     path(
         "providers/<int:id>/refresh-models/",

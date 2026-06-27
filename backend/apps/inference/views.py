@@ -62,6 +62,7 @@ from .serializers import (
     InferenceRequestDetailSerializer,
     InferenceRequestListSerializer,
     InferenceRequestSerializer,
+    HostAccessSerializer,
     InferenceRequestVisibilitySerializer,
     ProviderSerializer,
     ProviderServiceSerializer,
@@ -782,6 +783,36 @@ class ProviderServiceUpdateView(generics.RetrieveUpdateAPIView):
             .select_related("provider")
             .prefetch_related("models")
         )
+
+
+class ProviderHostListView(generics.ListAPIView):
+    """List the requesting user's physical nodes (Hosts) so they can manage
+    node-level access policies (powers the Settings → Access page)."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = HostAccessSerializer
+
+    def get_queryset(self):
+        from .models import Host
+
+        return (
+            Host.objects.filter(provider__user=self.request.user, is_active=True)
+            .order_by("provider__name", "host_id")
+        )
+
+
+class ProviderHostAccessUpdateView(generics.RetrieveUpdateAPIView):
+    """GET / PATCH one of the requesting user's nodes to set its access policy.
+    Scoped to the owner — others' nodes 404 here."""
+
+    permission_classes = [IsFullMember]
+    serializer_class = HostAccessSerializer
+    lookup_field = "id"
+
+    def get_queryset(self):
+        from .models import Host
+
+        return Host.objects.filter(provider__user=self.request.user)
 
 
 SERVICE_LOGO_MAX_BYTES = 2 * 1024 * 1024  # 2 MB — logos are small brand marks

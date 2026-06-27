@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { toast } from 'vue-sonner'
-import { ShieldCheck, Server, Lock, Globe, Users, Pause, Play } from 'lucide-vue-next'
-import { useServices, type ProviderServiceItem, type AccessPolicy } from '@/composables/useServices'
+import { ShieldCheck, Server, Cpu, Pause, Play } from 'lucide-vue-next'
+import {
+  useServices,
+  type ProviderServiceItem,
+  type HostAccessItem,
+} from '@/composables/useServices'
 import { useProviders, type Provider } from '@/composables/useProviders'
 
 definePageMeta({
@@ -11,17 +15,13 @@ definePageMeta({
   gateTitleKey: 'dashboard.items.access',
 })
 
-const { services, loading, error, fetchServices, updateService } = useServices()
-const { providers, fetchProviders, setAcceptingRequests } = useProviders()
+const { services, hosts, loading, error, fetchServices, updateService, fetchHosts, updateHost } = useServices()
+const { providers, fetchProviders, setAcceptingRequests, updateProviderAccess } = useProviders()
 
 const savingId = ref<number | null>(null)
 const pausingId = ref<number | null>(null)
-
-const POLICY_LABELS: Record<AccessPolicy, string> = {
-  PRIVATE: 'Only me',
-  AUTHENTICATED: 'Any inference.club member',
-  RESTRICTED: 'Specific GitHub users',
-}
+const savingProviderId = ref<number | null>(null)
+const savingHostId = ref<number | null>(null)
 
 const providerById = computed(() => {
   const m = new Map<number, Provider>()
@@ -43,6 +43,40 @@ const grouped = computed(() => {
   return Array.from(map.values())
 })
 
+// Look up a Host record by its (cluster, manifest host_id) key.
+const hostByKey = computed(() => {
+  const m = new Map<string, HostAccessItem>()
+  for (const h of hosts.value) m.set(`${h.provider_id}:${h.host_id}`, h)
+  return m
+})
+
+// Three-level shape: cluster (provider) → physical node (host) → services.
+// Each cluster joins its full provider record (access policy, pause state);
+// within it, services are sub-grouped by the host they run on, joined to the
+// editable Host record. `provider`/`host` are null only before data loads.
+const nodes = computed(() =>
+  grouped.value.map(g => {
+    const hostMap = new Map<
+      string,
+      { host_id: string; host: HostAccessItem | null; services: ProviderServiceItem[] }
+    >()
+    for (const s of g.services) {
+      const key = s.host_id || ''
+      const grp =
+        hostMap.get(key) ??
+        { host_id: key, host: hostByKey.value.get(`${g.id}:${key}`) ?? null, services: [] }
+      grp.services.push(s)
+      hostMap.set(key, grp)
+    }
+    return {
+      id: g.id,
+      name: g.name,
+      provider: providerById.value.get(g.id) ?? null,
+      hostGroups: Array.from(hostMap.values()),
+    }
+  }),
+)
+
 const save = async (svc: ProviderServiceItem) => {
   savingId.value = svc.id
   try {
@@ -57,6 +91,42 @@ const save = async (svc: ProviderServiceItem) => {
     toast.error('Failed to update access')
   } finally {
     savingId.value = null
+  }
+}
+
+const saveMachine = async (providerId: number) => {
+  const p = providerById.value.get(providerId)
+  if (!p) return
+  savingProviderId.value = providerId
+  try {
+    const updated = await updateProviderAccess(providerId, {
+      access_policy: p.access_policy,
+      allowed_github_users: p.allowed_github_users,
+    })
+    // Reflect server-side normalization (allowlist cleared for non-RESTRICTED).
+    p.allowed_github_users = updated.allowed_github_users
+    toast.success(`Cluster access updated for "${p.name}"`)
+  } catch {
+    toast.error('Failed to update cluster access')
+  } finally {
+    savingProviderId.value = null
+  }
+}
+
+const saveHost = async (host: HostAccessItem) => {
+  savingHostId.value = host.id
+  try {
+    const updated = await updateHost(host.id, {
+      access_policy: host.access_policy,
+      allowed_github_users: host.allowed_github_users,
+    })
+    // Reflect server-side normalization (allowlist cleared for non-RESTRICTED).
+    host.allowed_github_users = updated.allowed_github_users
+    toast.success(`Node access updated for "${host.host_id}"`)
+  } catch {
+    toast.error('Failed to update node access')
+  } finally {
+    savingHostId.value = null
   }
 }
 
@@ -78,6 +148,7 @@ const togglePause = async (providerId: number) => {
 onMounted(() => {
   fetchServices()
   fetchProviders()
+  fetchHosts()
 })
 </script>
 
@@ -89,9 +160,12 @@ onMounted(() => {
         Inference Access
       </h1>
       <p class="text-sm text-muted-foreground mt-1">
-        Choose who in inference.club can route requests to each of your services.
-        Models discovered live (outside a manifest) stay private to you until they're
-        declared in a service.
+        Gate who in inference.club can route requests to your inference at three
+        levels: the whole <strong>cluster</strong>, a single physical
+        <strong>node</strong> (e.g. a DGX Spark), and each <strong>service</strong>.
+        A request must clear every level — cluster <em>and</em> node <em>and</em>
+        service. Models discovered live (outside a manifest) stay private to you
+        until declared in a service.
       </p>
     </div>
 
@@ -111,91 +185,100 @@ onMounted(() => {
       </p>
     </Card>
 
-    <div v-else class="space-y-6">
-      <div v-for="node in grouped" :key="node.id">
-        <div class="flex items-center justify-between gap-2 mb-2">
-          <h2 class="text-sm font-semibold text-muted-foreground flex items-center gap-1.5 min-w-0">
-            <Server class="size-4 shrink-0" />
+    <div v-else class="space-y-5">
+      <Card v-for="node in nodes" :key="node.id" class="overflow-hidden py-0 gap-0">
+        <!-- Machine header: identity, status, pause/resume -->
+        <div class="flex items-center justify-between gap-2 px-4 py-3 bg-muted/40 border-b">
+          <h2 class="text-sm font-semibold flex items-center gap-2 min-w-0">
+            <Server class="size-4 shrink-0 text-muted-foreground" />
             <span class="truncate">{{ node.name }}</span>
             <Badge
-              v-if="providerById.get(node.id) && !providerById.get(node.id)!.accepting_requests"
+              v-if="node.provider && !node.provider.accepting_requests"
               variant="outline"
               class="text-amber-600 border-amber-600/40"
             >paused</Badge>
           </h2>
           <Button
-            v-if="providerById.get(node.id)"
+            v-if="node.provider"
             variant="ghost"
             size="sm"
             class="h-7 shrink-0"
             :disabled="pausingId === node.id"
             @click="togglePause(node.id)"
           >
-            <Pause v-if="providerById.get(node.id)!.accepting_requests" class="size-3.5" />
+            <Pause v-if="node.provider.accepting_requests" class="size-3.5" />
             <Play v-else class="size-3.5" />
-            {{ providerById.get(node.id)!.accepting_requests ? 'Pause' : 'Resume' }}
+            {{ node.provider.accepting_requests ? 'Pause' : 'Resume' }}
           </Button>
         </div>
 
-        <div class="space-y-2">
-          <Card v-for="svc in node.services" :key="svc.id" class="p-4">
-            <div class="flex flex-wrap items-center gap-2">
-              <h3 class="font-semibold">{{ svc.name }}</h3>
-              <Badge v-if="svc.engine" variant="secondary" class="font-mono">{{ svc.engine }}</Badge>
-              <span
-                v-for="m in svc.models"
-                :key="m"
-                class="px-1.5 py-0.5 text-xs rounded bg-muted font-mono"
-              >{{ m }}</span>
-              <span v-if="!svc.models.length" class="text-xs text-muted-foreground italic">No active models.</span>
-            </div>
-
-            <div class="border-t mt-3 pt-3 space-y-3">
-              <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                <label class="text-sm font-medium w-40 shrink-0">Who can use this</label>
-                <Select v-model="svc.access_policy">
-                  <SelectTrigger class="w-full sm:max-w-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PRIVATE">
-                      <span class="inline-flex items-center gap-2"><Lock class="size-3.5" /> {{ POLICY_LABELS.PRIVATE }}</span>
-                    </SelectItem>
-                    <SelectItem value="AUTHENTICATED">
-                      <span class="inline-flex items-center gap-2"><Globe class="size-3.5" /> {{ POLICY_LABELS.AUTHENTICATED }}</span>
-                    </SelectItem>
-                    <SelectItem value="RESTRICTED">
-                      <span class="inline-flex items-center gap-2"><Users class="size-3.5" /> {{ POLICY_LABELS.RESTRICTED }}</span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div v-if="svc.access_policy === 'RESTRICTED'" class="flex flex-col sm:flex-row gap-2 sm:gap-3">
-                <label class="text-sm font-medium w-40 shrink-0 pt-2">Allowed GitHub users</label>
-                <div class="flex-1">
-                  <TagsInput v-model="svc.allowed_github_users" class="w-full">
-                    <TagsInputItem v-for="u in svc.allowed_github_users" :key="u" :value="u">
-                      <TagsInputItemText />
-                      <TagsInputItemDelete />
-                    </TagsInputItem>
-                    <TagsInputInput placeholder="github-username, then Enter" />
-                  </TagsInput>
-                  <p class="text-xs text-muted-foreground mt-1">
-                    Type a GitHub username and press Enter. Case-insensitive.
-                  </p>
-                </div>
-              </div>
-
-              <div class="flex justify-end">
-                <Button size="sm" :disabled="savingId === svc.id" @click="save(svc)">
-                  {{ savingId === svc.id ? 'Saving…' : 'Save' }}
-                </Button>
-              </div>
-            </div>
-          </Card>
+        <!-- Cluster-level access policy (applies to every node + service) -->
+        <div v-if="node.provider" class="px-4 py-3 border-b">
+          <AccessPolicyControl
+            v-model:policy="node.provider.access_policy"
+            v-model:allowlist="node.provider.allowed_github_users"
+            label="Cluster access"
+            :saving="savingProviderId === node.id"
+            hint="The whole cluster is limited — node and service policies below apply on top."
+            @save="saveMachine(node.id)"
+          />
         </div>
-      </div>
+
+        <!-- One section per physical node (host): its node-level gate + services -->
+        <div
+          v-for="hg in node.hostGroups"
+          :key="hg.host_id || 'unassigned'"
+          class="border-b last:border-b-0"
+        >
+          <!-- Node-level access policy -->
+          <div v-if="hg.host" class="px-4 py-3 bg-muted/20 border-b space-y-2">
+            <div class="flex items-center gap-2 text-sm font-medium">
+              <Cpu class="size-4 shrink-0 text-muted-foreground" />
+              <span class="truncate">{{ hg.host.host_id }}</span>
+              <span v-if="hg.host.hostname && hg.host.hostname !== hg.host.host_id" class="text-xs text-muted-foreground truncate">
+                {{ hg.host.hostname }}
+              </span>
+            </div>
+            <AccessPolicyControl
+              v-model:policy="hg.host.access_policy"
+              v-model:allowlist="hg.host.allowed_github_users"
+              label="Node access"
+              :saving="savingHostId === hg.host.id"
+              hint="This node is limited — service policies below apply on top."
+              @save="saveHost(hg.host)"
+            />
+          </div>
+          <div v-else-if="hg.host_id" class="px-4 py-2 bg-muted/20 border-b text-sm font-medium flex items-center gap-2">
+            <Cpu class="size-4 shrink-0 text-muted-foreground" />
+            <span class="truncate">{{ hg.host_id }}</span>
+          </div>
+
+          <!-- Services on this node (tightened rows) -->
+          <div class="divide-y">
+            <div v-for="svc in hg.services" :key="svc.id" class="px-4 py-3">
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <h3 class="font-medium text-sm">{{ svc.name }}</h3>
+                <Badge v-if="svc.engine" variant="secondary" class="font-mono text-[10px] px-1.5 py-0">{{ svc.engine }}</Badge>
+                <span
+                  v-for="m in svc.models"
+                  :key="m"
+                  class="px-1.5 py-0.5 text-[10px] rounded bg-muted font-mono text-muted-foreground"
+                >{{ m }}</span>
+                <span v-if="!svc.models.length" class="text-xs text-muted-foreground italic">No active models.</span>
+              </div>
+              <div class="mt-2">
+                <AccessPolicyControl
+                  v-model:policy="svc.access_policy"
+                  v-model:allowlist="svc.allowed_github_users"
+                  save-variant="outline"
+                  :saving="savingId === svc.id"
+                  @save="save(svc)"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
     </div>
   </div>
 </template>
