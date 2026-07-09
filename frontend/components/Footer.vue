@@ -29,8 +29,9 @@
         </a>
       </div>
     </div>
-    <div class="mt-8 text-center text-xs text-muted-foreground">
-      {{ t('footer.rights', { year: new Date().getFullYear() }) }}
+    <div class="mt-8 flex flex-col items-center gap-1 text-center text-xs text-muted-foreground">
+      <span>{{ t('footer.rights', { year: new Date().getFullYear() }) }}</span>
+      <AppVersion />
     </div>
   </footer>
 </template>

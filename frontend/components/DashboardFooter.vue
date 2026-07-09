@@ -13,6 +13,7 @@ const year = new Date().getFullYear()
           inference.club
         </NuxtLink>
         <span class="text-xs">&copy; {{ year }}</span>
+        <AppVersion class="ml-1" />
       </div>
 
       <nav class="flex flex-wrap items-center gap-x-4 gap-y-2">

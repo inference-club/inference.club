@@ -45,6 +45,15 @@ DEBUG = _env_bool("DJANGO_DEBUG", default=True)
 
 ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS", default=["*"])
 
+# ---- build / deploy metadata --------------------------------------------
+# Surfaced at /api/meta so the frontend can show which build/environment it's
+# talking to. The deploy pipeline sets APP_VERSION from the git tag / image
+# tag and GIT_SHA from the built commit; DEPLOY_ENV names the deployment
+# (local / homelab / cloud). Defaults keep local dev honest.
+APP_VERSION = os.environ.get("APP_VERSION", "dev")
+GIT_SHA = os.environ.get("GIT_SHA", "")
+DEPLOY_ENV = os.environ.get("DEPLOY_ENV", "local")
+
 # ---- CORS / CSRF --------------------------------------------------------
 
 # Frontend origins allowed to make credentialed requests. Override in prod with
@@ -373,6 +382,17 @@ AUTHENTICATION_BACKENDS = (
 SOCIAL_AUTH_GITHUB_KEY = os.environ.get("GITHUB_OAUTH_CLIENT_ID", "")
 SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("GITHUB_OAUTH_CLIENT_SECRET", "")
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
+
+# ---- auth capability flags (env-driven sign-in methods) -----------------
+# Which sign-in pathways this deployment offers. The frontend reads these via
+# /api/auth/options/ and renders the matching UI, so cloud (GitHub) vs home-lab
+# (email) needs no code change — just env. GitHub defaults ON when OAuth creds
+# are present (preserves cloud/dev today); email sign-up defaults OFF (the
+# home-lab deploy opts in with AUTH_EMAIL_ENABLED=true + an SMTP backend).
+AUTH_GITHUB_ENABLED = _env_bool(
+    "AUTH_GITHUB_ENABLED", default=bool(SOCIAL_AUTH_GITHUB_KEY)
+)
+AUTH_EMAIL_ENABLED = _env_bool("AUTH_EMAIL_ENABLED", default=False)
 
 # CustomUser uses email as USERNAME_FIELD with no username column.
 SOCIAL_AUTH_USER_FIELDS = ["email"]
