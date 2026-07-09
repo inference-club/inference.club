@@ -12,6 +12,7 @@ from .views import (
     ApiKeyListView,
     ChatThreadDetailView,
     ChatThreadView,
+    ControlCenterView,
     ProviderClusterActivityView,
     ProviderClusterHistoryView,
     ProviderClusterRevisionView,
@@ -235,4 +236,6 @@ urlpatterns = [
         ProviderClusterRevisionView.as_view(),
         name="provider-cluster-revision",
     ),
+    # Cluster control center (PRD 21) — owner-only merged board.
+    path("control/", ControlCenterView.as_view(), name="control-center"),
 ]

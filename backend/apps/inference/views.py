@@ -2161,6 +2161,32 @@ class ProviderHostDetailView(APIView):
         })
 
 
+def _fetch_cluster_state(provider):
+    """Fetch (and cache) the agent's ``GET /cluster/state`` for a provider.
+
+    Returns the parsed payload dict, or ``None`` when the provider has no
+    reachable agent or the agent didn't return usable state. Shared by the live
+    proxy view and the control-center board (PRD 21) so both hit the same short
+    server-side cache and dial the agent identically.
+    """
+    if not provider.tailnet_hostname:
+        return None
+    cache_key = f"cluster_state:{provider.id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    url = f"http://{provider.tailnet_hostname}:{provider.agent_port}/cluster/state"
+    try:
+        upstream = requests.get(url, timeout=15, proxies=_tailnet_proxies())
+        upstream.raise_for_status()
+        payload = upstream.json()
+    except (requests.RequestException, ValueError):
+        logger.warning("cluster state fetch failed for provider %s", provider.id)
+        return None
+    cache.set(cache_key, payload, CLUSTER_STATE_CACHE_TTL)
+    return payload
+
+
 class ProviderClusterStateView(APIView):
     """GET /api/inference/providers/<id>/cluster/ — live cluster snapshot.
 
@@ -2174,31 +2200,12 @@ class ProviderClusterStateView(APIView):
 
     def get(self, request, id):
         provider = _cluster_provider_or_404(request, id)
-        if not provider.tailnet_hostname:
-            return Response(
-                {"detail": "provider has no reachable agent"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        cache_key = f"cluster_state:{provider.id}"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return Response(cached)
-
-        url = (
-            f"http://{provider.tailnet_hostname}:{provider.agent_port}/cluster/state"
-        )
-        try:
-            upstream = requests.get(url, timeout=15, proxies=_tailnet_proxies())
-            upstream.raise_for_status()
-            payload = upstream.json()
-        except (requests.RequestException, ValueError):
-            logger.warning("cluster state fetch failed for provider %s", provider.id)
+        payload = _fetch_cluster_state(provider)
+        if payload is None:
             return Response(
                 {"detail": "agent did not return cluster state"},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        cache.set(cache_key, payload, CLUSTER_STATE_CACHE_TTL)
         return Response(payload)
 
 
@@ -2441,6 +2448,241 @@ def _user_served_models(user) -> list:
     entries = [serialize_catalog_entry(c, ds) for c, ds in by_catalog.values()]
     entries.sort(key=lambda e: e["display_name"].lower())
     return entries
+
+
+# ── Cluster control center (PRD 21) ────────────────────────────────────────
+
+_GIB = 1024 ** 3
+
+
+def _bytes_to_gib(n):
+    """Bytes → GiB (1 decimal), or None for missing/garbage input."""
+    try:
+        v = float(n)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return round(v / _GIB, 1)
+
+
+def _service_logo_url(svc, request):
+    if not svc.logo:
+        return None
+    try:
+        return request.build_absolute_uri(svc.logo.url)
+    except Exception:  # noqa: BLE001 — storage backends vary; degrade to None
+        try:
+            return svc.logo.url
+        except Exception:  # noqa: BLE001
+            return None
+
+
+def _service_home_box(svc):
+    return svc.host.host_id if svc.host_id else (svc.manifest_host_id or "")
+
+
+def _candidate_boxes(svc):
+    if svc.candidate_boxes:
+        return list(svc.candidate_boxes)
+    home = _service_home_box(svc)
+    return [home] if home else []
+
+
+def _build_control_board(provider, state, request):
+    """Merge a provider's DB roster (Host/Gpu/ProviderService) with the agent's
+    live ``/cluster/state`` into the control-center board (PRD 21):
+
+      - GPU boxes only (active hosts with >=1 active GPU),
+      - each box's live utilization + free VRAM + schedulability,
+      - the services running on it (from pods), and
+      - the parked services that could be *started* there (candidate + fit).
+
+    Read-only; actuation is V1. ``state`` may be None (agent unreachable) — the
+    board still renders from the DB, just without live metrics.
+    """
+    state = state or {}
+    nodes_by_box = {}
+    for n in state.get("nodes") or []:
+        box = n.get("host_id") or n.get("name")
+        if box:
+            nodes_by_box[box] = n
+
+    services = list(provider.services.filter(is_active=True).select_related("host"))
+    svc_by_name = {s.name: s for s in services}
+
+    # Where each running/starting service actually is, from live pods.
+    running_on_box = {}  # box -> {service_name -> {"state", "vram"}}
+    running_names = set()
+    for p in state.get("pods") or []:
+        name = p.get("service")
+        if name not in svc_by_name:
+            continue
+        box = p.get("host_id") or p.get("node") or ""
+        st = "running" if p.get("ready") else "starting"
+        vram = _bytes_to_gib(p.get("gpu_vram_used_bytes"))
+        entry = running_on_box.setdefault(box, {}).setdefault(
+            name, {"state": st, "vram": vram}
+        )
+        if st == "running":
+            entry["state"] = "running"
+        if vram and (entry["vram"] is None or vram > entry["vram"]):
+            entry["vram"] = vram
+        running_names.add(name)
+
+    def svc_dict(svc, st, live_vram, box):
+        home = _service_home_box(svc)
+        return {
+            "name": svc.name,
+            "type": svc.service_type,
+            "engine": svc.engine,
+            "logo_url": _service_logo_url(svc, request),
+            "state": st,
+            "live_vram_gb": live_vram,
+            "expected_vram_gb": svc.expected_vram_gb,
+            "home_box": home,
+            "box": box or home,
+            "candidate_boxes": _candidate_boxes(svc),
+        }
+
+    boxes_out = []
+    for host in (
+        provider.hosts.filter(is_active=True)
+        .prefetch_related("gpus")
+        .order_by("host_id")
+    ):
+        gpus = [g for g in host.gpus.all() if g.is_active]
+        if not gpus:
+            continue  # not a GPU box — the board is GPU boxes only
+        box = host.host_id
+        node = nodes_by_box.get(box)
+
+        if node is None:
+            schedulable, reason = False, "offline"
+        elif not node.get("ready"):
+            schedulable, reason = False, "NotReady"
+        else:
+            schedulable, reason = True, None
+            for c in node.get("conditions") or []:
+                if c.get("type") in ("MemoryPressure", "DiskPressure") and str(
+                    c.get("status")
+                ) == "True":
+                    schedulable = False
+                    reason = c["type"].replace("Pressure", "-pressure").lower()
+                    break
+
+        ngpu = (node or {}).get("gpu") or {}
+        vram_total = _bytes_to_gib(ngpu.get("vram_total_bytes"))
+        vram_used = _bytes_to_gib(ngpu.get("vram_used_bytes"))
+        if vram_total is None:
+            declared = round(sum((g.vram_gb or 0) for g in gpus), 1)
+            vram_total = declared or None
+        vram_free = (
+            round(vram_total - (vram_used or 0), 1)
+            if vram_total is not None
+            else None
+        )
+
+        running_here = running_on_box.get(box, {})
+        services_out = sorted(
+            (
+                svc_dict(svc_by_name[name], info["state"], info["vram"], box)
+                for name, info in running_here.items()
+                if name in svc_by_name
+            ),
+            key=lambda s: s["name"],
+        )
+
+        startable = []
+        for svc in services:
+            if svc.name in running_names or box not in _candidate_boxes(svc):
+                continue
+            d = svc_dict(svc, "parked", None, box)
+            exp = svc.expected_vram_gb
+            d["fits"] = None if (exp is None or vram_free is None) else (exp <= vram_free)
+            startable.append(d)
+        startable.sort(key=lambda s: s["name"])
+
+        boxes_out.append({
+            "box": box,
+            "hostname": host.hostname,
+            "arch": (node or {}).get("architecture") or "",
+            "online": node is not None and bool(node.get("ready")),
+            "schedulable": schedulable,
+            "unschedulable_reason": reason,
+            "gpu": {
+                "model": gpus[0].model or "",
+                "count": len(gpus),
+                "vram_total_gb": vram_total,
+                "vram_used_gb": vram_used,
+                "vram_free_gb": vram_free,
+                "utilization_pct": ngpu.get("util_percent"),
+                "unified": bool(ngpu.get("unified")),
+            },
+            "services": services_out,
+            "startable": startable,
+        })
+
+    # Parked services that couldn't be offered under any shown GPU box (their
+    # candidate boxes are all missing/non-GPU) — surface so nothing vanishes.
+    shown = {b["box"] for b in boxes_out}
+    parked_elsewhere = sorted(
+        (
+            svc_dict(svc, "parked", None, _service_home_box(svc))
+            for svc in services
+            if svc.name not in running_names
+            and not (set(_candidate_boxes(svc)) & shown)
+        ),
+        key=lambda s: s["name"],
+    )
+
+    return {
+        "provider": {
+            "id": provider.id,
+            "name": provider.name,
+            "online": provider.is_online,
+            "cluster_control_enabled": provider.cluster_control_enabled,
+            "has_live_state": bool(state.get("nodes")),
+        },
+        "boxes": boxes_out,
+        "parked_elsewhere": parked_elsewhere,
+    }
+
+
+class ControlCenterView(APIView):
+    """GET /api/inference/control/ — the cluster control center board (PRD 21).
+
+    Owner-only. For each of the caller's kubernetes providers that have opted in
+    (``cluster_control_enabled``), returns the merged board: GPU boxes with live
+    utilization + free VRAM, the services running on each, and the parked
+    services that could be started there. Read-only in V0; park/unpark actuation
+    lands in V1.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        providers = (
+            Provider.objects.filter(
+                user=request.user, is_active=True, cluster_control_enabled=True
+            )
+            .prefetch_related("hosts__gpus", "services__host")
+            .order_by("name")
+        )
+        boards = []
+        for provider in providers:
+            manifest = getattr(provider, "manifest", None)
+            parsed = (
+                manifest.parsed if manifest is not None and manifest.is_valid else None
+            )
+            if not isinstance(parsed, dict) or parsed.get("discovery") != "kubernetes":
+                continue  # control center actuates Deployments — k8s only
+            state = _fetch_cluster_state(provider)
+            boards.append(_build_control_board(provider, state, request))
+        return Response({
+            "generated_at": timezone.now().isoformat(),
+            "providers": boards,
+        })
 
 
 class PublicUserProfileView(APIView):

@@ -177,6 +177,16 @@ class Provider(BaseModel):
         "successful liveness probe.",
     )
     is_active = models.BooleanField(default=True)
+    # --- Cluster control center (PRD 21) ---
+    # Owner opt-in. When True, this provider's cluster is exposed in the control
+    # center where the owner (and only the owner) can park/unpark (scale 0<->1)
+    # its inference services. Default off — read-only telemetry is unaffected by
+    # this flag; it gates the operational surface, not the viz.
+    cluster_control_enabled = models.BooleanField(
+        default=False,
+        help_text="Owner opt-in: expose this cluster in the control center for "
+        "park/unpark of inference services (PRD 21).",
+    )
 
     class Meta:
         ordering = ["-created_on"]
@@ -447,6 +457,30 @@ class ProviderService(BaseModel):
     # slot budget — this is how "two services on one GPU, only one at a time"
     # is expressed (declared in the manifest's services[].resource_group).
     resource_group = models.CharField(max_length=64, blank=True, default="")
+    # --- Cluster control center (PRD 21) ---
+    # Expected GPU memory (GiB) this service consumes when running. Powers the
+    # "will it fit?" preflight while the service is PARKED — a parked service
+    # runs no pod and reports 0 live VRAM, so the fleet needs an estimate to
+    # decide whether unparking it onto a box will land. Manually settable;
+    # auto-learned from observed peak over time (V3). Null until known.
+    expected_vram_gb = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Expected GPU memory (GiB) when running; drives the fit "
+        "preflight while parked. Auto-learned from observed peak (PRD 21).",
+    )
+    # Manifest box ids this service is allowed to run on (e.g. ['a2', 'a3']).
+    # Empty means "home box only" (its current nodeSelector box). Bounded in
+    # reality by architecture (spark arm64 vs a1-a3 amd64) and where the model
+    # weights live (node-local hostPath cache vs replicated Longhorn RWX — which
+    # is why dia can run on both a2 and a3). Declared for now; auto-derived from
+    # arch + weight availability later (PRD 21 V2).
+    candidate_boxes = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Manifest box ids this service can run on (arch + weight "
+        "availability). Empty = home box only (PRD 21).",
+    )
     # Operator-uploaded brand logo for this service, shown on machine cards and
     # the cluster scene in place of the engine-derived glyph. Set via the
     # dashboard (not the manifest), so the manifest re-upsert in
