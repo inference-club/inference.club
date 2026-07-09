@@ -69,6 +69,9 @@ export function useControlCenter() {
   const config = useRuntimeConfig()
   const base = `${config.public.apiBase}/api/inference/control`
 
+  const csrf = () =>
+    document.cookie.split('; ').find((c) => c.startsWith('csrftoken='))?.split('=')[1]
+
   const loadBoard = async (): Promise<ControlBoardPayload> => {
     const res = await fetch(`${base}/`, { credentials: 'include' })
     if (res.status === 401 || res.status === 403) {
@@ -78,5 +81,21 @@ export function useControlCenter() {
     return res.json()
   }
 
-  return { loadBoard }
+  // Park (replicas 0) or unpark (replicas 1) a Deployment. Owner-only server-side.
+  const scale = async (providerId: number, deployment: string, replicas: 0 | 1) => {
+    const t = csrf()
+    const res = await fetch(`${base}/scale/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(t ? { 'X-CSRFToken': t } : {}) },
+      body: JSON.stringify({ provider_id: providerId, deployment, replicas }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail || 'Scale failed')
+    }
+    return res.json()
+  }
+
+  return { loadBoard, scale }
 }

@@ -43,6 +43,7 @@ from .models import (
     Provider,
     ProviderModel,
     ProviderService,
+    ServiceAction,
     ServiceManifest,
     Star,
     VISIBILITY_PUBLIC,
@@ -2696,6 +2697,101 @@ class ControlCenterView(APIView):
             "generated_at": timezone.now().isoformat(),
             "providers": boards,
         })
+
+
+_DEPLOY_NAME_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789-.")
+
+
+def _valid_deployment_name(n: str) -> bool:
+    """A DNS-1123-ish name safe to interpolate into the agent's scale path — no
+    slashes / traversal, so ``{name}`` can't escape into another endpoint."""
+    return bool(n) and len(n) <= 253 and set(n) <= _DEPLOY_NAME_CHARS and n[0] not in "-." and n[-1] not in "-."
+
+
+class ControlScaleView(APIView):
+    """POST /api/inference/control/scale/ — park/unpark a Deployment (PRD 21).
+
+    Owner-only. Proxies to the provider's agent
+    ``POST /cluster/deployments/{name}/scale`` with the shared control token,
+    writes a ``ServiceAction`` audit row either way, and invalidates the cached
+    cluster snapshot so the next board poll reflects the change quickly. The app
+    is a remote control: it issues the command and records it — the cluster is
+    the source of truth, so it does not persist a desired state to re-assert.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        deployment = str(request.data.get("deployment") or "").strip()
+        replicas = request.data.get("replicas")
+        provider_id = request.data.get("provider_id")
+
+        if replicas not in (0, 1):
+            return Response({"detail": "replicas must be 0 or 1"}, status=400)
+        if not _valid_deployment_name(deployment):
+            return Response({"detail": "invalid deployment name"}, status=400)
+
+        provider = get_object_or_404(
+            Provider, id=provider_id, user=request.user, is_active=True
+        )
+        if not provider.cluster_control_enabled:
+            return Response(
+                {"detail": "cluster control is not enabled for this provider"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not provider.agent_control_token:
+            return Response(
+                {"detail": "no agent control token configured for this provider"},
+                status=400,
+            )
+        if not provider.tailnet_hostname:
+            return Response(
+                {"detail": "provider has no reachable agent"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        action = (
+            ServiceAction.ACTION_UNPARK if replicas == 1 else ServiceAction.ACTION_PARK
+        )
+        url = (
+            f"http://{provider.tailnet_hostname}:{provider.agent_port}"
+            f"/cluster/deployments/{deployment}/scale"
+        )
+        result, detail = ServiceAction.RESULT_OK, ""
+        try:
+            resp = requests.post(
+                url,
+                json={"replicas": replicas},
+                timeout=30,
+                proxies=_tailnet_proxies(),
+                headers={"Authorization": f"Bearer {provider.agent_control_token}"},
+            )
+            if resp.status_code != 200:
+                result = ServiceAction.RESULT_FAILED
+                detail = f"agent {resp.status_code}: {resp.text[:300]}"
+        except requests.RequestException as exc:
+            result, detail = ServiceAction.RESULT_FAILED, str(exc)[:300]
+
+        ServiceAction.objects.create(
+            provider=provider,
+            actor=request.user,
+            deployment=deployment,
+            action=action,
+            replicas=replicas,
+            result=result,
+            detail=detail,
+        )
+        # Invalidate the cached snapshot so the next board poll shows the change
+        # promptly instead of waiting out the 12s TTL.
+        cache.delete(f"cluster_state:{provider.id}")
+
+        if result == ServiceAction.RESULT_FAILED:
+            logger.warning("scale %s -> %s failed: %s", deployment, replicas, detail)
+            return Response(
+                {"detail": detail or "scale failed"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"deployment": deployment, "replicas": replicas, "ok": True})
 
 
 class PublicUserProfileView(APIView):

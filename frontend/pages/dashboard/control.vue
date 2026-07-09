@@ -21,11 +21,17 @@ import ReadinessDot from '@/components/ReadinessDot.vue'
 
 definePageMeta({ layout: 'app', requireAuth: true })
 
-const { loadBoard } = useControlCenter()
+const { loadBoard, scale } = useControlCenter()
 
 const board = ref<ControlBoardPayload | null>(null)
 const loading = ref(true)
 const error = ref<'' | 'unauthorized' | 'failed'>('')
+
+// Deployments with an in-flight scale — disables their button + shows a spinner.
+const busy = ref<Set<string>>(new Set())
+// Optimistic state overrides keyed by deployment, cleared once a poll confirms.
+const optimistic = ref<Record<string, ServiceState>>({})
+const actionError = ref('')
 
 const load = async () => {
   try {
@@ -37,6 +43,39 @@ const load = async () => {
     loading.value = false
   }
 }
+
+// Park (0) / unpark (1) a service. Optimistic: flip to stopping/starting, call
+// the API, then re-poll so the board settles on real cluster state.
+const doScale = async (providerId: number, s: ControlService, replicas: 0 | 1) => {
+  if (busy.value.has(s.deployment)) return
+  if (replicas === 0 && !confirm(`Park ${s.name} (${s.deployment})? It will stop serving and free its VRAM.`)) {
+    return
+  }
+  actionError.value = ''
+  busy.value = new Set(busy.value).add(s.deployment)
+  optimistic.value = { ...optimistic.value, [s.deployment]: replicas === 1 ? 'starting' : 'stopping' }
+  try {
+    await scale(providerId, s.deployment, replicas)
+  } catch (e: unknown) {
+    actionError.value = `${s.name}: ${(e as Error).message}`
+    delete optimistic.value[s.deployment]
+    optimistic.value = { ...optimistic.value }
+  } finally {
+    const next = new Set(busy.value)
+    next.delete(s.deployment)
+    busy.value = next
+    // Give k8s a beat to register the change, then reload; clear the optimistic
+    // override so the fresh board wins.
+    setTimeout(async () => {
+      await load()
+      delete optimistic.value[s.deployment]
+      optimistic.value = { ...optimistic.value }
+    }, 1500)
+  }
+}
+
+const displayState = (s: ControlService): ServiceState => optimistic.value[s.deployment] ?? s.state
+const isBusy = (s: ControlService) => busy.value.has(s.deployment)
 
 // Live-ish: poll while the tab is open. The server caches cluster-state ~12s.
 const { pause, resume } = useIntervalFn(load, 15000, { immediate: false })
@@ -101,6 +140,11 @@ const fitMeta = (s: ControlService) => {
       >
         <RefreshCw class="size-3.5" :class="loading ? 'animate-spin' : ''" /> Refresh
       </button>
+    </div>
+
+    <div v-if="actionError"
+         class="mb-4 flex items-start gap-2 rounded-lg border border-rose-400/60 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300">
+      <AlertTriangle class="mt-0.5 size-4 shrink-0" /> {{ actionError }}
     </div>
 
     <!-- states -->
@@ -219,9 +263,9 @@ const fitMeta = (s: ControlService) => {
                   </span>
                 </div>
                 <div class="flex items-center gap-1.5 text-2xs">
-                  <span class="inline-flex items-center gap-1" :class="STATE_META[s.state].text">
-                    <span class="inline-block size-1.5 rounded-full" :class="STATE_META[s.state].dot" />
-                    {{ STATE_META[s.state].label }}
+                  <span class="inline-flex items-center gap-1" :class="STATE_META[displayState(s)].text">
+                    <span class="inline-block size-1.5 rounded-full" :class="STATE_META[displayState(s)].dot" />
+                    {{ STATE_META[displayState(s)].label }}
                   </span>
                   <span v-if="s.live_vram_gb != null" class="text-muted-foreground">
                     · {{ gb(s.live_vram_gb) }} GB
@@ -229,9 +273,11 @@ const fitMeta = (s: ControlService) => {
                 </div>
               </div>
               <button
-                class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-2xs text-muted-foreground opacity-60"
-                disabled title="Park / unpark ships in V1">
-                <Square class="size-3" /> Stop
+                class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-2xs hover:bg-muted disabled:opacity-50"
+                :disabled="isBusy(s)" title="Park (scale to 0)"
+                @click="doScale(p.provider.id, s, 0)">
+                <Loader2 v-if="isBusy(s)" class="size-3 animate-spin" />
+                <Square v-else class="size-3" /> Stop
               </button>
             </div>
           </div>
@@ -261,9 +307,12 @@ const fitMeta = (s: ControlService) => {
                   </div>
                 </div>
                 <button
-                  class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-2xs text-muted-foreground opacity-60"
-                  disabled title="Park / unpark ships in V1">
-                  <Play class="size-3" /> Start
+                  class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-2xs hover:bg-muted disabled:opacity-50"
+                  :class="s.fits === false ? 'border-rose-400/60 text-rose-600 dark:text-rose-400' : ''"
+                  :disabled="isBusy(s)" title="Unpark (scale to 1)"
+                  @click="doScale(p.provider.id, s, 1)">
+                  <Loader2 v-if="isBusy(s)" class="size-3 animate-spin" />
+                  <Play v-else class="size-3" /> Start
                 </button>
               </div>
             </div>
@@ -279,7 +328,7 @@ const fitMeta = (s: ControlService) => {
     </div>
 
     <p v-if="providers.length" class="mt-2 text-2xs text-muted-foreground">
-      Read-only preview — park / unpark and start controls activate in V1.
+      Stop parks a service (scale to 0, frees VRAM); Start unparks it (scale to 1) on its box.
     </p>
   </div>
 </template>

@@ -13,6 +13,7 @@ from .views import (
     ChatThreadDetailView,
     ChatThreadView,
     ControlCenterView,
+    ControlScaleView,
     ProviderClusterActivityView,
     ProviderClusterHistoryView,
     ProviderClusterRevisionView,
@@ -238,4 +239,5 @@ urlpatterns = [
     ),
     # Cluster control center (PRD 21) — owner-only merged board.
     path("control/", ControlCenterView.as_view(), name="control-center"),
+    path("control/scale/", ControlScaleView.as_view(), name="control-scale"),
 ]

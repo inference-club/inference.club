@@ -187,6 +187,16 @@ class Provider(BaseModel):
         help_text="Owner opt-in: expose this cluster in the control center for "
         "park/unpark of inference services (PRD 21).",
     )
+    # Shared secret presented to the agent (as a Bearer) to authorize park/unpark
+    # (PRD 21). Must equal the agent's AGENT_CONTROL_TOKEN. Empty means this
+    # instance can read the cluster but not actuate it — the safe default.
+    agent_control_token = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Bearer secret for the agent's scale endpoint; must match the "
+        "agent's AGENT_CONTROL_TOKEN. Empty = read-only, no actuation (PRD 21).",
+    )
 
     class Meta:
         ordering = ["-created_on"]
@@ -244,6 +254,45 @@ class Provider(BaseModel):
         if self.user_id == getattr(user, "id", None):
             return True
         return policy_grants(self.access_policy, self.allowed_github_users, github_login)
+
+
+class ServiceAction(BaseModel):
+    """Audit row for one control-center actuation (PRD 21): who parked/unparked
+    which Deployment, when, and whether it took. Append-only; the control center
+    renders these as a live action feed, and it's the record of "who last touched
+    this" alongside the annotation the agent stamps on the Deployment itself."""
+
+    ACTION_PARK = "park"
+    ACTION_UNPARK = "unpark"
+    ACTION_CHOICES = ((ACTION_PARK, "Park"), (ACTION_UNPARK, "Unpark"))
+
+    RESULT_OK = "ok"
+    RESULT_FAILED = "failed"
+    RESULT_CHOICES = ((RESULT_OK, "OK"), (RESULT_FAILED, "Failed"))
+
+    provider = models.ForeignKey(
+        Provider, on_delete=models.CASCADE, related_name="service_actions"
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="service_actions",
+    )
+    deployment = models.CharField(max_length=255)
+    service = models.CharField(max_length=255, blank=True, default="")
+    box = models.CharField(max_length=64, blank=True, default="")
+    action = models.CharField(max_length=16, choices=ACTION_CHOICES)
+    replicas = models.PositiveSmallIntegerField()
+    result = models.CharField(max_length=16, choices=RESULT_CHOICES)
+    detail = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_on"]
+
+    def __str__(self):
+        return f"{self.action} {self.deployment} → {self.replicas} ({self.result})"
 
 
 class Host(BaseModel):
