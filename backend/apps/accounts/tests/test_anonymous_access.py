@@ -142,10 +142,16 @@ def test_guest_cap(api_client, policy):
     assert "full" in r.data["detail"]
 
 
-def test_auth_options_reflect_policy(api_client, policy):
+def test_auth_options_reflect_policy(api_client, policy, settings):
+    # github/email are env-driven (settings.AUTH_*_ENABLED); pin them so the
+    # assertion doesn't depend on whether OAuth creds happen to be set in the
+    # environment (they aren't in CI, which is why this must be explicit).
+    settings.AUTH_GITHUB_ENABLED = True
+    settings.AUTH_EMAIL_ENABLED = False
     r = api_client.get("/api/auth/options/")
     assert r.data == {
         "github": True,
+        "email": False,
         "guest": False,
         "passcode": True,
         "guest_message": "",

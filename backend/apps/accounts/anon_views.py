@@ -8,6 +8,7 @@ attacker-controlled anonymous account.
 
 import secrets
 
+from django.conf import settings
 from django.contrib.auth import login
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -73,7 +74,10 @@ class AuthOptionsView(APIView):
         policy = AccessPolicy.load()
         return Response(
             {
-                "github": True,
+                # GitHub OAuth (cloud/dev) and email sign-up (home-lab) are
+                # per-deployment env flags — see settings.AUTH_*_ENABLED.
+                "github": settings.AUTH_GITHUB_ENABLED,
+                "email": settings.AUTH_EMAIL_ENABLED,
                 "guest": policy.guest_signin_enabled,
                 "passcode": policy.passcode_signin_enabled,
                 "guest_message": policy.guest_message,

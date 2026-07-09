@@ -9,7 +9,7 @@ interface User {
   github_login: string | null
   api_token: string | null
   handle: string | null
-  account_type: 'GITHUB' | 'GUEST' | 'PASSCODE'
+  account_type: 'GITHUB' | 'EMAIL' | 'GUEST' | 'PASSCODE'
   is_anonymous_account: boolean
   anon_alias: string | null
   use_anon_alias: boolean
@@ -23,6 +23,7 @@ interface User {
 
 export interface AuthOptions {
   github: boolean
+  email: boolean
   guest: boolean
   passcode: boolean
   guest_message: string
@@ -119,89 +120,113 @@ export const useAuth = () => {
     return cookieValue
   }
 
+  // Email + password login. On success the session cookie is set and the store
+  // holds the user; the caller decides where to navigate. On failure, `code`
+  // carries a machine-readable reason (e.g. 'email_unconfirmed') so the UI can
+  // offer a resend instead of a generic "wrong password".
   const login = async (credentials: LoginCredentials) => {
     try {
-      // First setup CSRF token
-      const csrfSetup = await setupCsrf()
-      if (!csrfSetup) {
-        return { success: false, error: 'Failed to setup CSRF token' }
-      }
-
+      await setupCsrf()
       const csrfToken = getCsrfToken()
       if (!csrfToken) {
-        return { success: false, error: 'CSRF token not found' }
+        return { success: false as const, error: 'Failed to setup CSRF token' }
       }
 
-      const { data, error } = await useFetch<AuthResponse>(`${config.public.apiBase}/api/login/`, {
+      await $fetch(`${config.public.apiBase}/api/login/`, {
         method: 'POST',
         body: credentials,
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrfToken,
-        }
+        headers: { 'X-CSRFToken': csrfToken },
       })
 
-      if (error.value) {
-        throw error.value
+      const account = await $fetch<User>(`${config.public.apiBase}/api/account/`, {
+        credentials: 'include',
+      })
+      authStore.setUser(account)
+      return { success: true as const }
+    } catch (error: any) {
+      return {
+        success: false as const,
+        code: error?.data?.code as string | undefined,
+        error: error?.data?.detail || 'Sign-in failed. Check your email and password.',
       }
-
-      if (data.value) {
-        // After successful login, fetch the user account details
-        const { data: accountData, error: accountError } = await useFetch<User>(`${config.public.apiBase}/api/account/`, {
-          credentials: 'include'
-        })
-
-        if (accountError.value) {
-          throw accountError.value
-        }
-
-        if (accountData.value) {
-          authStore.setUser(accountData.value)
-          router.push('/')
-          return { success: true }
-        }
-      }
-    } catch (error) {
-      return { success: false, error }
     }
   }
 
+  // Email + password sign-up. The account is created inactive and a
+  // confirmation link is emailed — the caller is NOT logged in. Returns the
+  // server's message so the UI can tell the user to check their inbox.
   const register = async (credentials: RegisterCredentials) => {
     try {
-      // First setup CSRF token
-      const csrfSetup = await setupCsrf()
-      if (!csrfSetup) {
-        return { success: false, error: 'Failed to setup CSRF token' }
-      }
-
+      await setupCsrf()
       const csrfToken = getCsrfToken()
       if (!csrfToken) {
-        return { success: false, error: 'CSRF token not found' }
+        return { success: false as const, error: 'Failed to setup CSRF token' }
       }
 
-      const { data, error } = await useFetch<AuthResponse>(`${config.public.apiBase}/api/register/`, {
-        method: 'POST',
-        body: credentials,
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrfToken,
-        }
-      })
-
-      if (error.value) {
-        throw error.value
+      const data = await $fetch<{ detail: string; email: string }>(
+        `${config.public.apiBase}/api/register/`,
+        {
+          method: 'POST',
+          body: credentials,
+          credentials: 'include',
+          headers: { 'X-CSRFToken': csrfToken },
+        },
+      )
+      return { success: true as const, detail: data.detail, email: data.email }
+    } catch (error: any) {
+      return {
+        success: false as const,
+        error: error?.data?.detail || 'Sign-up failed. Please try again.',
       }
+    }
+  }
 
-      if (data.value) {
-        const { user } = data.value
-        authStore.setUser(user)
-        router.push('/')
-        return { success: true }
+  // Confirm an email address from the link's token (the /confirm page). On
+  // success the account is active and the user can sign in.
+  const confirmEmail = async (token: string) => {
+    try {
+      await setupCsrf()
+      const csrfToken = getCsrfToken()
+      const data = await $fetch<{ detail: string }>(
+        `${config.public.apiBase}/api/auth/confirm/`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
+          body: { token },
+        },
+      )
+      return { success: true as const, detail: data.detail }
+    } catch (error: any) {
+      return {
+        success: false as const,
+        error: error?.data?.detail || 'This confirmation link is invalid or has expired.',
       }
-    } catch (error) {
-      return { success: false, error }
+    }
+  }
+
+  // Ask for a fresh confirmation link. The response is intentionally generic
+  // (it never reveals whether the address exists / is pending).
+  const resendConfirmation = async (email: string) => {
+    try {
+      await setupCsrf()
+      const csrfToken = getCsrfToken()
+      const data = await $fetch<{ detail: string }>(
+        `${config.public.apiBase}/api/auth/confirm/resend/`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
+          body: { email },
+        },
+      )
+      return { success: true as const, detail: data.detail }
+    } catch (error: any) {
+      return {
+        success: false as const,
+        error: error?.data?.detail || 'Could not resend the confirmation email.',
+      }
     }
   }
 
@@ -234,7 +259,7 @@ export const useAuth = () => {
     try {
       return await $fetch<AuthOptions>(`${config.public.apiBase}/api/auth/options/`)
     } catch {
-      return { github: true, guest: false, passcode: false, guest_message: '' }
+      return { github: true, email: false, guest: false, passcode: false, guest_message: '' }
     }
   }
 
@@ -318,6 +343,8 @@ export const useAuth = () => {
   return {
     login,
     register,
+    confirmEmail,
+    resendConfirmation,
     logout,
     checkAuth,
     setupCsrf,

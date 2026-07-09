@@ -87,6 +87,20 @@ def login_view(request):
     if user is not None:
         login(request, user)
         return JsonResponse({"detail": "Success"})
+    # authenticate() returns None for inactive users too — distinguish an
+    # unconfirmed email sign-up (right password, not yet activated) from bad
+    # credentials so the UI can prompt a resend instead of "wrong password".
+    from .models import CustomUser
+
+    pending = CustomUser.objects.filter(email__iexact=email, is_active=False).first()
+    if pending is not None and pending.check_password(password):
+        return JsonResponse(
+            {
+                "detail": "Please confirm your email address before signing in.",
+                "code": "email_unconfirmed",
+            },
+            status=403,
+        )
     return JsonResponse({"detail": "Invalid credentials"}, status=400)
 
 

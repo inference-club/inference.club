@@ -45,6 +45,15 @@ DEBUG = _env_bool("DJANGO_DEBUG", default=True)
 
 ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS", default=["*"])
 
+# ---- build / deploy metadata --------------------------------------------
+# Surfaced at /api/meta so the frontend can show which build/environment it's
+# talking to. The deploy pipeline sets APP_VERSION from the git tag / image
+# tag and GIT_SHA from the built commit; DEPLOY_ENV names the deployment
+# (local / homelab / cloud). Defaults keep local dev honest.
+APP_VERSION = os.environ.get("APP_VERSION", "dev")
+GIT_SHA = os.environ.get("GIT_SHA", "")
+DEPLOY_ENV = os.environ.get("DEPLOY_ENV", "local")
+
 # ---- CORS / CSRF --------------------------------------------------------
 
 # Frontend origins allowed to make credentialed requests. Override in prod with
@@ -216,6 +225,8 @@ REST_FRAMEWORK = {
         # the admin-editable AccessPolicy (these apply if it's unreadable).
         "inference_anon": os.environ.get("ANON_INFERENCE_RATE_LIMIT", "15/min"),
         "models_anon": os.environ.get("ANON_MODELS_RATE_LIMIT", "60/min"),
+        # Per-IP cap on email sign-up / confirm / resend attempts.
+        "email_auth": os.environ.get("EMAIL_AUTH_RATE_LIMIT", "10/hour"),
     },
 }
 
@@ -374,6 +385,17 @@ SOCIAL_AUTH_GITHUB_KEY = os.environ.get("GITHUB_OAUTH_CLIENT_ID", "")
 SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("GITHUB_OAUTH_CLIENT_SECRET", "")
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 
+# ---- auth capability flags (env-driven sign-in methods) -----------------
+# Which sign-in pathways this deployment offers. The frontend reads these via
+# /api/auth/options/ and renders the matching UI, so cloud (GitHub) vs home-lab
+# (email) needs no code change — just env. GitHub defaults ON when OAuth creds
+# are present (preserves cloud/dev today); email sign-up defaults OFF (the
+# home-lab deploy opts in with AUTH_EMAIL_ENABLED=true + an SMTP backend).
+AUTH_GITHUB_ENABLED = _env_bool(
+    "AUTH_GITHUB_ENABLED", default=bool(SOCIAL_AUTH_GITHUB_KEY)
+)
+AUTH_EMAIL_ENABLED = _env_bool("AUTH_EMAIL_ENABLED", default=False)
+
 # CustomUser uses email as USERNAME_FIELD with no username column.
 SOCIAL_AUTH_USER_FIELDS = ["email"]
 
@@ -401,6 +423,30 @@ SOCIAL_AUTH_LOGIN_REDIRECT_URL = os.environ.get(
 SOCIAL_AUTH_LOGIN_ERROR_URL = os.environ.get(
     "SOCIAL_AUTH_LOGIN_ERROR_URL", "http://localhost:3001/login?oauth_error=1"
 )
+
+# ---- email (confirmation links for the email sign-up flow) --------------
+# Only exercised where AUTH_EMAIL_ENABLED (the home-lab deploy). Defaults to
+# the console backend so local dev prints the link to the log with no SMTP;
+# the home-lab deploy points EMAIL_BACKEND at SMTP (Mailpit). Cloud leaves
+# email auth off entirely, so none of this is used there.
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "25"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = _env_bool("EMAIL_USE_TLS", default=False)
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", "inference.club <no-reply@inference.club>"
+)
+
+# Origin the confirmation link points at (the frontend). The /confirm page
+# reads ?token=… and posts it back to /api/auth/confirm/.
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3100")
+
+# How long an email-confirmation token stays redeemable.
+EMAIL_CONFIRMATION_TTL_HOURS = int(os.environ.get("EMAIL_CONFIRMATION_TTL_HOURS", "48"))
 
 # ---- i18n / static ------------------------------------------------------
 

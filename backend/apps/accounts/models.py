@@ -16,6 +16,10 @@ ANON_EMAIL_DOMAIN = "anon.inference.club"
 class CustomUser(AbstractUser):
     class AccountType(models.TextChoices):
         GITHUB = "GITHUB", "GitHub"
+        # Email + password sign-up (home-lab deployments). A full member like
+        # GITHUB — not anonymous — but authenticates with a local password and
+        # must confirm their address before the account activates (PRD 20).
+        EMAIL = "EMAIL", "Email"
         GUEST = "GUEST", "Guest"
         PASSCODE = "PASSCODE", "Passcode"
     # How this user's inference requests are routed when several providers
@@ -170,6 +174,52 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return self.email
+
+
+def _gen_confirmation_token() -> str:
+    import secrets
+
+    return secrets.token_urlsafe(32)
+
+
+class EmailConfirmation(models.Model):
+    """A one-time email-verification token for password (email) sign-ups.
+
+    The account is created ``is_active=False`` and only activates once the
+    emailed link is opened and this token confirmed (confirm-before-login,
+    PRD 20 / Epic 1). Resending issues a fresh row; the first valid token
+    opened wins. Kept as a small model (rather than a stateless signed token)
+    so we can support resend, one-time use, and a clear pending state.
+    """
+
+    user = models.ForeignKey(
+        "accounts.CustomUser",
+        on_delete=models.CASCADE,
+        related_name="email_confirmations",
+    )
+    token = models.CharField(
+        max_length=64, unique=True, db_index=True, default=_gen_confirmation_token
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"EmailConfirmation({self.user_id}, confirmed={bool(self.confirmed_at)})"
+
+    def is_expired(self) -> bool:
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        ttl = timedelta(hours=settings.EMAIL_CONFIRMATION_TTL_HOURS)
+        return timezone.now() >= self.created_at + ttl
+
+    def is_valid(self) -> bool:
+        """Unconfirmed and unexpired — still redeemable."""
+        return self.confirmed_at is None and not self.is_expired()
 
 
 class AccessCode(models.Model):
