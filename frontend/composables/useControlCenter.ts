@@ -6,6 +6,9 @@
 export type ServiceState = 'running' | 'starting' | 'stopping' | 'parked' | 'failed'
 
 export interface ControlService {
+  // The k8s Deployment this entry actuates — the park/unpark target (one service
+  // can be two deployments on two boxes, e.g. dia-a2/dia-a3, so this is the key).
+  deployment: string
   name: string
   type: string // llm | stt | tts | image | mesh | music | video | …
   engine: string
@@ -13,9 +16,11 @@ export interface ControlService {
   state: ServiceState
   live_vram_gb: number | null
   expected_vram_gb: number | null
+  gpu?: boolean
   home_box: string
   box: string
   candidate_boxes: string[]
+  last_scaled_by?: string
   // Only present on `startable` entries: does its expected VRAM fit the box's
   // free VRAM? null = unknown (no expected_vram_gb yet, or no live free VRAM).
   fits?: boolean | null

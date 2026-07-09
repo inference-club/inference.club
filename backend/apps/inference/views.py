@@ -2490,16 +2490,21 @@ def _candidate_boxes(svc):
 
 
 def _build_control_board(provider, state, request):
-    """Merge a provider's DB roster (Host/Gpu/ProviderService) with the agent's
-    live ``/cluster/state`` into the control-center board (PRD 21):
+    """Merge the agent's live ``/cluster/state`` (nodes, pods, DEPLOYMENTS) with
+    the provider's DB roster into the control-center board (PRD 21):
 
       - GPU boxes only (active hosts with >=1 active GPU),
       - each box's live utilization + free VRAM + schedulability,
-      - the services running on it (from pods), and
-      - the parked services that could be *started* there (candidate + fit).
+      - the services running on it, and
+      - the PARKED (scaled-to-0) services startable there.
 
-    Read-only; actuation is V1. ``state`` may be None (agent unreachable) — the
-    board still renders from the DB, just without live metrics.
+    The roster is driven by the agent's ``deployments`` list — that's what
+    surfaces parked services (pods vanish at replicas 0) and what park/unpark
+    actuates, keyed by *deployment* name since one service can be two
+    deployments on two boxes (e.g. dia-a2 / dia-a3). DB ``ProviderService`` rows
+    enrich each entry (type, engine, logo, expected VRAM). Falls back to a
+    running-only roster synthesised from pods when the agent doesn't report
+    deployments yet (older build / missing apps RBAC).
     """
     state = state or {}
     nodes_by_box = {}
@@ -2511,41 +2516,62 @@ def _build_control_board(provider, state, request):
     services = list(provider.services.filter(is_active=True).select_related("host"))
     svc_by_name = {s.name: s for s in services}
 
-    # Where each running/starting service actually is, from live pods.
-    running_on_box = {}  # box -> {service_name -> {"state", "vram"}}
-    running_names = set()
+    # Live VRAM per (service, box) from pods (attributed by the vram-reporter).
+    pod_vram = {}
     for p in state.get("pods") or []:
-        name = p.get("service")
-        if name not in svc_by_name:
-            continue
+        svc = p.get("service")
         box = p.get("host_id") or p.get("node") or ""
-        st = "running" if p.get("ready") else "starting"
-        vram = _bytes_to_gib(p.get("gpu_vram_used_bytes"))
-        entry = running_on_box.setdefault(box, {}).setdefault(
-            name, {"state": st, "vram": vram}
-        )
-        if st == "running":
-            entry["state"] = "running"
-        if vram and (entry["vram"] is None or vram > entry["vram"]):
-            entry["vram"] = vram
-        running_names.add(name)
+        gb = _bytes_to_gib(p.get("gpu_vram_used_bytes"))
+        if svc and gb:
+            pod_vram[(svc, box)] = max(pod_vram.get((svc, box), 0.0), gb)
 
-    def svc_dict(svc, st, live_vram, box):
-        home = _service_home_box(svc)
+    deployments = list(state.get("deployments") or [])
+    if not deployments:
+        # Fallback: agents that don't report deployments yet — synthesise a
+        # running-only roster from pods so the board still renders (no parked
+        # roster available in this mode).
+        seen = set()
+        for p in state.get("pods") or []:
+            svc = p.get("service")
+            box = p.get("host_id") or p.get("node") or ""
+            if svc and (svc, box) not in seen:
+                seen.add((svc, box))
+                deployments.append({
+                    "name": svc, "service": svc, "box": box,
+                    "desired_replicas": 1,
+                    "ready_replicas": 1 if p.get("ready") else 0,
+                    "gpu": True,
+                })
+
+    def entry(dep):
+        svc_name = dep.get("service") or dep.get("name") or ""
+        ps = svc_by_name.get(svc_name)
+        box = dep.get("box") or ""
+        desired = int(dep.get("desired_replicas") or 0)
+        ready = int(dep.get("ready_replicas") or 0)
+        st = "parked" if desired <= 0 else ("running" if ready > 0 else "starting")
         return {
-            "name": svc.name,
-            "type": svc.service_type,
-            "engine": svc.engine,
-            "logo_url": _service_logo_url(svc, request),
+            "deployment": dep.get("name"),
+            "name": svc_name,
+            "type": ps.service_type if ps else "",
+            "engine": (ps.engine if ps else "") or "",
+            "logo_url": _service_logo_url(ps, request) if ps else None,
             "state": st,
-            "live_vram_gb": live_vram,
-            "expected_vram_gb": svc.expected_vram_gb,
-            "home_box": home,
-            "box": box or home,
-            "candidate_boxes": _candidate_boxes(svc),
+            "live_vram_gb": pod_vram.get((svc_name, box)),
+            "expected_vram_gb": ps.expected_vram_gb if ps else None,
+            "gpu": bool(dep.get("gpu")),
+            "home_box": box,
+            "box": box,
+            "candidate_boxes": _candidate_boxes(ps) if ps else ([box] if box else []),
+            "last_scaled_by": dep.get("last_scaled_by") or "",
         }
 
+    deps_by_box = {}
+    for dep in deployments:
+        deps_by_box.setdefault(dep.get("box") or "", []).append(dep)
+
     boxes_out = []
+    shown = set()
     for host in (
         provider.hosts.filter(is_active=True)
         .prefetch_related("gpus")
@@ -2555,6 +2581,7 @@ def _build_control_board(provider, state, request):
         if not gpus:
             continue  # not a GPU box — the board is GPU boxes only
         box = host.host_id
+        shown.add(box)
         node = nodes_by_box.get(box)
 
         if node is None:
@@ -2583,25 +2610,17 @@ def _build_control_board(provider, state, request):
             else None
         )
 
-        running_here = running_on_box.get(box, {})
-        services_out = sorted(
-            (
-                svc_dict(svc_by_name[name], info["state"], info["vram"], box)
-                for name, info in running_here.items()
-                if name in svc_by_name
-            ),
-            key=lambda s: s["name"],
-        )
-
-        startable = []
-        for svc in services:
-            if svc.name in running_names or box not in _candidate_boxes(svc):
-                continue
-            d = svc_dict(svc, "parked", None, box)
-            exp = svc.expected_vram_gb
-            d["fits"] = None if (exp is None or vram_free is None) else (exp <= vram_free)
-            startable.append(d)
-        startable.sort(key=lambda s: s["name"])
+        running, startable = [], []
+        for dep in deps_by_box.get(box, []):
+            e = entry(dep)
+            if e["state"] == "parked":
+                exp = e["expected_vram_gb"]
+                e["fits"] = None if (exp is None or vram_free is None) else (exp <= vram_free)
+                startable.append(e)
+            else:
+                running.append(e)
+        running.sort(key=lambda s: (s["name"], s["deployment"] or ""))
+        startable.sort(key=lambda s: (s["name"], s["deployment"] or ""))
 
         boxes_out.append({
             "box": box,
@@ -2619,21 +2638,15 @@ def _build_control_board(provider, state, request):
                 "utilization_pct": ngpu.get("util_percent"),
                 "unified": bool(ngpu.get("unified")),
             },
-            "services": services_out,
+            "services": running,
             "startable": startable,
         })
 
-    # Parked services that couldn't be offered under any shown GPU box (their
-    # candidate boxes are all missing/non-GPU) — surface so nothing vanishes.
-    shown = {b["box"] for b in boxes_out}
+    # Deployments on a box that isn't a shown GPU box (unknown / non-GPU /
+    # offline node) — surface so nothing silently vanishes.
     parked_elsewhere = sorted(
-        (
-            svc_dict(svc, "parked", None, _service_home_box(svc))
-            for svc in services
-            if svc.name not in running_names
-            and not (set(_candidate_boxes(svc)) & shown)
-        ),
-        key=lambda s: s["name"],
+        (entry(dep) for dep in deployments if (dep.get("box") or "") not in shown),
+        key=lambda s: (s["name"], s["deployment"] or ""),
     )
 
     return {
