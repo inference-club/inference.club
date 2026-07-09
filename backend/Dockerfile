@@ -57,12 +57,16 @@ EXPOSE 8001
 
 # Run migrations then start gunicorn.
 #
+# RUN_MIGRATIONS_ON_START (default 1) applies migrations before booting — right
+# for single-instance compose/VPS. In k8s set it to 0 and run migrations once
+# via a Job/initContainer, so N replicas booting together don't race the DB.
+#
 # --worker-class gthread + multiple --threads is the right shape for our
 # workload: long-lived streaming proxies that spend ~all their time in I/O
 # wait. The default sync workers would kill any request that runs longer
 # than --timeout (default 30s), which trivially happens with a 27B
 # reasoning model streaming hundreds of tokens.
-CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn backend.wsgi:application \
+CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS_ON_START:-1}\" = \"1\" ]; then python manage.py migrate --noinput; fi && exec gunicorn backend.wsgi:application \
     --bind 0.0.0.0:${PORT} \
     --worker-class gthread \
     --workers ${GUNICORN_WORKERS:-2} \

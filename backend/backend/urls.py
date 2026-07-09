@@ -18,13 +18,15 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
-from apps.core.views import healthz
+from apps.core.views import healthz, readyz
 from apps.inference.views import OpenAPISchemaView
 
 urlpatterns = [
-    # Liveness probe (k8s). Unauthenticated, no I/O — mounted at the root so
-    # it's reachable without the /api prefix.
+    # Liveness + readiness probes (k8s). Unauthenticated, mounted at the root
+    # so they're reachable without the /api prefix. healthz = process up (no
+    # I/O); readyz = dependencies (DB) reachable.
     path("healthz", healthz, name="healthz"),
+    path("readyz", readyz, name="readyz"),
     path("admin/", admin.site.urls),
     path("oauth/", include("social_django.urls", namespace="social")),
     path("v1/", include("apps.inference.openai_urls", namespace="openai")),
