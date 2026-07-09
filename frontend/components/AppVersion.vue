@@ -10,11 +10,12 @@ const label = computed(() => {
   return v === 'dev' ? 'dev' : `v${v}`
 })
 
-// Show the environment badge for anything that isn't the public cloud, so a
-// home-lab / local build is unmistakable at a glance.
+// Badge only genuinely notable environments (home lab, staging, …). The
+// "normal" cases — the public cloud and plain local dev — get no badge, so
+// prod stays clean even before DEPLOY_ENV is explicitly set (defaults "local").
 const showEnv = computed(() => {
   const env = meta.value?.env
-  return !!env && env !== 'cloud'
+  return !!env && !['cloud', 'local', ''].includes(env)
 })
 
 const title = computed(() => {
