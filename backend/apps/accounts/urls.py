@@ -7,7 +7,7 @@ from apps.inference.views import (
     PublicUserRequestsView,
 )
 
-from . import anon_views, views
+from . import anon_views, registration_views, views
 
 urlpatterns = [
     path("account/", views.Profile.as_view(), name="user-profile"),
@@ -24,6 +24,18 @@ urlpatterns = [
         "auth/passcode/",
         anon_views.PasscodeLoginView.as_view(),
         name="auth-passcode",
+    ),
+    # Email sign-up + confirmation (home-lab auth path, PRD 20).
+    path("register/", registration_views.RegisterView.as_view(), name="register"),
+    path(
+        "auth/confirm/",
+        registration_views.ConfirmEmailView.as_view(),
+        name="auth-confirm",
+    ),
+    path(
+        "auth/confirm/resend/",
+        registration_views.ResendConfirmationView.as_view(),
+        name="auth-confirm-resend",
     ),
     # path("social/<backend>/", views.exchange_token, name="social-auth-callback"),
     path("login/", views.login_view, name="login-view"),
