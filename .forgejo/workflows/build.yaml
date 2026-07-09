@@ -1,0 +1,44 @@
+# separate inference-club-deploy repo. Requires Actions secrets on the app repo:
+#   HARBOR_ROBOT_USER, HARBOR_ROBOT_TOKEN  (robot with push to the apps project)
+#   DEPLOY_REPO_TOKEN                       (Forgejo token, write to inference-club-deploy)
+name: build-and-deploy
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Harbor
+        env:
+          HARBOR_USER: ${{ secrets.HARBOR_ROBOT_USER }}
+          HARBOR_TOKEN: ${{ secrets.HARBOR_ROBOT_TOKEN }}
+        run: echo "$HARBOR_TOKEN" | docker login harbor.lan -u "$HARBOR_USER" --password-stdin
+
+      - name: Build and push images
+        run: |
+          TAG="${GITHUB_SHA::12}"
+          for c in backend frontend; do
+            IMAGE="harbor.lan/apps/inference-club-$c"
+            docker build -t "$IMAGE:$TAG" "./$c"
+            docker push "$IMAGE:$TAG"
+          done
+
+      - name: Bump tags in the deploy repo
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
+        run: |
+          TAG="${GITHUB_SHA::12}"
+          git clone "https://forgejo-actions:${DEPLOY_TOKEN}@forgejo.lan/brian/inference-club-deploy.git" deploy-repo
+          cd deploy-repo
+          # Both images share the one commit sha.
+          sed -i "s|newTag:.*|newTag: $TAG|" deploy/kustomization.yaml
+          sed -i "s|APP_VERSION:.*|APP_VERSION: \"$TAG\"|" deploy/configmap.yaml
+          git config user.name "forgejo-actions"
+          git config user.email "actions@forgejo.lan"
+          git add deploy/kustomization.yaml deploy/configmap.yaml
+          git commit -m "deploy: inference.club image $TAG [skip ci]" || { echo "no changes"; exit 0; }
+          git push origin main
