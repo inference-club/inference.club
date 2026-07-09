@@ -78,6 +78,7 @@ export const dashboardNav: DashboardNavGroup[] = [
     titleKey: 'dashboard.groups.compute',
     icon: Cpu,
     items: [
+      { titleKey: 'dashboard.items.control', url: '/dashboard/control' },
       { titleKey: 'dashboard.items.catalog', url: '/dashboard/models' },
       { titleKey: 'dashboard.items.myNodes', url: '/dashboard/providers/my-nodes' },
       { titleKey: 'dashboard.items.allNodes', url: '/dashboard/providers/all-nodes' },
