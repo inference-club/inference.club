@@ -17,6 +17,7 @@ import {
   useControlCenter, type ControlBoardPayload, type ControlBox,
   type ControlService, type ServiceState,
 } from '@/composables/useControlCenter'
+import { serviceColor } from '@/composables/useClusterState'
 import ReadinessDot from '@/components/ReadinessDot.vue'
 
 definePageMeta({ layout: 'app', requireAuth: true })
@@ -94,6 +95,28 @@ const vramFraction = (box: ControlBox) => {
   if (used == null || total == null || total <= 0) return 0
   return Math.min(1, Math.max(0, used / total))
 }
+
+// Per-service VRAM breakdown (like My Nodes): each running service is a colored
+// segment sized by its live VRAM, plus an "other" segment for used-but-
+// unattributed VRAM (dcgm total minus what the vram-reporter pinned to a pod).
+const vramSegments = (box: ControlBox) => {
+  const total = box.gpu.vram_total_gb
+  if (!total || total <= 0) return { segments: [], otherPct: 0 }
+  const segments = box.services
+    .filter((s) => (s.live_vram_gb ?? 0) > 0)
+    .map((s) => ({
+      name: s.name,
+      gb: s.live_vram_gb as number,
+      pct: Math.min(100, ((s.live_vram_gb as number) / total) * 100),
+      color: serviceColor(s.name, s.type),
+    }))
+    .sort((a, b) => b.gb - a.gb)
+  const attributed = segments.reduce((n, s) => n + s.gb, 0)
+  const used = box.gpu.vram_used_gb ?? attributed
+  const otherPct = Math.max(0, Math.min(100 - segments.reduce((n, s) => n + s.pct, 0), ((used - attributed) / total) * 100))
+  return { segments, otherPct }
+}
+const svcColor = (s: ControlService) => serviceColor(s.name, s.type)
 
 // State → badge styling (richer than ReadinessDot's on/off).
 const STATE_META: Record<ServiceState, { label: string; dot: string; text: string }> = {
@@ -223,9 +246,14 @@ const fitMeta = (s: ControlService) => {
                 <span class="text-base font-bold">{{ gb(box.gpu.vram_free_gb) }}</span>
                 <span class="text-muted-foreground"> GB free</span>
               </div>
-              <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div class="h-full rounded-full bg-primary"
-                     :style="{ width: `${vramFraction(box) * 100}%` }" />
+              <!-- stacked per-service VRAM (vram-reporter breakdown) -->
+              <div class="mt-1 flex h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div v-for="seg in vramSegments(box).segments" :key="seg.name"
+                     class="h-full first:rounded-l-full"
+                     :style="{ width: `${seg.pct}%`, backgroundColor: seg.color }"
+                     :title="`${seg.name} · ${gb(seg.gb)} GB`" />
+                <div v-if="vramSegments(box).otherPct > 0" class="h-full bg-muted-foreground/40"
+                     :style="{ width: `${vramSegments(box).otherPct}%` }" title="other / unattributed" />
               </div>
               <div class="mt-0.5 text-2xs text-muted-foreground">
                 {{ gb(box.gpu.vram_used_gb) }} / {{ gb(box.gpu.vram_total_gb) }} GB
@@ -250,7 +278,8 @@ const fitMeta = (s: ControlService) => {
           <!-- running services -->
           <div v-if="box.services.length" class="space-y-1.5">
             <div v-for="s in box.services" :key="s.name"
-                 class="flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5">
+                 class="flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5"
+                 :style="s.live_vram_gb ? { borderLeftColor: svcColor(s), borderLeftWidth: '3px' } : {}">
               <img v-if="s.logo_url" :src="s.logo_url" alt="" class="size-5 rounded object-contain" />
               <span v-else class="grid size-5 place-items-center rounded bg-muted text-2xs">
                 {{ s.name.slice(0, 2) }}
