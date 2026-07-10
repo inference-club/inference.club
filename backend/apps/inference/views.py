@@ -2170,13 +2170,17 @@ def _fetch_cluster_state(provider):
     proxy view and the control-center board (PRD 21) so both hit the same short
     server-side cache and dial the agent identically.
     """
-    if not provider.tailnet_hostname:
+    if not provider.dial_host:
         return None
     cache_key = f"cluster_state:{provider.id}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    url = f"http://{provider.tailnet_hostname}:{provider.agent_port}/cluster/state"
+    # Dial the agent-reported tailnet IP (dial_host), not the MagicDNS hostname:
+    # a tailnet-mode agent that restarts rejoins as a new device (club-host-1 ->
+    # club-host-1-1), stranding the old name. The /v1 proxy already dials
+    # dial_host; the cluster-state + scale paths must too (PRD 21).
+    url = f"http://{provider.dial_host}:{provider.agent_port}/cluster/state"
     try:
         upstream = requests.get(url, timeout=15, proxies=_tailnet_proxies())
         upstream.raise_for_status()
@@ -2744,7 +2748,7 @@ class ControlScaleView(APIView):
                 {"detail": "no agent control token configured for this provider"},
                 status=400,
             )
-        if not provider.tailnet_hostname:
+        if not provider.dial_host:
             return Response(
                 {"detail": "provider has no reachable agent"},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -2753,8 +2757,10 @@ class ControlScaleView(APIView):
         action = (
             ServiceAction.ACTION_UNPARK if replicas == 1 else ServiceAction.ACTION_PARK
         )
+        # dial_host (reported tailnet IP), not tailnet_hostname — survives a
+        # tailnet-mode agent rejoining under a uniquified name (PRD 21).
         url = (
-            f"http://{provider.tailnet_hostname}:{provider.agent_port}"
+            f"http://{provider.dial_host}:{provider.agent_port}"
             f"/cluster/deployments/{deployment}/scale"
         )
         result, detail = ServiceAction.RESULT_OK, ""
