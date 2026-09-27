@@ -17,6 +17,31 @@ export interface GenerateOptions {
   n?: number
   size?: string
   quality?: string
+  // Model-specific knobs; the backend forwards them to providers that
+  // advertise the matching feature (seed, steps, negative-prompt,
+  // transparent-background). See docs/api/images.
+  seed?: number
+  steps?: number
+  negative_prompt?: string
+  guidance?: number
+  background?: 'transparent' | 'opaque'
+}
+
+// The optional fields, as the API spells them — shared by generate (JSON)
+// and edit (multipart) so both send exactly the same set.
+const optionalFields = (opts: GenerateOptions): Record<string, string | number> => {
+  const out: Record<string, string | number> = {}
+  if (opts.n) out.n = opts.n
+  if (opts.size) out.size = opts.size
+  if (opts.quality) out.quality = opts.quality
+  if (opts.seed !== undefined && opts.seed !== null && Number.isFinite(opts.seed)) out.seed = opts.seed
+  if (opts.steps) out.steps = opts.steps
+  if (opts.negative_prompt?.trim()) {
+    out.negative_prompt = opts.negative_prompt.trim()
+    if (opts.guidance) out.guidance = opts.guidance
+  }
+  if (opts.background === 'transparent') out.background = 'transparent'
+  return out
 }
 
 export function useImageGeneration() {
@@ -71,9 +96,7 @@ export function useImageGeneration() {
       body: JSON.stringify({
         model: opts.model,
         prompt: opts.prompt,
-        ...(opts.n ? { n: opts.n } : {}),
-        ...(opts.size ? { size: opts.size } : {}),
-        ...(opts.quality ? { quality: opts.quality } : {}),
+        ...optionalFields(opts),
       }),
       signal,
     })
@@ -82,8 +105,8 @@ export function useImageGeneration() {
   }
 
   // Source image(s) + prompt → edited image. A single source uses the classic
-  // `image` field; several references go through `image[]` — models like
-  // FLUX.2 Klein fuse multiple reference images into one result.
+  // `image` field; several references go through `image[]` — FLUX.2 Klein
+  // fuses up to 8 reference images, Qwen-Image 2.1 up to 10.
   const edit = async (
     images: { blob: Blob; name: string }[],
     opts: GenerateOptions,
@@ -97,8 +120,7 @@ export function useImageGeneration() {
     }
     form.append('model', opts.model)
     form.append('prompt', opts.prompt)
-    if (opts.n) form.append('n', String(opts.n))
-    if (opts.size) form.append('size', opts.size)
+    for (const [k, v] of Object.entries(optionalFields(opts))) form.append(k, String(v))
 
     const token = csrf()
     const res = await fetch(`${config.public.apiBase}/v1/images/edits`, {

@@ -122,6 +122,7 @@ metadata:
         name: FLUX.2 Klein 4B
         input_modalities: [text, image]
         output_modalities: [image]
+        features: [image-edit, multi-reference]           # per-model features (see below)
     # inference-club.com/features: "voice-cloning,dialogue"   # optional, comma list
     # inference-club.com/port: http                           # when the Service has several ports
     # inference-club.com/api-key-secret: lmstudio-key         # Secret whose `api-key` the agent sends upstream
@@ -129,6 +130,30 @@ spec:
   selector: { app: flux2-klein }
   ports:
     - { name: http, port: 8000 }
+```
+
+Several image services can sit behind one agent — `/v1/images/*` requests are
+routed by their `model` field. A model's `features` list is what the
+playground uses to show the matching controls:
+
+| feature | what it unlocks |
+|---|---|
+| `image-edit` | reference-image upload (`/v1/images/edits`) |
+| `multi-reference` | several references in one edit (`image[]`) |
+| `transparent-background` | the *Transparent background* toggle (`background: transparent`) |
+| `negative-prompt` | negative prompt + guidance scale |
+| `seed`, `steps` | seed and step-count fields |
+| `custom-size` | any `WxH` (up to the model's limit) instead of the ~1 MP presets |
+
+Qwen-Image 2.1, for example, declares all of them:
+
+```yaml
+    inference-club.com/models: |
+      - id: qwen-image-2.1
+        name: Qwen-Image 2.1
+        input_modalities: [text, image]
+        output_modalities: [image]
+        features: [image-edit, multi-reference, transparent-background, negative-prompt, seed, steps, custom-size]
 ```
 
 Everything else is **derived, not declared**:

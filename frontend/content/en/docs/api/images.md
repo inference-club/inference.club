@@ -23,9 +23,19 @@ Requests are routed only to services a provider declared as `type: image`. infer
 |---|---|---|
 | `prompt` | yes | The text description of the image. |
 | `model` | yes | An image model id from `GET /v1/models`. |
-| `n` | no | How many images to generate (clamped server-side). |
-| `size` | no | e.g. `1024x1024`. Passed through to the provider. |
+| `n` | no | How many images to generate (clamped server-side, max 4). |
+| `size` | no | `WxH`, e.g. `1024x1024`. Models with the `custom-size` feature accept any size up to their limit — Qwen-Image 2.1 goes to 2048 per side (`2048x2048`, `2752x1536` for 16:9). |
 | `response_format` | no | `url` (default) or `b64_json`. See [below](#response). |
+| `seed` | no | Integer for reproducible sampling. Omit for a random seed (the one used comes back in `data[].seed` from providers that report it). |
+| `steps` | no | Denoising steps, 1–100. Qwen-Image 2.1 defaults to 40. |
+| `negative_prompt` | no | What to avoid. Turns on classifier-free guidance together with `guidance`. |
+| `guidance` | no | Guidance scale (1–20), only meaningful with a `negative_prompt`. Qwen-Image 2.1 is meant to run *without* guidance; 4 is a good value when you do use it. |
+| `background` | no | `transparent` asks for a real RGBA PNG (cutouts, stickers, logos) from models with the `transparent-background` feature; `opaque` is the default. |
+
+Which of the optional knobs a model honours is listed in its `supported_features`
+from `GET /v1/models` (`seed`, `steps`, `negative-prompt`, `transparent-background`,
+`custom-size`, `image-edit`, `multi-reference`). Fields a model doesn't support are
+ignored by that provider.
 
 ### curl
 
@@ -34,6 +44,16 @@ curl https://api.inference.club/v1/images/generations \
   -H "Authorization: Bearer $INFERENCE_CLUB_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{ "model": "my-image-model", "prompt": "a watercolor fox", "size": "1024x1024" }'
+```
+
+A transparent sticker with a fixed seed from Qwen-Image 2.1:
+
+```bash
+curl https://api.inference.club/v1/images/generations \
+  -H "Authorization: Bearer $INFERENCE_CLUB_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "model": "qwen-image-2.1", "prompt": "a cartoon capybara in a wizard hat, sticker style",
+        "background": "transparent", "seed": 42, "size": "1024x1024" }'
 ```
 
 ### Python (openai SDK)
@@ -52,11 +72,17 @@ print(img.data[0].url)
 
 | Field | Required | Description |
 |---|---|---|
-| `image` | yes | The source image to edit (png/jpeg/webp, up to 25 MB). |
+| `image` | yes | The source image to edit (png/jpeg/webp, up to 25 MB). For several references send repeated `image[]` parts (FLUX.2 Klein up to 8, Qwen-Image 2.1 up to 10) and refer to them as "image 1", "image 2", … in the prompt. |
 | `prompt` | yes | How to change it. |
 | `model` | yes | An image model id. |
 | `mask` | no | Optional transparency mask. |
 | `n`, `size`, `response_format` | no | As above. |
+| `seed`, `steps`, `negative_prompt`, `guidance`, `background` | no | As above, sent as form fields. `background=transparent` with a prompt like "extract the subject as a cutout" returns an RGBA PNG from Qwen-Image 2.1. |
+
+Qwen-Image 2.1 also takes region hints without a mask: draw a red circle on
+the reference and say "replace what is inside the red circle", or pass a black
+and white mask as a second reference ("image 2 is a mask; only change the white
+region").
 
 ```bash
 curl https://api.inference.club/v1/images/edits \

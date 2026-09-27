@@ -225,6 +225,37 @@ class TestImageGenerations:
         )
         assert resp.status_code == 400
 
+    def test_model_knobs_forwarded_and_stored(self, user):
+        """seed / steps / negative_prompt / guidance / background ride through
+        to the provider (Qwen-Image 2.1 honours them) and land in the stored
+        payload so history and retries replay them; junk keys don't."""
+        p = _online_provider(user)
+        _image_model(p)
+        captured = {}
+
+        def _cap(url, **kw):
+            captured["json"] = kw.get("json")
+            return _gen_resp()
+
+        with patch("apps.inference.openai_views.requests.post", side_effect=_cap):
+            resp = _client(user).post(
+                "/v1/images/generations",
+                {"model": "image-model", "prompt": "a sticker", "size": "2048x2048",
+                 "seed": 42, "steps": 30, "negative_prompt": "text, watermark",
+                 "guidance": 4, "background": "transparent", "bogus": "nope"},
+                format="json",
+            )
+        assert resp.status_code == 200
+        sent = captured["json"]
+        assert sent["seed"] == 42 and sent["steps"] == 30
+        assert sent["negative_prompt"] == "text, watermark" and sent["guidance"] == 4
+        assert sent["background"] == "transparent" and sent["size"] == "2048x2048"
+        ir = InferenceRequest.objects.get(user=user, inference_type="IMAGE")
+        for k in ("seed", "steps", "negative_prompt", "guidance", "background"):
+            assert k in ir.payload, k
+        assert ir.payload["seed"] == 42 and ir.payload["guidance"] == 4.0
+        assert "bogus" not in ir.payload
+
     def test_no_image_provider_404(self, user):
         resp = _client(user).post(
             "/v1/images/generations", {"model": "nope", "prompt": "x"}, format="json"
@@ -292,6 +323,45 @@ class TestImageEdits:
         row = next(r for r in listed if str(r["id"]) == str(ir.id))
         assert len(row["input_image_urls"]) == 2
         assert row["input_image_url"] == row["input_image_urls"][0]
+
+    def test_edit_forwards_model_knobs_as_form_fields(self, user):
+        """The same knobs on /edits go out as multipart form fields."""
+        p = _online_provider(user)
+        _image_model(p)
+        with patch("apps.inference.openai_views.requests.post", return_value=_gen_resp()) as post:
+            resp = _client(user).post(
+                "/v1/images/edits",
+                {"model": "image-model", "prompt": "cut out the bowl", "image": _png_upload(),
+                 "seed": "7", "steps": "20", "background": "transparent", "guidance": "abc"},
+                format="multipart",
+            )
+        assert resp.status_code == 200
+        fields = dict(post.call_args.kwargs["data"])
+        assert fields["seed"] == "7" and fields["steps"] == "20"
+        assert fields["background"] == "transparent"
+        assert "guidance" not in fields  # unparseable → dropped, not forwarded
+        ir = InferenceRequest.objects.get(user=user, inference_type="IMAGE")
+        assert ir.payload["seed"] == 7 and ir.payload["background"] == "transparent"
+
+    def test_up_to_ten_references(self, user):
+        """Qwen-Image 2.1 takes 10 references; 11 is rejected."""
+        p = _online_provider(user)
+        _image_model(p)
+        with patch("apps.inference.openai_views.requests.post", return_value=_gen_resp()):
+            ok = _client(user).post(
+                "/v1/images/edits",
+                {"model": "image-model", "prompt": "group portrait",
+                 "image[]": [_png_upload(f"{i}.png") for i in range(10)]},
+                format="multipart",
+            )
+            too_many = _client(user).post(
+                "/v1/images/edits",
+                {"model": "image-model", "prompt": "group portrait",
+                 "image[]": [_png_upload(f"{i}.png") for i in range(11)]},
+                format="multipart",
+            )
+        assert ok.status_code == 200
+        assert too_many.status_code == 400 and too_many.json()["error"]["type"] == "too_many_images"
 
     def test_single_image_still_uses_image_field(self, user):
         """A lone source keeps the classic single `image` field for compat."""

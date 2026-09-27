@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { ChevronDown, Image as ImageIcon, Images, Lightbulb, Sparkles, Square, Upload, X } from 'lucide-vue-next'
+import { ChevronDown, Dices, Image as ImageIcon, Images, Lightbulb, Sparkles, Square, Upload, X } from 'lucide-vue-next'
 import { useImageGeneration } from '@/composables/useImageGeneration'
 import { SUGGESTED_IMAGE_PROMPTS } from '@/utils/imagePrompts'
 import type { ModelInfo } from '@/composables/usePlayground'
@@ -24,6 +24,30 @@ const modelsError = ref('')
 const prompt = ref('')
 const n = ref(1)
 
+// Per-model feature flags (from `supported_features` on /v1/models — the
+// provider declares them per model, see docs/providers/kubernetes-agent).
+// They decide which controls are shown; a model without a flag never sees
+// the field, so plain providers keep getting plain requests.
+const current = computed(() => models.value.find((m) => m.id === model.value))
+const has = (f: string) => current.value?.supported_features?.includes(f) ?? false
+const canEdit = computed(() => has('image-edit') || (current.value?.input_modalities ?? []).includes('image'))
+const maxImages = computed(() => (has('multi-reference') ? (model.value.startsWith('qwen-image') ? 10 : 8) : has('image-edit') ? 1 : 0))
+const hasSeed = computed(() => has('seed'))
+const hasSteps = computed(() => has('steps'))
+const hasNegative = computed(() => has('negative-prompt'))
+const hasTransparent = computed(() => has('transparent-background'))
+const hasCustomSize = computed(() => has('custom-size'))
+const hasAdvanced = computed(() => hasSeed.value || hasSteps.value || hasNegative.value || hasTransparent.value)
+
+// Model-specific knobs. Empty/undefined means "model default" and is not sent.
+const seed = ref<number | null>(null)
+const randomSeed = () => { seed.value = Math.floor(Math.random() * 2_147_483_647) }
+const steps = ref<number | null>(null)
+const negativePrompt = ref('')
+const guidance = ref(4)
+const transparent = ref(false)
+const showAdvanced = ref(false)
+
 // Aspect-ratio presets — each maps to a concrete WxH the API receives via the
 // `size` param. Sizes are ~1MP, SDXL-friendly dimensions (multiples of 64).
 interface AspectPreset { label: string; ratio: string; w: number; h: number }
@@ -36,20 +60,46 @@ const ASPECT_PRESETS: AspectPreset[] = [
   { label: 'Landscape', ratio: '4:3', w: 1152, h: 896 },
   { label: 'Portrait', ratio: '3:4', w: 896, h: 1152 },
 ]
+// Native-2K presets for models that advertise `custom-size` (Qwen-Image 2.1's
+// seven official ratios). Slower — a 2K render is ~4× the pixels of 1 MP.
+const LARGE_PRESETS: AspectPreset[] = [
+  { label: '2K Square', ratio: '1:1', w: 2048, h: 2048 },
+  { label: '2K Landscape', ratio: '4:3', w: 2400, h: 1792 },
+  { label: '2K Portrait', ratio: '3:4', w: 1792, h: 2400 },
+  { label: '2K Landscape', ratio: '3:2', w: 2528, h: 1696 },
+  { label: '2K Portrait', ratio: '2:3', w: 1696, h: 2528 },
+  { label: '2K Widescreen', ratio: '16:9', w: 2752, h: 1536 },
+  { label: '2K Tall', ratio: '9:16', w: 1536, h: 2752 },
+]
+const presets = computed(() => (hasCustomSize.value ? [...ASPECT_PRESETS, ...LARGE_PRESETS] : ASPECT_PRESETS))
 const size = ref(`${ASPECT_PRESETS[0].w}x${ASPECT_PRESETS[0].h}`)
-const currentPreset = computed(
-  () => ASPECT_PRESETS.find((p) => `${p.w}x${p.h}` === size.value) ?? ASPECT_PRESETS[0],
+// Custom WxH (multiples of 32, ≤ 2048 per side on Qwen-Image 2.1) — only
+// offered when the model declares `custom-size`.
+const customSize = ref(false)
+const customW = ref(1024)
+const customH = ref(1024)
+const MAX_SIDE = 2048
+const snap = (v: number) => Math.max(256, Math.min(MAX_SIDE, Math.round(v / 32) * 32))
+const effectiveSize = computed(() =>
+  customSize.value && hasCustomSize.value ? `${snap(customW.value)}x${snap(customH.value)}` : size.value,
 )
+const currentPreset = computed<AspectPreset>(() => {
+  if (customSize.value && hasCustomSize.value) {
+    return { label: 'Custom', ratio: '', w: snap(customW.value), h: snap(customH.value) }
+  }
+  return presets.value.find((p) => `${p.w}x${p.h}` === size.value) ?? ASPECT_PRESETS[0]
+})
 
 // Optional source images → switches to the edit endpoint. One source is a
 // classic single-image edit; several are reference images the model fuses
-// together (FLUX.2 Klein supports up to 8).
+// together (FLUX.2 Klein up to 8, Qwen-Image 2.1 up to 10 — refer to them as
+// "image 1", "image 2", … in the prompt).
 interface SourceImage { blob: Blob; name: string; url: string }
 const sources = ref<SourceImage[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragOver = ref(false)
 const MAX_MB = 25
-const MAX_IMAGES = 8
+const MAX_IMAGES = computed(() => maxImages.value)
 
 const running = ref(false)
 let controller: AbortController | null = null
@@ -63,8 +113,8 @@ const addSource = (blob: Blob, name: string) => {
     toast.error(`Image too large (max ${MAX_MB} MB)`)
     return
   }
-  if (sources.value.length >= MAX_IMAGES) {
-    toast.error(`Up to ${MAX_IMAGES} reference images`)
+  if (sources.value.length >= MAX_IMAGES.value) {
+    toast.error(`Up to ${MAX_IMAGES.value} reference images`)
     return
   }
   sources.value.push({ blob, name, url: URL.createObjectURL(blob) })
@@ -96,17 +146,32 @@ const onPickImage = ({ blob, name }: { blob: Blob; name: string }) => addSource(
 
 const canRun = computed(() => !!model.value && !!prompt.value.trim() && !running.value)
 
+// Everything the request carries besides the prompt. Feature-gated: a knob
+// the current model doesn't advertise is left out even if the field holds a
+// value from a previous model.
+const requestOptions = () => ({
+  model: model.value,
+  prompt: prompt.value.trim(),
+  n: n.value,
+  size: effectiveSize.value,
+  ...(hasSeed.value && seed.value !== null ? { seed: seed.value } : {}),
+  ...(hasSteps.value && steps.value ? { steps: steps.value } : {}),
+  ...(hasNegative.value && negativePrompt.value.trim()
+    ? { negative_prompt: negativePrompt.value.trim(), guidance: guidance.value }
+    : {}),
+  ...(hasTransparent.value && transparent.value ? { background: 'transparent' as const } : {}),
+})
+
 const run = async () => {
   if (!canRun.value) return
   running.value = true
   controller = new AbortController()
-  const p = prompt.value.trim()
   const srcs = sources.value
   try {
     if (srcs.length) {
-      await edit(srcs.map((s) => ({ blob: s.blob, name: s.name })), { model: model.value, prompt: p, n: n.value, size: size.value }, controller.signal)
+      await edit(srcs.map((s) => ({ blob: s.blob, name: s.name })), requestOptions(), controller.signal)
     } else {
-      await generate({ model: model.value, prompt: p, n: n.value, size: size.value }, controller.signal)
+      await generate(requestOptions(), controller.signal)
     }
     refreshKey.value++
   } catch (e: unknown) {
@@ -128,12 +193,7 @@ useSubmitHotkey(run)
 const { queue } = useQueueGenerations()
 const onQueue = (count: number) => {
   if (!model.value || !prompt.value.trim()) return
-  queue(
-    '/v1/images/generations',
-    { model: model.value, prompt: prompt.value.trim(), n: n.value, size: size.value },
-    count,
-    'image',
-  )
+  queue('/v1/images/generations', requestOptions(), count, 'image')
 }
 
 onMounted(async () => {
@@ -234,8 +294,9 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <!-- Optional source image(s) -->
+          <!-- Optional source image(s) — only for models that take references -->
           <div
+            v-if="canEdit"
             class="rounded-xl border border-dashed transition-colors p-3 text-center text-sm"
             :class="dragOver ? 'border-primary bg-accent/40' : 'border-border'"
             @dragover.prevent="dragOver = true"
@@ -277,7 +338,7 @@ onBeforeUnmount(() => {
             </div>
             <input ref="fileInput" type="file" accept="image/*" multiple class="hidden" @change="onFiles" />
           </div>
-          <div class="flex items-center gap-2">
+          <div v-if="canEdit" class="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -296,7 +357,7 @@ onBeforeUnmount(() => {
               Clear all
             </button>
             <span v-if="sources.length > 1" class="text-xs text-muted-foreground">
-              {{ sources.length }} reference images
+              {{ sources.length }} of {{ MAX_IMAGES }} reference images — say "image 1", "image 2"… in the prompt
             </span>
           </div>
 
@@ -333,12 +394,27 @@ onBeforeUnmount(() => {
           <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Options</Label>
         </div>
         <div>
-          <Label class="text-xs text-muted-foreground">Aspect ratio</Label>
-          <Select v-model="size">
+          <div class="flex items-center justify-between">
+            <Label class="text-xs text-muted-foreground">{{ customSize && hasCustomSize ? 'Size' : 'Aspect ratio' }}</Label>
+            <button
+              v-if="hasCustomSize"
+              type="button"
+              class="text-[11px] text-primary underline-offset-2 hover:underline"
+              @click="customSize = !customSize"
+            >
+              {{ customSize ? 'Use a preset' : 'Custom size' }}
+            </button>
+          </div>
+          <div v-if="customSize && hasCustomSize" class="mt-1 flex items-center gap-1">
+            <Input id="img-w" v-model.number="customW" type="number" :min="256" :max="MAX_SIDE" step="32" class="h-8 text-sm tabular-nums" aria-label="Width" />
+            <span class="text-xs text-muted-foreground">×</span>
+            <Input id="img-h" v-model.number="customH" type="number" :min="256" :max="MAX_SIDE" step="32" class="h-8 text-sm tabular-nums" aria-label="Height" />
+          </div>
+          <Select v-else v-model="size">
             <SelectTrigger class="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem
-                v-for="p in ASPECT_PRESETS"
+                v-for="p in presets"
                 :key="`${p.w}x${p.h}`"
                 :value="`${p.w}x${p.h}`"
                 class="text-sm"
@@ -378,6 +454,49 @@ onBeforeUnmount(() => {
         <div>
           <Label class="text-xs text-muted-foreground">Number of images</Label>
           <Input v-model.number="n" type="number" min="1" max="4" class="mt-1 h-8 text-sm" />
+        </div>
+
+        <!-- Model-specific knobs, shown only when the model advertises them -->
+        <div v-if="hasTransparent" class="flex items-center justify-between gap-2">
+          <Label for="img-transparent" class="text-xs text-muted-foreground">Transparent background</Label>
+          <Switch id="img-transparent" v-model="transparent" />
+        </div>
+        <div v-if="hasAdvanced" class="rounded-lg border">
+          <button
+            type="button"
+            class="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            @click="showAdvanced = !showAdvanced"
+          >
+            Advanced
+            <ChevronDown class="ml-auto size-4 transition-transform" :class="showAdvanced ? 'rotate-180' : ''" />
+          </button>
+          <div v-if="showAdvanced" class="space-y-3 px-3 pb-3">
+            <div v-if="hasSeed">
+              <Label for="img-seed" class="text-xs text-muted-foreground">Seed</Label>
+              <div class="mt-1 flex items-center gap-1">
+                <Input id="img-seed" v-model.number="seed" type="number" min="0" placeholder="random" class="h-8 text-sm tabular-nums" />
+                <Button variant="outline" size="icon" class="size-8 shrink-0" title="Random seed" @click="randomSeed">
+                  <Dices class="size-4" />
+                </Button>
+                <Button v-if="seed !== null" variant="ghost" size="icon" class="size-8 shrink-0" title="Clear (random each run)" @click="seed = null">
+                  <X class="size-4" />
+                </Button>
+              </div>
+            </div>
+            <div v-if="hasSteps">
+              <Label for="img-steps" class="text-xs text-muted-foreground">Steps</Label>
+              <Input id="img-steps" v-model.number="steps" type="number" min="1" max="100" placeholder="model default (40)" class="mt-1 h-8 text-sm tabular-nums" />
+            </div>
+            <div v-if="hasNegative">
+              <Label for="img-negative" class="text-xs text-muted-foreground">Negative prompt</Label>
+              <Textarea id="img-negative" v-model="negativePrompt" rows="2" placeholder="text, watermark, blurry…" class="mt-1 resize-none text-sm" />
+              <div v-if="negativePrompt.trim()" class="mt-2">
+                <Label for="img-guidance" class="text-xs text-muted-foreground">Guidance scale · {{ guidance }}</Label>
+                <input id="img-guidance" v-model.number="guidance" type="range" min="1" max="10" step="0.5" class="mt-1 w-full">
+                <p class="text-[11px] text-muted-foreground">Doubles the work per step. Qwen-Image 2.1 is tuned for no guidance; 4 is a good starting point.</p>
+              </div>
+            </div>
+          </div>
         </div>
         <p class="text-[11px] text-muted-foreground">
           Images are generated on a provider's GPU and stored on inference.club.

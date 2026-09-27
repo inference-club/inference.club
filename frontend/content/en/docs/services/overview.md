@@ -19,7 +19,7 @@ Which modalities are live at any moment depends on what the providers are runnin
 | **Speech-to-text** | `/v1/audio/transcriptions` | audio → text | Nemotron ASR |
 | **Text-to-speech** | `/v1/audio/speech` | text → audio | Magpie TTS |
 | **Voice cloning** | `/v1/voice/generations` | script + samples → audio | Dia |
-| **Image** | `/v1/images/generations`, `/v1/images/edits` | text/image → image | FLUX.2 Klein |
+| **Image** | `/v1/images/generations`, `/v1/images/edits` | text/image → image | FLUX.2 Klein, Qwen-Image 2.1 |
 | **Video** | `/v1/videos/generations` | text/image → video | LTX-2 |
 | **Music** | `/v1/music/generations` | text + lyrics → audio | ACE-Step |
 | **3D mesh** | `/v1/3d/generations` | image → 3D (GLB) | TRELLIS |

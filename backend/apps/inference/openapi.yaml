@@ -300,9 +300,14 @@ paths:
                 model: { type: string, description: "An `image` model id from /models." }
                 prompt: { type: string }
                 n: { type: integer, default: 1, description: "Number of images (clamped server-side)." }
-                size: { type: string, example: "1024x1024" }
+                size: { type: string, example: "1024x1024", description: "`WxH`. Models with the `custom-size` feature accept any size up to their limit (Qwen-Image 2.1: 2048 per side, e.g. `2752x1536` for 16:9 2K)." }
                 response_format: { type: string, enum: [url, b64_json], default: url }
-            example: { model: flux-2-klein, prompt: "a watercolor fox in a misty forest", size: "1024x1024" }
+                seed: { type: integer, description: "Reproducible sampling (models with the `seed` feature). Omit for random." }
+                steps: { type: integer, minimum: 1, maximum: 100, description: "Denoising steps (models with the `steps` feature; Qwen-Image 2.1 defaults to 40)." }
+                negative_prompt: { type: string, description: "What to avoid (models with the `negative-prompt` feature). Turns on classifier-free guidance together with `guidance`." }
+                guidance: { type: number, minimum: 1, maximum: 20, description: "Classifier-free guidance scale, only meaningful with `negative_prompt` (Qwen-Image 2.1: 4 is a good value; its default is no guidance)." }
+                background: { type: string, enum: [transparent, opaque], description: "`transparent` asks models with the `transparent-background` feature for a real RGBA PNG." }
+            example: { model: qwen-image-2.1, prompt: "a sticker of a capybara wearing a wizard hat", size: "1024x1024", background: transparent, seed: 42 }
       responses:
         "200":
           description: The generated image(s).
@@ -336,13 +341,18 @@ paths:
                 image:
                   type: string
                   format: binary
-                  description: "Source image (png, jpeg, webp). Up to 25 MB."
+                  description: "Source image (png, jpeg, webp). Up to 25 MB. Send several as repeated `image[]` parts for multi-reference edits (FLUX.2 Klein up to 8, Qwen-Image 2.1 up to 10; refer to them as \"image 1\", \"image 2\" in the prompt)."
                 prompt: { type: string }
                 model: { type: string }
                 mask: { type: string, format: binary, description: "Optional transparency mask." }
                 n: { type: integer }
                 size: { type: string }
                 response_format: { type: string, enum: [url, b64_json], default: url }
+                seed: { type: integer }
+                steps: { type: integer, minimum: 1, maximum: 100 }
+                negative_prompt: { type: string }
+                guidance: { type: number, minimum: 1, maximum: 20 }
+                background: { type: string, enum: [transparent, opaque], description: "`transparent` returns an RGBA cutout/composition on models with the `transparent-background` feature." }
       responses:
         "200":
           description: The edited image(s).

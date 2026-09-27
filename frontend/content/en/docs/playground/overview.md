@@ -67,7 +67,7 @@ The agent can also use **your own** third-party keys (Brave, ElevenLabs, OpenAIâ
 
 ::doc-cards
   :::doc-card{title="Images" to="/dashboard/playground/images" icon="image"}
-  Text-to-image and image editing.
+  Text-to-image and image editing. Controls follow the model: reference images, transparent background, seed, steps, negative prompt and 2K/custom sizes appear when the provider declares them (Qwen-Image 2.1 has them all).
   :::
 
   :::doc-card{title="Video" to="/dashboard/playground/videos" icon="video"}

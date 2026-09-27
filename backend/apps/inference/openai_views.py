@@ -1264,6 +1264,36 @@ def _asset_url(request, asset) -> str:
     return asset_url(asset, request)
 
 
+# Model-specific image knobs inference.club passes straight through to the
+# provider and keeps in the stored payload (so history, retry and async
+# jobs replay them). Which ones a model honours is advertised per model via
+# `supported_features` (e.g. `seed`, `steps`, `negative-prompt`,
+# `transparent-background`, `custom-size`) — see the Qwen-Image 2.1 service
+# in the agent docs. Unknown keys are dropped rather than forwarded blindly.
+IMAGE_EXTRA_PARAMS = ("seed", "steps", "negative_prompt", "guidance", "background")
+
+
+def _image_extras(data):
+    """Pick the IMAGE_EXTRA_PARAMS present in a request body / form, coerced:
+    ints for seed/steps, float for guidance, strings otherwise. Bad values are
+    ignored (the field is simply not forwarded)."""
+    out = {}
+    for key in IMAGE_EXTRA_PARAMS:
+        v = data.get(key)
+        if v in (None, ""):
+            continue
+        try:
+            if key in ("seed", "steps"):
+                out[key] = int(v)
+            elif key == "guidance":
+                out[key] = float(v)
+            else:
+                out[key] = str(v)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 class _ImageProxyBase(_RateLimitHeadersMixin, APIView):
     """Shared logic for /v1/images/* : synchronous, buffered, b64_json forced
     upstream, outputs stored in MinIO. Deliberately separate from the JSON LLM
@@ -2887,6 +2917,7 @@ class ImageGenerationsView(_ImageProxyBase):
             "size": body.get("size"),
             "quality": body.get("quality"),
             "response_format": requested_format,
+            **_image_extras(body),
         }
         if go_async:
             return _enqueue_async(
@@ -2932,15 +2963,17 @@ class ImageEditsView(_ImageProxyBase):
     (multipart: image + prompt, optional mask).
 
     Accepts a single ``image`` file (OpenAI's classic single-source edit) or
-    several ``image[]`` files for multi-reference editing — models like FLUX.2
-    Klein fuse up to ~8 reference images into one result. Both keys are merged
-    and every source is stored (``INPUT_IMAGE``) so the edit stays replayable."""
+    several ``image[]`` files for multi-reference editing — FLUX.2 Klein fuses
+    up to 8 reference images, Qwen-Image 2.1 up to 10. Both keys are merged
+    and every source is stored (``INPUT_IMAGE``) so the edit stays replayable.
+    The model-specific knobs in ``IMAGE_EXTRA_PARAMS`` (seed, steps,
+    negative_prompt, guidance, background) are forwarded as form fields."""
 
     upstream_path = "/images/edits"
 
-    # FLUX.2 Klein takes up to 8 references; cap to keep the multipart forward
-    # bounded regardless of what the client sends.
-    MAX_INPUT_IMAGES = 8
+    # Qwen-Image 2.1 takes up to 10 references (FLUX.2 Klein 8); cap to keep
+    # the multipart forward bounded regardless of what the client sends.
+    MAX_INPUT_IMAGES = 10
 
     def post(self, request):
         # Merge the single-source (`image`) and multi-reference (`image[]`)
@@ -3016,6 +3049,7 @@ class ImageEditsView(_ImageProxyBase):
                 "response_format": requested_format,
                 "edit": True,
                 "image_count": len(sources),
+                **_image_extras(request.data),
             },
             status="PROCESSING",
             visibility=visibility or "",
@@ -3063,6 +3097,8 @@ class ImageEditsView(_ImageProxyBase):
                     except (TypeError, ValueError):
                         continue
                 data_fields.append((key, v))
+        for key, v in _image_extras(request.data).items():
+            data_fields.append((key, str(v)))
 
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
         started = time.monotonic()
@@ -3892,6 +3928,7 @@ def _rerun_image(ir, provider_model):
         forward["size"] = p["size"]
     if p.get("quality"):
         forward["quality"] = p["quality"]
+    forward.update(_image_extras(p))
     started = time.monotonic()
     try:
         upstream = requests.post(
