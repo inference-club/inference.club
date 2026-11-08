@@ -174,7 +174,7 @@ def remap_words(words, intervals):
     return out
 
 
-SILENCE_DB = -40.0     # below this (dBFS) counts as silence for the energy pass
+SILENCE_DB = -45.0     # below this (dBFS) counts as silence for the energy pass
 SILENCE_MIN = 0.25     # ignore dips shorter than this (seconds)
 
 
@@ -237,25 +237,69 @@ def subtract_intervals(keep, cuts):
     return [(round(a, 3), round(b, 3)) for a, b in out if b - a > 0.01]
 
 
+HEAD_PAD = 0.15        # keep this much silence before the first sound
+TAIL_PAD = 0.2         # ...and after the last
+
+
+def align_words_to_onset(words, silences):
+    """Streaming ASR reports word times late (Nemotron: ~0.6 s). Shift every
+    word so the first one starts at the audio's real speech onset (the end of
+    the leading silence). Words are only ever moved earlier, never later."""
+    if not words or not silences or silences[0][0] > 0.01:
+        return words
+    onset = silences[0][1]
+    lag = words[0]["start"] - onset
+    if lag <= 0.05:
+        return words
+    return [{"word": w["word"], "start": round(max(0.0, w["start"] - lag), 3),
+             "end": round(max(0.05, w["end"] - lag), 3)} for w in words]
+
+
+def plan_energy_trim(silences, duration, *, gap_threshold=TRIM_GAP_THRESHOLD,
+                     max_gap=TRIM_MAX_GAP, head_pad=HEAD_PAD, tail_pad=TAIL_PAD):
+    """Keep-ranges that remove ONLY silence measured in the waveform: the lead-in
+    (leaving ``head_pad``), the tail (leaving ``tail_pad``) and internal pauses
+    longer than ``gap_threshold`` (leaving about ``max_gap``). Audible audio is
+    never cut, whatever the ASR timestamps say."""
+    keep = max(0.0, max_gap / 2.0)
+    cuts = []
+    for a, b in silences:
+        if a <= 0.01:
+            cuts.append((0.0, max(0.0, b - head_pad)))
+        elif duration and b >= duration - 0.01:
+            cuts.append((min(duration, a + tail_pad), duration))
+        elif b - a > gap_threshold:
+            cuts.append((a + keep, b - keep))
+    cuts = [(round(a, 3), round(b, 3)) for a, b in cuts if b - a > 0.02]
+    return subtract_intervals([(0.0, round(float(duration), 3))], cuts)
+
+
 def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHOLD,
                max_gap=TRIM_MAX_GAP, inference_request=None, loudness=None):
-    """Trim silence/pauses from ``src`` (a MediaAsset) using ``words``; store the
-    result as a new OUTPUT_AUDIO (original untouched) and return
-    ``(asset, remapped_words, src_duration, out_duration, keep_intervals)``. If
-    there are no words to trim on, returns the source unchanged with a single
-    full-length keep interval."""
+    """Trim dead air from ``src`` (a MediaAsset); store the result as a new
+    OUTPUT_AUDIO (original untouched) and return ``(asset, remapped_words,
+    src_duration, out_duration, keep_intervals)``.
+
+    Cuts come from the waveform only (ffmpeg silencedetect): the lead-in, the
+    tail and long pauses. ASR word timings are NOT used to decide cuts: streaming
+    ASR reports words late, and cutting at its first word clipped the real first
+    word of every take. Words are aligned to the speech onset and remapped onto
+    the trimmed timeline. ``pad`` is kept for API compatibility (the head and
+    tail pads are HEAD_PAD / TAIL_PAD). With no measurable silence the source
+    is returned unchanged."""
     words = normalize_words(words)
     with tempfile.TemporaryDirectory() as td:
         in_path = _download_asset(src, td)
         src_dur = _probe_duration(in_path)
-        intervals = plan_trim_intervals(words, src_dur, pad=pad,
-                                        gap_threshold=gap_threshold, max_gap=max_gap)
-        if not intervals:
-            return src, words, src_dur, src_dur, [[0.0, round(src_dur, 3)]]
-        # Second opinion from the waveform: cut silence the word timings kept.
-        cuts = energy_cuts(detect_silences(in_path), src_dur, pad=pad,
-                           gap_threshold=gap_threshold, max_gap=max_gap)
-        intervals = subtract_intervals(intervals, cuts) or intervals
+        silences = detect_silences(in_path)
+        words = align_words_to_onset(words, silences)
+        intervals = plan_energy_trim(silences, src_dur, gap_threshold=gap_threshold,
+                                     max_gap=max_gap)
+        full = [(0.0, round(src_dur, 3))]
+        if not intervals or intervals == full:
+            if loudness is None:
+                return src, words, src_dur, src_dur, [[0.0, round(src_dur, 3)]]
+            intervals = full
         asset, out_dur = _cut_asset(user, src, in_path, td, intervals,
                                     inference_request=inference_request,
                                     loudness=loudness)

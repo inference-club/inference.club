@@ -291,7 +291,7 @@ def test_trim_asset_cuts_tail_silence_the_words_missed(user):
     words = [{"word": "one", "start": 0.3, "end": 1.3}, {"word": "two", "start": 1.6, "end": 5.6}]
     asset, out_words, src_dur, out_dur, _iv = narration.trim_asset(user, src, words)
     assert src_dur == pytest.approx(5.6, abs=0.05)
-    assert 2.0 < out_dur < 2.6                       # the 3 s tail is gone
+    assert 2.4 < out_dur < 2.8                       # the 3 s tail is gone (0.15 s head + 0.2 s tail pads)
     assert out_words[-1]["end"] <= out_dur + 0.01
 
 
@@ -311,3 +311,24 @@ def test_process_keeps_attempt_and_rescores(user, monkeypatch):
     v.refresh_from_db()
     assert v.grade["attempt"] == 3 and v.grade["seed"] == 42
     assert "take_score" in v.grade and v.grade["grade_score"] == 9.5
+
+
+# --- regression: the head of a take must never be cut (ASR reports words late) --
+
+
+def test_trim_never_cuts_speech_even_when_asr_is_late(user):
+    # 0.5 s lead-in, then speech 0.5-1.5 (the first word!), pause, speech 2.5-3.5, tail
+    src = _audio_asset(user, _wav([(0.5, 0), (1.0, 440), (1.0, 0), (1.0, 440), (1.0, 0)]))
+    # streaming ASR: the first word reported 0.6 s late, starting inside real speech
+    words = [{"word": "agents", "start": 1.1, "end": 1.5}, {"word": "still", "start": 3.1, "end": 3.5}]
+    asset, out_words, src_dur, out_dur, iv = narration.trim_asset(user, src, words)
+    assert iv[0][0] <= 0.5 and iv[0][0] >= 0.3                 # head cut stops before speech (0.5 s)
+    assert out_dur > 2.0 + 0.15                                  # both 1 s tones fully kept
+    assert out_words[0]["start"] == pytest.approx(0.15, abs=0.08)  # aligned to the onset
+
+
+def test_align_words_to_onset_only_moves_earlier():
+    w = [{"word": "a", "start": 1.2, "end": 1.4}]
+    assert narration.align_words_to_onset(w, [(0.0, 0.6)])[0]["start"] == pytest.approx(0.6)
+    assert narration.align_words_to_onset(w, [(0.0, 1.5)]) == w        # ASR earlier than onset: untouched
+    assert narration.align_words_to_onset(w, [(0.3, 0.6)]) == w        # no leading silence
