@@ -75,3 +75,17 @@ CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS_ON_START:-1}\" = \"1\" ]; then python 
     --graceful-timeout 30 \
     --keep-alive 5 \
     --access-logfile - --error-logfile -"]
+
+
+# ---- dev: docker-compose only (`target: dev`). Adds watchdog so the Celery
+# worker/beat containers can autoreload (`watchmedo auto-restart`) on the
+# bind-mounted source; the web container uses runserver's own reloader. ----
+FROM runtime AS dev
+USER root
+RUN pip install "watchdog[watchmedo]==6.0.0"
+USER app
+
+
+# ---- prod: the default (last) stage, so CI's plain `docker build` ships the
+# runtime image unchanged — dev tooling never reaches prod. Keep this last. ----
+FROM runtime AS prod

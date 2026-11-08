@@ -2,70 +2,85 @@
 
 Running the inference.club stack on your laptop.
 
-The fast loop is plain `manage.py runserver` + `yarn dev` — no Docker,
-no Tailscale required, just enough to iterate on Django views and
-Nuxt pages. The full prod-like loop with `docker compose` is also
-documented for when you need to verify a containerized change.
+**The default loop is `docker compose up`.** It runs the whole stack —
+Postgres, Redis, Mailpit, RustFS (S3), backend, Celery worker + beat,
+prober and the Nuxt dev server — with the source bind-mounted, so both
+halves hot-reload. A no-Docker host loop is documented below as a fallback.
 
-## Ports
-
-The dev stack uses non-default ports so it can coexist with whatever
-else might be listening on your machine — Docker Desktop in particular
-holds `*:3000` and `*:5432` on this machine.
-
-| Service | Dev port | Prod port |
-|---|---|---|
-| Nuxt frontend | 3001 | 3000 (inside container) |
-| Django backend | 8001 | 8001 |
-| Postgres | 5432 (local SQLite by default) / 5532 (compose) | 5432 (inside container) |
-
-The frontend's `apiBase` is `http://localhost:8001` (set in
-`frontend/nuxt.config.ts`). If you change the backend port in dev,
-update that too.
-
-## Fast loop (what you'll use day to day)
-
-Two terminals, no Docker:
+## Quick start
 
 ```bash
-# terminal 1: backend
-cd backend
-poetry install                  # one-time
-poetry run python manage.py migrate
-poetry run python manage.py runserver 8001
-
-# terminal 2: frontend
-cd frontend
-yarn install                    # one-time
-yarn dev --port 3001
+docker compose up -d --build      # first run builds the backend image
+docker compose logs -f backend frontend
 ```
 
-Backend uses SQLite at `backend/db.sqlite3` by default — no Postgres
-needed. The Django settings module supports `DATABASE_URL` via
-`dj-database-url` if you want to point at a real Postgres.
+| What | URL |
+|---|---|
+| Frontend (Nuxt dev, HMR) | <http://localhost:3101/> |
+| Backend API / admin | <http://localhost:8101/admin/> |
+| Mailpit (sign-up confirmation mails) | <http://localhost:8125/> |
+| RustFS console (media bucket) | <http://localhost:9101/> — `inferenceclub` / `localdevrustfs` |
+| Postgres | `postgres://inference:localdev@localhost:5532/inference` |
 
-For GitHub OAuth in dev, set up a dev OAuth app per
-[github-oauth.md](github-oauth.md#dev-app) and put the credentials
-in `backend/.env` (gitignored).
+Host ports are deliberately off-default (3101 / 8101 / 5532 / 9100) so
+they coexist with Docker Desktop's `:3000`/`:5432` and Grafana LGTM's
+Loki on `:3100`. Override the frontend port with `FRONTEND_PORT=…` in a
+repo-root `.env`.
 
-## Prod-like loop (`docker compose up`)
+## Signing in
 
-The repo-root `docker-compose.yml` builds the same images CI publishes
-and runs them with Postgres. Useful for verifying a containerized
-change *before* it touches the real prod box.
+Local dev uses **email + password only** (`AUTH_EMAIL_ENABLED=True`,
+`AUTH_GITHUB_ENABLED=False`) — no OAuth app needed, and `backend/.env`
+is optional.
+
+- **New account:** register on <http://localhost:3101/register>, click
+  the confirmation link in Mailpit, then sign in.
+- **Existing (GitHub-created) account:** it has no password yet — set one:
+  `docker compose exec backend python manage.py changepassword <email>`
+- **Admin:** `docker compose exec backend python manage.py createsuperuser`
+
+To bring GitHub back, set `AUTH_GITHUB_ENABLED=True` in a repo-root
+`.env`, put the dev OAuth app creds in `backend/.env` (see
+[github-oauth.md](github-oauth.md#dev-app)), and make the app's callback
+match the compose ports.
+
+## Hot reload — what reloads and what doesn't
+
+- **Backend:** `./backend` is mounted over the image's `/app` and the
+  container runs `manage.py runserver` (migrations run on start).
+  Python edits reload in ~1 s. Rebuild (`docker compose build backend`)
+  only when `pyproject.toml` / `poetry.lock` change.
+- **Frontend:** `./frontend` is mounted; `yarn dev` (Vite HMR) picks up
+  `pages/`, `components/`, `composables/` instantly. `nuxt.config.ts`
+  changes need `docker compose restart frontend`; new deps need a
+  restart too (it runs `yarn install` on start into its own
+  `node_modules` volume).
+- **Celery worker / beat** run under `watchmedo auto-restart` (watchdog,
+  installed only in the backend image's `dev` stage) and restart on any
+  `.py` change. The **prober** shares the code but doesn't reload —
+  `docker compose restart prober` if you touch it.
+
+## Host loop (no Docker, fallback)
 
 ```bash
-docker compose up -d --build
-docker compose logs -f backend
+cd backend && poetry install && poetry run python manage.py migrate
+poetry run python manage.py runserver 8001        # SQLite by default
+cd frontend && yarn install && yarn dev --port 3001
 ```
 
-Then:
-- Backend at <http://localhost:8101/admin/login/>
-- Frontend at <http://localhost:3100/>
+`DATABASE_URL` points it at the compose Postgres if you want real data.
+`frontend/nuxt.config.ts` defaults `apiBase` to `http://localhost:8001`
+(override with `NUXT_PUBLIC_API_BASE`).
 
-This compose file uses **alternate host ports** (8101 / 3100 / 5532)
-so it can coexist with the fast-loop processes above. Compose is for
-*verifying* the container; the fast loop is for *iterating*.
+## Using real cluster agents (direct mode)
+
+The compose backend runs with `INFERENCE_DIRECT_AGENTS=True`, so an agent
+started with `AGENT_DIRECT=1` can register to `http://<mac-lan-ip>:8101`
+and the backend calls it straight over the LAN — no Tailscale. The home
+cluster's `agent-dev` Deployment (home-cluster `services/agent-dev/`) is
+set up exactly this way: scale it to 1 and every model on the nodes that
+are up appears in the local catalog. Those provider services are owner-only
+(PRIVATE), so sign in as the account that owns them.
 
 ## Running the agent locally
 
@@ -182,9 +197,9 @@ until then this stub is the simpler option for UI / proxy work.
 - **Browser dev tools.** The shadcn-vue components ship a lot of
   ARIA-driven behavior; install the Vue Devtools extension for any
   reactivity debugging
-- **Reset the dev DB.** `rm backend/db.sqlite3 && poetry run python
-  manage.py migrate` — fast and lossless since you'll re-seed via
-  the snippet above
+- **Reset the dev DB.** compose: `docker compose down -v` (drops the
+  Postgres, RustFS and node_modules volumes). Host loop: `rm
+  backend/db.sqlite3 && poetry run python manage.py migrate`
 - **Frontend hot reload.** Nuxt picks up changes to `pages/`,
   `components/`, `composables/`, and `content/` without a restart.
   `nuxt.config.ts` and `app.config.ts` *do* require a restart

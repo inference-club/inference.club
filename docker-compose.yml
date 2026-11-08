@@ -44,58 +44,81 @@ services:
     ports:
       - "8125:8025" # web UI (SMTP :1025 stays internal → backend dials mailpit:1025)
 
-  # S3-compatible object storage for media (STT input audio; later TTS/image
-  # output). Console on :9101, API on :9100 so they coexist with anything on
-  # the default 9000/9001.
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  # S3-compatible object storage for media (STT input audio; TTS/image output).
+  # RustFS — same engine + version the home cluster runs (MinIO's community
+  # images are gone upstream). API on :9100, console on :9101
+  # (http://localhost:9101, log in with the access/secret key below).
+  rustfs:
+    image: docker.io/rustfs/rustfs:1.0.4
+    restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: inferenceclub
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-localdevminio}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: "0.0.0.0:9000"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: "0.0.0.0:9001"
+      RUSTFS_OBS_LOGGER_LEVEL: warn
+      RUSTFS_ACCESS_KEY: inferenceclub
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-localdevrustfs}
     volumes:
-      - minio-data:/data
+      - rustfs-data:/data
     ports:
       - "9100:9000" # S3 API
-      - "9101:9001" # web console (http://localhost:9101)
+      - "9101:9001" # web console
 
-  # One-shot: create the media bucket once MinIO is up.
-  minio-setup:
-    image: minio/mc:latest
+  # One-shot: create the media bucket once RustFS answers (plain S3 API via
+  # the AWS CLI — no vendor client needed).
+  rustfs-setup:
+    image: amazon/aws-cli:latest
     restart: "no"
     depends_on:
-      - minio
+      - rustfs
+    environment:
+      AWS_ACCESS_KEY_ID: inferenceclub
+      AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:-localdevrustfs}
+      AWS_DEFAULT_REGION: us-east-1
     entrypoint: >
       /bin/sh -c "
-      until mc alias set local http://minio:9000 inferenceclub ${MINIO_ROOT_PASSWORD:-localdevminio}; do echo 'waiting for minio'; sleep 2; done;
-      mc mb -p local/inference-club-media || true;
-      echo 'minio bucket ready';
+      until aws --endpoint-url http://rustfs:9000 s3api list-buckets >/dev/null 2>&1; do echo 'waiting for rustfs'; sleep 2; done;
+      aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket inference-club-media 2>/dev/null
+      || aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket inference-club-media;
+      echo 'rustfs bucket ready';
       "
 
   backend:
     build:
       context: ./backend
+      # dev stage = runtime + watchdog (Celery autoreload). CI builds the
+      # default `prod` stage.
+      target: dev
     # Named so the prober sidecar below can reuse the exact same image.
     image: inferenceclub-backend:dev
-    # GitHub OAuth creds live in backend/.env (gitignored, and excluded from
-    # the image by .dockerignore) — inject them at container start. The
-    # `environment:` block below would override env_file values, so the OAuth
-    # keys are intentionally NOT duplicated there.
+    # Hot reload: the source is bind-mounted over the image's /app and Django's
+    # runserver autoreloads on every save (the image's gunicorn CMD is only for
+    # prod). Rebuild the image (`docker compose build backend`) only when
+    # pyproject/poetry.lock change. backend/.env (gitignored) is optional — it
+    # only carries GitHub OAuth creds, which local dev doesn't need.
+    command: ["sh", "-c", "python manage.py migrate --noinput && exec python manage.py runserver 0.0.0.0:8001"]
+    volumes:
+      - ./backend:/app
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-localdev-not-for-production}
       DJANGO_DEBUG: "True"
       DJANGO_ALLOWED_HOSTS: "*"
       DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference
-      # The compose frontend is published on :3100 — these must reference it,
-      # or the browser's cross-origin API calls (and the OAuth return) break.
-      DJANGO_CORS_ALLOWED_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100,http://${DEV_HOST:-localhost}:3100"
-      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100,http://${DEV_HOST:-localhost}:3100"
-      # GITHUB_OAUTH_CLIENT_ID / _SECRET are supplied via env_file (backend/.env).
-      # Send the browser back to the compose frontend (:3100) after the handshake.
-      SOCIAL_AUTH_LOGIN_REDIRECT_URL: http://localhost:3100/
-      SOCIAL_AUTH_LOGIN_ERROR_URL: http://localhost:3100/login?oauth_error=1
+      # The compose frontend is published on FRONTEND_PORT (default 3101) —
+      # these must reference it, or the browser's cross-origin API calls break.
+      DJANGO_CORS_ALLOWED_ORIGINS: "http://localhost:${FRONTEND_PORT:-3101},http://127.0.0.1:${FRONTEND_PORT:-3101},http://${DEV_HOST:-localhost}:${FRONTEND_PORT:-3101}"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:${FRONTEND_PORT:-3101},http://127.0.0.1:${FRONTEND_PORT:-3101},http://${DEV_HOST:-localhost}:${FRONTEND_PORT:-3101}"
+      # Sign-in: email + password only by default (the home-lab auth path).
+      # GitHub OAuth is off even if backend/.env has creds; opt back in with
+      # AUTH_GITHUB_ENABLED=True in the root .env (the OAuth app's callback
+      # must then match this port).
+      AUTH_GITHUB_ENABLED: ${AUTH_GITHUB_ENABLED:-False}
+      SOCIAL_AUTH_LOGIN_REDIRECT_URL: http://localhost:${FRONTEND_PORT:-3101}/
+      SOCIAL_AUTH_LOGIN_ERROR_URL: http://localhost:${FRONTEND_PORT:-3101}/login?oauth_error=1
       PORT: "8001"
       # Local-dev, no-Tailscale agent pathway: trust the address the agent
       # reports at registration and reach it directly (no SOCKS, no hostname
@@ -110,22 +133,21 @@ services:
       # Shared cache so rate limits + the usage meter are consistent across
       # the gunicorn workers (not per-worker).
       REDIS_URL: redis://redis:6379/0
-      # Route media (STT audio etc.) to the local MinIO instead of the
+      # Route media (STT audio etc.) to the local RustFS instead of the
       # container filesystem, so it behaves like prod.
       OBJECT_STORAGE_BUCKET: inference-club-media
-      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
       OBJECT_STORAGE_ACCESS_KEY: inferenceclub
-      OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-localdevminio}
+      OBJECT_STORAGE_SECRET_KEY: ${RUSTFS_SECRET_KEY:-localdevrustfs}
       OBJECT_STORAGE_REGION: us-east-1
-      # Email sign-up flow (home-lab auth path), testable locally against
-      # Mailpit. Enabling it here means dev offers BOTH GitHub and email
-      # sign-in (GitHub stays on via backend/.env creds).
+      # Email sign-up flow (home-lab auth path) against Mailpit: confirmation
+      # links land in http://localhost:8125.
       AUTH_EMAIL_ENABLED: "True"
       EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
       EMAIL_HOST: mailpit
       EMAIL_PORT: "1025"
       DEFAULT_FROM_EMAIL: "inference.club <no-reply@inference.club>"
-      FRONTEND_BASE_URL: http://localhost:3100
+      FRONTEND_BASE_URL: http://localhost:${FRONTEND_PORT:-3101}
     extra_hosts:
       # So the backend can reach a direct-mode agent at
       # http://host.docker.internal:<port>/v1 on Linux too (auto on Docker
@@ -136,7 +158,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
+      rustfs:
         condition: service_started
     ports:
       # Host port 8101 so this can coexist with `manage.py runserver 8001`.
@@ -151,6 +173,8 @@ services:
   # host.docker.internal:<port> (hence extra_hosts).
   prober:
     image: inferenceclub-backend:dev
+    volumes:
+      - ./backend:/app
     restart: unless-stopped
     command: ["python", "manage.py", "probe_providers", "--interval", "30"]
     environment:
@@ -167,25 +191,31 @@ services:
 
   # Async job execution (PRD 10). The worker runs queued jobs; beat fires the
   # dispatcher tick that claims work and assigns it to providers with free
-  # capacity. Both reuse the backend image (so a backend code change means
-  # rebuilding these too) with a different command, and share the same storage
+  # capacity. Both reuse the backend image with the source bind-mounted (no
+  # rebuild for code changes) and run under `watchmedo auto-restart`, so they
+  # restart on any .py change. Different command, and share the same storage
   # + direct-agent + Redis config the backend uses so a worker can reach agents
   # and persist generated media exactly like the web process.
   celery-worker:
     image: inferenceclub-backend:dev
+    volumes:
+      - ./backend:/app
     restart: unless-stopped
-    command: ["celery", "-A", "backend", "worker", "-l", "info", "--concurrency=4"]
+    # watchmedo restarts the worker whenever a .py file under the mounted
+    # source changes (Celery has no reloader of its own).
+    command: ["watchmedo", "auto-restart", "--directory=/app", "--pattern=*.py", "--recursive", "--signal=SIGTERM", "--", "celery", "-A", "backend", "worker", "-l", "info", "--concurrency=4"]
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-localdev-not-for-production}
       DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference
       REDIS_URL: redis://redis:6379/0
       INFERENCE_DIRECT_AGENTS: "True"
       OBJECT_STORAGE_BUCKET: inference-club-media
-      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
       OBJECT_STORAGE_ACCESS_KEY: inferenceclub
-      OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-localdevminio}
+      OBJECT_STORAGE_SECRET_KEY: ${RUSTFS_SECRET_KEY:-localdevrustfs}
       OBJECT_STORAGE_REGION: us-east-1
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -199,9 +229,11 @@ services:
 
   celery-beat:
     image: inferenceclub-backend:dev
+    volumes:
+      - ./backend:/app
     restart: unless-stopped
     # -s writes the schedule DB to /tmp; the app user can't write the /app cwd.
-    command: ["celery", "-A", "backend", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
+    command: ["watchmedo", "auto-restart", "--directory=/app", "--pattern=*.py", "--recursive", "--signal=SIGTERM", "--", "celery", "-A", "backend", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-localdev-not-for-production}
       DATABASE_URL: postgres://inference:${POSTGRES_PASSWORD:-localdev}@postgres:5432/inference
@@ -230,11 +262,11 @@ services:
       # frontend itself. Reach the backend by its compose service name instead.
       NUXT_API_BASE_INTERNAL: http://backend:8001
       # Nuxt listens on :3000 inside the container but the browser loads the app
-      # from the host-published :3100. Tell Vite's HMR client to connect on the
+      # from the host-published FRONTEND_PORT. Tell Vite's HMR client to connect on the
       # published port; otherwise its WebSocket targets the unpublished :3000,
       # fails, and retries in a loop (sluggish UI + console ws errors). Must
-      # match the host side of the 3100:3000 port mapping below.
-      NUXT_VITE_HMR_CLIENT_PORT: "3100"
+      # match the host side of the port mapping below.
+      NUXT_VITE_HMR_CLIENT_PORT: "${FRONTEND_PORT:-3101}"
       # Disable filesystem polling — VirtioFS delivers native fs events, so
       # Vite/chokidar watch without stat-looping the whole tree (which pegged
       # ~2 CPU cores at idle and made HMR/builds crawl). MUST be empty, not
@@ -252,11 +284,12 @@ services:
     depends_on:
       - backend
     ports:
-      # Host port 3100 so this can coexist with `yarn dev --port 3001` and
-      # whatever Docker Desktop has on :3000.
-      - "3100:3000"
+      # Host port FRONTEND_PORT (default 3101) so this can coexist with
+      # `yarn dev --port 3001` and the usual :3000/:3100 squatters (Grafana
+      # LGTM's Loki sits on 3100).
+      - "${FRONTEND_PORT:-3101}:3000"
 
 volumes:
   postgres-data:
   frontend-node-modules:
-  minio-data:
+  rustfs-data:
