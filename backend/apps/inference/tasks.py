@@ -82,3 +82,32 @@ def regenerate_segment(segment_id, text_override=None, seed=None):
             logger.exception("regenerate_segment task failed for segment %s", segment_id)
             seg.status = Segment.STATUS_ERROR
             seg.save(update_fields=["status", "modified_on"])
+
+
+@shared_task(name="apps.inference.tasks.produce_episode")
+def produce_episode(episode_id, force=False, attempts=None, accept=None):
+    """Narration autopilot for a whole episode (take -> clean -> ASR -> trim ->
+    grade -> retake while the grade is poor)."""
+    from . import narration
+    from .models import Episode
+
+    ep = Episode.objects.filter(id=episode_id).first()
+    if ep is not None:
+        narration.produce_episode(ep, force=force, attempts=attempts, accept=accept)
+
+
+@shared_task(name="apps.inference.tasks.produce_segment")
+def produce_segment(segment_id, attempts=None, accept=None, explore=False, seeds=None):
+    """Autopilot for one segment, or (``explore``) audition several seeds."""
+    from . import narration
+    from .models import Segment
+
+    seg = Segment.objects.filter(id=segment_id).select_related("episode").first()
+    if seg is not None:
+        try:
+            narration.produce_segment(seg, attempts=attempts, accept=accept,
+                                      explore=explore, seeds=seeds)
+        except Exception:
+            logger.exception("produce_segment task failed for segment %s", segment_id)
+            seg.status = Segment.STATUS_ERROR
+            seg.save(update_fields=["status", "modified_on"])

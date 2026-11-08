@@ -1791,6 +1791,10 @@ class Episode(BaseModel):
         "VoiceSample", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="episodes",
     )
+    # Production knobs for the whole episode (see narration.DEFAULT_EPISODE_SETTINGS):
+    # pronunciation lexicon, Dia sampling, retake policy, trim + loudness targets.
+    # Stored sparse; ``narration.episode_settings`` merges in the defaults.
+    settings = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-modified_on"]
