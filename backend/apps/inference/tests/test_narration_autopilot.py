@@ -265,3 +265,31 @@ def test_editing_text_sends_a_ready_segment_back_to_pending(client, user):
     assert r.status_code == 200 and r.json()["status"] == Segment.STATUS_PENDING
     r = client.patch(f"/v1/segments/{seg.id}", {"text": "New line."}, format="json")
     assert r.json()["status"] == Segment.STATUS_PENDING     # unchanged text: no-op
+
+
+# --- energy-based trim (the ASR stretched the last word over the tail) --------
+
+
+def test_energy_cuts_and_subtract():
+    cuts = narration.energy_cuts([(0.0, 0.5), (2.0, 3.5), (5.0, 9.0)], 9.0,
+                                 pad=0.06, gap_threshold=0.6, max_gap=0.3)
+    assert cuts == [(0.0, 0.44), (2.15, 3.35), (5.06, 9.0)]
+    keep = narration.subtract_intervals([(0.4, 9.0)], cuts)
+    assert keep == [(0.44, 2.15), (3.35, 5.06)]
+
+
+def test_remap_words_clamps_a_stretched_word():
+    words = [{"word": "a", "start": 0.5, "end": 1.0}, {"word": "logs", "start": 4.5, "end": 9.0}]
+    out = narration.remap_words(words, [(0.4, 1.1), (4.4, 5.1)])
+    assert out[1] == {"word": "logs", "start": 0.8, "end": 1.4}
+
+
+def test_trim_asset_cuts_tail_silence_the_words_missed(user):
+    # speech 0.3-1.3 and 1.6-2.6, then 3 s of silence; the ASR says the last word
+    # runs to the very end (as streaming ASR does)
+    src = _audio_asset(user, _wav([(0.3, 0), (1.0, 440), (0.3, 0), (1.0, 440), (3.0, 0)]))
+    words = [{"word": "one", "start": 0.3, "end": 1.3}, {"word": "two", "start": 1.6, "end": 5.6}]
+    asset, out_words, src_dur, out_dur, _iv = narration.trim_asset(user, src, words)
+    assert src_dur == pytest.approx(5.6, abs=0.05)
+    assert 2.0 < out_dur < 2.6                       # the 3 s tail is gone
+    assert out_words[-1]["end"] <= out_dur + 0.01

@@ -149,22 +149,92 @@ def _probe_duration(path) -> float:
 
 
 def remap_words(words, intervals):
-    """Shift word timestamps onto the trimmed timeline. A word fully inside a
-    kept interval moves to its new position (kept-length before it + offset into
-    its interval); words that fell in a removed gap are dropped."""
+    """Shift word timestamps onto the trimmed timeline. A word moves with the
+    kept interval it overlaps most (kept-length before it + offset into its
+    interval), clamped to that interval — streaming ASR often stretches a word's
+    end across the silence after it, and that silence may have been cut. Words
+    with no overlap at all fell in a removed gap and are dropped."""
     spans, cum = [], 0.0
     for a, b in intervals:
         spans.append((a, b, cum))
         cum += (b - a)
     out = []
     for w in words:
+        best, best_ov = None, 0.0
         for a, b, off in spans:
-            if w["start"] >= a - 1e-6 and w["end"] <= b + 1e-6:
-                out.append({"word": w["word"],
-                            "start": round(off + (w["start"] - a), 3),
-                            "end": round(off + (w["end"] - a), 3)})
-                break
+            ov = min(b, w["end"]) - max(a, w["start"])
+            if ov > best_ov + 1e-9:
+                best, best_ov = (a, b, off), ov
+        if best is None:
+            continue
+        a, b, off = best
+        st, en = max(a, w["start"]), min(b, w["end"])
+        out.append({"word": w["word"], "start": round(off + (st - a), 3),
+                    "end": round(off + (en - a), 3)})
     return out
+
+
+SILENCE_DB = -40.0     # below this (dBFS) counts as silence for the energy pass
+SILENCE_MIN = 0.25     # ignore dips shorter than this (seconds)
+
+
+def detect_silences(path, *, noise_db=SILENCE_DB, min_len=SILENCE_MIN):
+    """``[(start, end), …]`` silent stretches of ``path`` (ffmpeg silencedetect).
+    A silence still open at the end of the file runs to its duration."""
+    proc = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-af",
+         f"silencedetect=n={noise_db}dB:d={min_len}", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=TRIM_TIMEOUT_SECONDS,
+    )
+    out, start = [], None
+    for m in re.finditer(r"silence_(start|end): (-?[0-9.]+)", proc.stderr):
+        t = max(0.0, float(m.group(2)))
+        if m.group(1) == "start":
+            start = t
+        elif start is not None:
+            out.append((round(start, 3), round(t, 3)))
+            start = None
+    if start is not None:
+        out.append((round(start, 3), round(_probe_duration(path), 3)))
+    return out
+
+
+def energy_cuts(silences, duration, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHOLD,
+                max_gap=TRIM_MAX_GAP):
+    """Ranges to remove judged by the audio itself, not the transcript: the
+    leading and trailing silence (leaving ``pad``) and every internal silence
+    longer than ``gap_threshold`` (leaving about ``max_gap``). Catches the dead
+    air a word-only trim keeps when the ASR stretches or misses a word."""
+    keep = max(0.0, max_gap / 2.0)
+    cuts = []
+    for a, b in silences:
+        if a <= 0.01:
+            cuts.append((0.0, max(0.0, b - pad)))
+        elif duration and b >= duration - 0.01:
+            cuts.append((min(duration, a + pad), duration))
+        elif b - a > gap_threshold:
+            cuts.append((a + keep, b - keep))
+    return [(round(a, 3), round(b, 3)) for a, b in cuts if b - a > 0.02]
+
+
+def subtract_intervals(keep, cuts):
+    """``keep`` ranges minus ``cuts`` ranges (both lists of (start, end))."""
+    out = []
+    for a, b in keep:
+        pieces = [(a, b)]
+        for c, d in cuts:
+            nxt = []
+            for x, y in pieces:
+                if d <= x or c >= y:
+                    nxt.append((x, y))
+                    continue
+                if c > x:
+                    nxt.append((x, c))
+                if d < y:
+                    nxt.append((d, y))
+            pieces = nxt
+        out.extend(pieces)
+    return [(round(a, 3), round(b, 3)) for a, b in out if b - a > 0.01]
 
 
 def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHOLD,
@@ -182,6 +252,10 @@ def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHO
                                         gap_threshold=gap_threshold, max_gap=max_gap)
         if not intervals:
             return src, words, src_dur, src_dur, [[0.0, round(src_dur, 3)]]
+        # Second opinion from the waveform: cut silence the word timings kept.
+        cuts = energy_cuts(detect_silences(in_path), src_dur, pad=pad,
+                           gap_threshold=gap_threshold, max_gap=max_gap)
+        intervals = subtract_intervals(intervals, cuts) or intervals
         asset, out_dur = _cut_asset(user, src, in_path, td, intervals,
                                     inference_request=inference_request,
                                     loudness=loudness)
