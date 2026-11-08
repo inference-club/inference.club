@@ -389,6 +389,7 @@ onMounted(() => {
         <div v-if="req.payload?.prompt" class="text-sm mb-3">
           <span class="text-muted-foreground">Prompt:</span> {{ req.payload.prompt }}
         </div>
+        <ImageRevisedPrompt :meta="req.image" class="mb-3" />
         <ImageGenMedia :inputs="imageInputs" :outputs="req.image_urls" />
         <div v-if="!imageInputs.length && !req.image_urls?.length" class="text-sm text-muted-foreground">
           No images stored for this request.

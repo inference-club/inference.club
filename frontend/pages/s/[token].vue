@@ -113,6 +113,7 @@ useSeoMeta({
         <p v-if="promptText" class="text-sm mb-3">
           <span class="text-muted-foreground">Prompt:</span> {{ promptText }}
         </p>
+        <ImageRevisedPrompt :meta="req.image" class="mb-3" />
         <ImageGenMedia :inputs="imageInputs" :outputs="req.image_urls" />
       </Card>
 

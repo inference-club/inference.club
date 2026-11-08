@@ -388,6 +388,50 @@ class TestImageEdits:
             )
         assert "boxes" not in captured["json"]
 
+    def test_revised_prompt_seed_persisted_as_metadata(self, user):
+        """FLUX 3 Klein returns the upsampler's caption as `revised_prompt`
+        (+ `seed`, `upsampled`): kept on each OUTPUT_IMAGE asset and in
+        results["metadata"], and surfaced as `image` on the request API. A
+        revised_prompt identical to the typed prompt is not duplicated."""
+        p = _online_provider(user)
+        _image_model(p)
+        upstream = _FakeResp({"created": 1, "data": [
+            {"b64_json": PNG_B64, "revised_prompt": "A lone samurai on a misty ridge, ink-wash style.",
+             "seed": 1234, "upsampled": True},
+            {"b64_json": PNG_B64, "revised_prompt": "a samurai", "seed": 1235, "upsampled": False},
+        ]})
+        with patch("apps.inference.openai_views.requests.post", return_value=upstream):
+            resp = _client(user).post(
+                "/v1/images/generations",
+                {"model": "image-model", "prompt": "a samurai", "n": 2}, format="json",
+            )
+        assert resp.status_code == 200
+        assert resp.json()["data"][0]["revised_prompt"].startswith("A lone samurai")
+        ir = InferenceRequest.objects.get(user=user, inference_type="IMAGE")
+        first, second = ir.results["metadata"]["images"]
+        assert first == {"revised_prompt": "A lone samurai on a misty ridge, ink-wash style.",
+                         "upsampled": True, "seed": 1234}
+        assert second == {"upsampled": False, "seed": 1235}  # same as typed → not stored
+        assets = list(MediaAsset.objects.filter(inference_request=ir).order_by("id"))
+        assert assets[0].metadata["revised_prompt"].startswith("A lone samurai")
+        assert assets[1].metadata == {"upsampled": False, "seed": 1235}
+
+        detail = _client(user).get(f"/api/inference/requests/{ir.id}/").json()
+        assert detail["image"]["revised_prompt"].startswith("A lone samurai")
+        assert detail["image"]["seed"] == 1234
+        assert len(detail["image"]["images"]) == 2
+
+    def test_no_image_metadata_when_provider_reports_none(self, user):
+        p = _online_provider(user)
+        _image_model(p)
+        with patch("apps.inference.openai_views.requests.post", return_value=_gen_resp()):
+            _client(user).post(
+                "/v1/images/generations", {"model": "image-model", "prompt": "a cat"}, format="json",
+            )
+        ir = InferenceRequest.objects.get(user=user, inference_type="IMAGE")
+        assert "metadata" not in ir.results
+        assert _client(user).get(f"/api/inference/requests/{ir.id}/").json()["image"] is None
+
     def test_up_to_ten_references(self, user):
         """Qwen-Image 2.1 takes 10 references; 11 is rejected."""
         p = _online_provider(user)

@@ -1233,9 +1233,35 @@ def _audio_seconds(payload):
 # --- image generation ------------------------------------------------------
 
 
-def _store_output_image(user, ir, b64_str, index):
+def _image_output_meta(item, prompt):
+    """Generation metadata a provider reports per output image, worth keeping
+    with the asset: ``revised_prompt`` (what the model actually rendered from
+    — e.g. FLUX 3 Klein's prompt-upsampler caption; only kept when it differs
+    from the prompt as typed), ``upsampled`` and the resolved ``seed``. Empty
+    for providers that report none of these."""
+    meta = {}
+    revised = item.get("revised_prompt")
+    if isinstance(revised, str) and revised.strip() and revised.strip() != (prompt or "").strip():
+        meta["revised_prompt"] = revised.strip()
+    if isinstance(item.get("upsampled"), bool):
+        meta["upsampled"] = item["upsampled"]
+    seed = item.get("seed")
+    if isinstance(seed, int) and not isinstance(seed, bool):
+        meta["seed"] = seed
+    return meta
+
+
+def _image_results_meta(metas):
+    """``InferenceRequest.results["metadata"]`` for an image request: one
+    entry per stored image (same order as ``image_asset_ids``), or None when
+    no image carried any metadata."""
+    return {"images": metas} if any(metas) else None
+
+
+def _store_output_image(user, ir, b64_str, index, metadata=None):
     """Decode an upstream base64 image and persist it as an OUTPUT_IMAGE
-    MediaAsset in MinIO. Returns the asset, or None on bad data."""
+    MediaAsset in object storage (with any per-image generation ``metadata``).
+    Returns the asset, or None on bad data."""
     import base64
 
     from django.core.files.base import ContentFile
@@ -1252,6 +1278,7 @@ def _store_output_image(user, ir, b64_str, index):
         kind=MediaAsset.OUTPUT_IMAGE,
         content_type="image/png",
         size_bytes=len(raw),
+        metadata=metadata or {},
     )
     asset.file.save(f"image-{index}.png", ContentFile(raw), save=False)
     asset.save()
@@ -1349,14 +1376,17 @@ class _ImageProxyBase(_RateLimitHeadersMixin, APIView):
         except ValueError:
             payload = {}
         data = payload.get("data") if isinstance(payload, dict) else None
-        out_data, asset_ids = [], []
+        out_data, asset_ids, metas = [], [], []
+        prompt = (ir.payload or {}).get("prompt") or ""
         for i, item in enumerate(data or []):
             if not isinstance(item, dict):
                 continue
             b64 = item.get("b64_json")
-            asset = _store_output_image(request.user, ir, b64, i) if b64 else None
+            meta = _image_output_meta(item, prompt)
+            asset = _store_output_image(request.user, ir, b64, i, meta) if b64 else None
             if asset is not None:
                 asset_ids.append(asset.id)
+                metas.append(meta)
             entry = {}
             if requested_format == "b64_json":
                 entry["b64_json"] = b64
@@ -1374,6 +1404,8 @@ class _ImageProxyBase(_RateLimitHeadersMixin, APIView):
             "image_asset_ids": asset_ids,
             "count": len(asset_ids),
         }
+        if meta := _image_results_meta(metas):
+            ir.results["metadata"] = meta
         ir.latency_ms = int((time.monotonic() - started) * 1000)
         ir.save(
             update_fields=["status", "image_count", "results", "latency_ms", "modified_on"]
@@ -3957,20 +3989,24 @@ def _rerun_image(ir, provider_model):
     except ValueError:
         payload = {}
     data = payload.get("data") if isinstance(payload, dict) else None
-    asset_ids = []
+    asset_ids, metas = [], []
     for i, item in enumerate(data or []):
         if not isinstance(item, dict):
             continue
         b64 = item.get("b64_json")
-        asset = _store_output_image(ir.user, ir, b64, i) if b64 else None
+        meta = _image_output_meta(item, p.get("prompt") or "")
+        asset = _store_output_image(ir.user, ir, b64, i, meta) if b64 else None
         if asset is not None:
             asset_ids.append(asset.id)
+            metas.append(meta)
     ir.status = "PROCESSED"
     ir.image_count = len(asset_ids)
     ir.results = {
         "created": payload.get("created") if isinstance(payload, dict) else None,
         "image_asset_ids": asset_ids, "count": len(asset_ids),
     }
+    if meta := _image_results_meta(metas):
+        ir.results["metadata"] = meta
     ir.latency_ms = int((time.monotonic() - started) * 1000)
     ir.save(update_fields=["status", "image_count", "results", "latency_ms", "modified_on"])
     Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())

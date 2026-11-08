@@ -499,6 +499,24 @@ def _mesh_meta(obj) -> dict | None:
     return meta if isinstance(meta, dict) and meta else None
 
 
+def _image_meta(obj) -> dict | None:
+    """Per-image generation metadata for an IMAGE request — the provider's
+    ``revised_prompt`` (e.g. FLUX 3 Klein's upsampled caption), ``upsampled``
+    and ``seed`` — flattened from the first image, plus ``images`` (one entry
+    per output, ordered like ``image_urls``) when there are several. None for
+    other request types or when the provider reported nothing."""
+    if obj.inference_type != "IMAGE" or not isinstance(obj.results, dict):
+        return None
+    meta = obj.results.get("metadata")
+    images = meta.get("images") if isinstance(meta, dict) else None
+    if not isinstance(images, list) or not any(isinstance(m, dict) and m for m in images):
+        return None
+    out = dict(images[0]) if isinstance(images[0], dict) else {}
+    if len(images) > 1:
+        out["images"] = images
+    return out
+
+
 def _video_url(obj, request) -> str | None:
     """Absolute URL to this request's generated video (the MP4), or None.
     OUTPUT_VIDEO assets are public, like generated images. Covers both
@@ -913,6 +931,7 @@ class InferenceRequestListSerializer(
     input_image_urls = serializers.SerializerMethodField()
     model_url = serializers.SerializerMethodField()
     mesh = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
     video = serializers.SerializerMethodField()
     cover_image_url = serializers.SerializerMethodField()
@@ -945,6 +964,7 @@ class InferenceRequestListSerializer(
             "input_image_urls",
             "model_url",
             "mesh",
+            "image",
             "video_url",
             "video",
             "cover_image_url",
@@ -984,6 +1004,9 @@ class InferenceRequestListSerializer(
 
     def get_mesh(self, obj):
         return _mesh_meta(obj)
+
+    def get_image(self, obj):
+        return _image_meta(obj)
 
     def get_video_url(self, obj):
         return _video_url(obj, self.context.get("request"))
@@ -1058,6 +1081,7 @@ class InferenceRequestDetailSerializer(
     input_image_urls = serializers.SerializerMethodField()
     model_url = serializers.SerializerMethodField()
     mesh = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
     video = serializers.SerializerMethodField()
     cover_image_url = serializers.SerializerMethodField()
@@ -1091,6 +1115,7 @@ class InferenceRequestDetailSerializer(
             "input_image_urls",
             "model_url",
             "mesh",
+            "image",
             "video_url",
             "video",
             "cover_image_url",
@@ -1133,6 +1158,9 @@ class InferenceRequestDetailSerializer(
 
     def get_mesh(self, obj):
         return _mesh_meta(obj)
+
+    def get_image(self, obj):
+        return _image_meta(obj)
 
     def get_video_url(self, obj):
         return _video_url(obj, self.context.get("request"))
