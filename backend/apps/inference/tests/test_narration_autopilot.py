@@ -293,3 +293,21 @@ def test_trim_asset_cuts_tail_silence_the_words_missed(user):
     assert src_dur == pytest.approx(5.6, abs=0.05)
     assert 2.0 < out_dur < 2.6                       # the 3 s tail is gone
     assert out_words[-1]["end"] <= out_dur + 0.01
+
+
+def test_process_keeps_attempt_and_rescores(user, monkeypatch):
+    ep = Episode.objects.create(user=user, title="E")
+    seg, v = _ready_variant(user, ep)
+    v.audio = v.cleaned_audio
+    v.grade = {"score": 9.0, "attempt": 3, "seed": 42, "take_score": 9.0}
+    v.save()
+    monkeypatch.setattr(narration, "transcribe_asset",
+                        lambda u, a: ("follow the messenger", [{"word": "follow", "start": 0.1, "end": 0.4},
+                                                              {"word": "the", "start": 0.4, "end": 0.5},
+                                                              {"word": "messenger", "start": 0.5, "end": 0.9}]))
+    monkeypatch.setattr(narration, "grade_transcription",
+                        lambda u, o, t: {"score": 9.5, "should_regenerate": False, "reason": "", "method": "x"})
+    narration.process_segment(seg)
+    v.refresh_from_db()
+    assert v.grade["attempt"] == 3 and v.grade["seed"] == 42
+    assert "take_score" in v.grade and v.grade["grade_score"] == 9.5

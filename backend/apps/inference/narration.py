@@ -648,7 +648,15 @@ def process_segment(segment):
 
     # 4) Grade the transcript against the intended text.
     grade = grade_transcription(user, strip_speaker_tags(variant.text or segment.text), text)
+    # Re-processing keeps the autopilot's bookkeeping (attempt, seed) and re-scores
+    # the take with the fresh grade, pace and duration.
+    prior = variant.grade or {}
+    grade = {**{k: prior[k] for k in ("attempt", "seed") if k in prior}, **grade}
     variant.grade = grade
+    variant.duration_seconds = out_dur
+    variant.words = words_out
+    variant.grade = {**grade, **take_score(variant, cfg)}
+    grade = variant.grade
     variant.save(update_fields=[
         "cleaned_audio", "enhanced_audio", "enhanced_words", "trim_intervals",
         "words", "duration_seconds", "transcript", "grade",
