@@ -2,9 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  ChevronDown, Clapperboard, Dices, Film, Images, Loader2, Sparkles, Square, Upload, X,
+  AudioLines, ChevronDown, Clapperboard, Dices, Film, Images, Loader2, Sparkles, Square, Upload, Video, X,
 } from 'lucide-vue-next'
-import { useVideoGeneration } from '@/composables/useVideoGeneration'
+import { useVideoGeneration, type VideoOptions } from '@/composables/useVideoGeneration'
 import type { ModelInfo } from '@/composables/usePlayground'
 
 definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.videoGeneration' })
@@ -72,6 +72,93 @@ const clearSource = () => {
 const pickerOpen = ref(false)
 const onPickImage = ({ blob, name }: { blob: Blob; name: string }) => setSource(blob, name)
 
+// --- LTX-2.5 inputs (shown when the model advertises them) -----------------
+const features = computed(() => models.value.find((m) => m.id === model.value)?.supported_features ?? [])
+const has = (f: string) => features.value.includes(f)
+const ltxInputs = computed(() =>
+  ['keyframes', 'audio-to-video', 'video-to-video', 'retake', 'loras', 'text-to-audio'].some(has))
+
+// End frame (keyframe interpolation: first frame → last frame).
+const endFrame = ref<SourceImage | null>(null)
+const endInput = ref<HTMLInputElement | null>(null)
+const endPickerOpen = ref(false)
+const setEnd = (blob: Blob, name: string) => {
+  if (endFrame.value) URL.revokeObjectURL(endFrame.value.url)
+  endFrame.value = { blob, name, url: URL.createObjectURL(blob) }
+}
+const onEndFiles = (e: Event) => {
+  const f = (e.target as HTMLInputElement).files?.[0]
+  if (f) setEnd(f, f.name)
+  if (endInput.value) endInput.value.value = ''
+}
+
+// Audio / source video: an upload (data URI) or an earlier generation (asset ref).
+interface MediaInput { value: string; url: string; label: string }
+const audioIn = ref<MediaInput | null>(null)
+const videoIn = ref<MediaInput | null>(null)
+const audioPickerOpen = ref(false)
+const videoPickerOpen = ref(false)
+const audioFile = ref<HTMLInputElement | null>(null)
+const videoFile = ref<HTMLInputElement | null>(null)
+const onMediaFile = async (e: Event, target: typeof audioIn) => {
+  const f = (e.target as HTMLInputElement).files?.[0]
+  if (!f) return
+  if (f.size > 80 * 1024 * 1024) return toast.error('That file is over 80MB.')
+  target.value = { value: await blobToDataUrl(f), url: URL.createObjectURL(f), label: f.name }
+  ;(e.target as HTMLInputElement).value = ''
+}
+const onPickAudio = (p: { ref: string; url: string; label: string }) => { audioIn.value = { value: p.ref, url: p.url, label: p.label } }
+const onPickVideo = (p: { ref: string; url: string; label: string }) => { videoIn.value = { value: p.ref, url: p.url, label: p.label } }
+
+// What to do with a source video, and LoRAs. IC-LoRAs restyle a source video
+// frame-for-frame; plain LoRAs stack on text/image-to-video.
+const videoAction = ref<'v2v' | 'retake'>('v2v')
+const IC_LORAS = [
+  { value: 'day-to-night', label: 'Day → night relight' },
+  { value: 'colorization', label: 'Colorize (B&W → color)' },
+  { value: 'union-control', label: 'Structure control (canny/depth/pose)' },
+  { value: 'relight', label: 'Relight' },
+]
+const PLAIN_LORAS = [
+  { value: 'none', label: 'None' },
+  { value: 'cinemagraph', label: 'Cinemagraph (selective motion)' },
+  { value: 'slow-motion', label: 'Slow motion' },
+]
+const icLora = ref('day-to-night')
+const plainLora = ref('none')
+const loraStrength = ref(1)
+const retakeStart = ref(1)
+const retakeEnd = ref(3)
+const autoDuration = ref(false)
+const quality = ref<'fast' | 'hq'>('fast')
+const audioOnly = ref(false)
+
+const ltxOptions = async (): Promise<Partial<VideoOptions>> => {
+  if (!ltxInputs.value) return {}
+  const o: Partial<VideoOptions> = {}
+  if (audioOnly.value && has('text-to-audio')) return { mode: 't2a' }
+  if (endFrame.value) o.images = [{ image: await blobToDataUrl(endFrame.value.blob), position: 'last' }]
+  if (audioIn.value) o.audio = audioIn.value.value
+  if (videoIn.value) {
+    o.video = videoIn.value.value
+    if (videoAction.value === 'retake') {
+      o.mode = 'retake'
+      o.retake_start = retakeStart.value
+      o.retake_end = retakeEnd.value
+    } else {
+      o.mode = 'v2v'
+      o.lora = icLora.value
+      o.lora_strength = loraStrength.value
+    }
+  } else if (plainLora.value !== 'none') {
+    o.lora = plainLora.value
+    o.lora_strength = loraStrength.value
+  }
+  if (quality.value === 'hq') o.quality = 'hq'
+  if (autoDuration.value && has('auto-duration')) o.auto_duration = true
+  return o
+}
+
 // --- options ---------------------------------------------------------------
 const RESOLUTIONS = [
   { value: '1280x704', label: 'Landscape · 1280×704' },
@@ -117,14 +204,16 @@ const run = async () => {
   const [w, h] = resolution.value.split('x').map((n) => Number(n))
   try {
     const image = source.value ? await blobToDataUrl(source.value.blob) : undefined
+    const extra = await ltxOptions()
     const video = await generate(
       {
+        ...extra,
         model: model.value,
         prompt: prompt.value.trim(),
         negative_prompt: negativePrompt.value.trim() || undefined,
         image,
         image_strength: image ? imageStrength.value : undefined,
-        duration: duration.value,
+        duration: extra.auto_duration ? undefined : duration.value,
         num_frames: num(numFrames.value),
         fps: Number(fps.value),
         width: w,
@@ -160,9 +249,11 @@ const onQueue = async (count: number) => {
   if (!model.value || !prompt.value.trim()) return
   const [w, h] = resolution.value.split('x').map((v) => Number(v))
   const image = source.value ? await blobToDataUrl(source.value.blob) : undefined
+  const extra = await ltxOptions()
   queue(
     '/v1/videos/generations',
     {
+      ...extra,
       model: model.value,
       prompt: prompt.value.trim(),
       negative_prompt: negativePrompt.value.trim() || undefined,
@@ -327,6 +418,94 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
+          <!-- LTX-2.5 inputs: end frame, audio, source video, LoRAs -->
+          <div v-if="ltxInputs" class="rounded-xl border p-3 space-y-3 text-sm">
+            <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">More inputs</div>
+
+            <div v-if="has('keyframes')" class="flex flex-wrap items-center gap-2">
+              <span class="w-24 shrink-0 text-xs text-muted-foreground">End frame</span>
+              <template v-if="endFrame">
+                <img :src="endFrame.url" class="size-12 rounded object-cover border" />
+                <span class="text-xs truncate max-w-[12rem]">{{ endFrame.name }}</span>
+                <Button variant="ghost" size="icon" @click="endFrame = null"><X class="size-4" /></Button>
+              </template>
+              <template v-else>
+                <Button variant="outline" size="sm" @click="endInput?.click()"><Upload class="size-3.5 mr-1" />Upload</Button>
+                <Button variant="outline" size="sm" @click="endPickerOpen = true"><Images class="size-3.5 mr-1" />Existing image</Button>
+                <span class="text-[11px] text-muted-foreground">interpolates first frame → this frame</span>
+              </template>
+              <input ref="endInput" type="file" accept="image/*" class="hidden" @change="onEndFiles" />
+            </div>
+
+            <div v-if="has('audio-to-video')" class="flex flex-wrap items-center gap-2">
+              <span class="w-24 shrink-0 text-xs text-muted-foreground flex items-center gap-1"><AudioLines class="size-3.5" />Audio</span>
+              <template v-if="audioIn">
+                <audio :src="audioIn.url" controls class="h-8 max-w-[16rem]" />
+                <span class="text-xs truncate max-w-[10rem]">{{ audioIn.label }}</span>
+                <Button variant="ghost" size="icon" @click="audioIn = null"><X class="size-4" /></Button>
+              </template>
+              <template v-else>
+                <Button variant="outline" size="sm" @click="audioFile?.click()"><Upload class="size-3.5 mr-1" />Upload</Button>
+                <Button variant="outline" size="sm" @click="audioPickerOpen = true">From my music / voices</Button>
+                <span class="text-[11px] text-muted-foreground">the video is driven by this track (lip-sync, beats)</span>
+              </template>
+              <input ref="audioFile" type="file" accept="audio/*" class="hidden" @change="(e) => onMediaFile(e, audioIn)" />
+            </div>
+
+            <div v-if="has('video-to-video') || has('retake')" class="space-y-2">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="w-24 shrink-0 text-xs text-muted-foreground flex items-center gap-1"><Video class="size-3.5" />Source video</span>
+                <template v-if="videoIn">
+                  <video :src="videoIn.url" muted controls class="h-16 rounded border" />
+                  <span class="text-xs truncate max-w-[10rem]">{{ videoIn.label }}</span>
+                  <Button variant="ghost" size="icon" @click="videoIn = null"><X class="size-4" /></Button>
+                </template>
+                <template v-else>
+                  <Button variant="outline" size="sm" @click="videoFile?.click()"><Upload class="size-3.5 mr-1" />Upload</Button>
+                  <Button variant="outline" size="sm" @click="videoPickerOpen = true">From my videos</Button>
+                </template>
+                <input ref="videoFile" type="file" accept="video/*" class="hidden" @change="(e) => onMediaFile(e, videoIn)" />
+              </div>
+              <div v-if="videoIn" class="flex flex-wrap items-center gap-2 pl-[6.5rem]">
+                <Select v-model="videoAction">
+                  <SelectTrigger class="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-if="has('video-to-video')" value="v2v" class="text-xs">Restyle (IC-LoRA)</SelectItem>
+                    <SelectItem v-if="has('retake')" value="retake" class="text-xs">Retake a time range</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select v-if="videoAction === 'v2v'" v-model="icLora">
+                  <SelectTrigger class="h-8 w-60 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-for="l in IC_LORAS" :key="l.value" :value="l.value" class="text-xs">{{ l.label }}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <template v-else>
+                  <Label class="text-xs text-muted-foreground">from</Label>
+                  <Input v-model.number="retakeStart" type="number" min="0" step="0.5" class="h-8 w-16 text-xs" />
+                  <Label class="text-xs text-muted-foreground">to</Label>
+                  <Input v-model.number="retakeEnd" type="number" min="0" step="0.5" class="h-8 w-16 text-xs" />
+                  <span class="text-[11px] text-muted-foreground">s — the prompt describes the new action</span>
+                </template>
+              </div>
+            </div>
+
+            <div v-if="has('loras') && !videoIn" class="flex flex-wrap items-center gap-2">
+              <span class="w-24 shrink-0 text-xs text-muted-foreground">LoRA</span>
+              <Select v-model="plainLora">
+                <SelectTrigger class="h-8 w-60 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="l in PLAIN_LORAS" :key="l.value" :value="l.value" class="text-xs">{{ l.label }}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div v-if="(has('loras') && plainLora !== 'none' && !videoIn) || (videoIn && videoAction === 'v2v')"
+                 class="flex items-center gap-2 pl-[6.5rem]">
+              <Label class="text-xs text-muted-foreground whitespace-nowrap">Strength {{ loraStrength.toFixed(2) }}</Label>
+              <Input v-model.number="loraStrength" type="range" min="0" max="1.5" step="0.05" class="w-32" />
+            </div>
+          </div>
+
           <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
             <span class="text-xs text-muted-foreground">{{ prompt.length }} chars</span>
             <div class="ml-auto flex items-center gap-2">
@@ -375,9 +554,30 @@ onBeforeUnmount(() => {
           </Select>
         </div>
 
-        <div>
+        <div v-if="has('auto-duration')" class="flex items-center justify-between">
+          <Label for="auto-dur" class="text-sm">Auto duration</Label>
+          <Switch id="auto-dur" v-model="autoDuration" />
+        </div>
+        <div v-if="!autoDuration">
           <Label class="text-xs text-muted-foreground">Duration: {{ duration }}s</Label>
           <Input v-model.number="duration" type="range" min="1" max="10" step="1" class="mt-1 w-full" />
+        </div>
+        <p v-else class="text-[11px] text-muted-foreground -mt-2">The model predicts a length that fits the prompt.</p>
+
+        <div v-if="ltxInputs">
+          <Label class="text-xs text-muted-foreground">Quality</Label>
+          <Select v-model="quality">
+            <SelectTrigger class="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fast" class="text-sm">Fast (distilled)</SelectItem>
+              <SelectItem value="hq" class="text-sm">High (detailing pass)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div v-if="has('text-to-audio')" class="flex items-center justify-between">
+          <Label for="audio-only" class="text-sm flex items-center gap-1.5"><AudioLines class="size-3.5" /> Audio only</Label>
+          <Switch id="audio-only" v-model="audioOnly" />
         </div>
 
         <div>
@@ -447,5 +647,8 @@ onBeforeUnmount(() => {
     </div>
 
     <ImageSourcePicker v-model:open="pickerOpen" @select="onPickImage" />
+    <ImageSourcePicker v-model:open="endPickerOpen" @select="({ blob, name }) => setEnd(blob, name)" />
+    <MediaAssetPicker v-model:open="audioPickerOpen" kind="audio" @select="onPickAudio" />
+    <MediaAssetPicker v-model:open="videoPickerOpen" kind="video" @select="onPickVideo" />
   </div>
 </template>

@@ -25,7 +25,25 @@ export interface VideoOptions {
   num_inference_steps?: number
   guidance_scale?: number
   enhance_prompt?: boolean
+  // LTX-2.5 extensions (all optional; the server infers the mode from inputs).
+  // Media fields take a data URI, an https URL, or an existing asset ref
+  // (`asset:<public_id>`) — e.g. a song or voice from another generation.
+  mode?: string
+  images?: { image: string; frame?: number; position?: 'first' | 'last' | number; strength?: number }[]
+  audio?: string
+  video?: string
+  lora?: string
+  lora_strength?: number
+  retake_start?: number
+  retake_end?: number
+  quality?: 'fast' | 'hq'
+  auto_duration?: boolean
 }
+
+// Inputs beyond prompt/first-frame a video model may advertise (features).
+export const VIDEO_INPUT_FEATURES = [
+  'keyframes', 'audio-to-video', 'video-to-video', 'retake', 'text-to-audio', 'loras', 'auto-duration',
+] as const
 
 export interface GeneratedVideo {
   blob: Blob
@@ -91,6 +109,12 @@ export function useVideoGeneration() {
         ...(opts.guidance_scale != null ? { guidance_scale: opts.guidance_scale } : {}),
         ...(opts.enhance_prompt ? { enhance_prompt: true } : {}),
         ...(opts.use_random_seed === false ? { seed: opts.seed } : {}),
+        ...Object.fromEntries(
+          (['mode', 'images', 'audio', 'video', 'lora', 'lora_strength', 'retake_start', 'retake_end',
+            'quality', 'auto_duration'] as const)
+            .filter((k) => opts[k] !== undefined && opts[k] !== null && opts[k] !== '')
+            .map((k) => [k, opts[k]]),
+        ),
       }),
       signal,
     })

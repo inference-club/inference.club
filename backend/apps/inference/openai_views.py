@@ -2592,6 +2592,252 @@ def _ltx_params(upstream) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+# --- LTX-2.5 video inputs ---------------------------------------------------
+# Beyond prompt + first-frame `image`, LTX-2.5 conditions on keyframe images at
+# any frame, an audio track (audio-to-video), a source video (video-to-video via
+# IC-LoRA, retake) and LoRAs. Every media input may be inline (data URI / base64
+# / https URL) or a reference to an existing asset — `"asset:<public_id>"` or
+# `{"asset": "<public_id>"}` — so a song from ACE-Step, a Dia voice, a FLUX
+# image or an earlier video feeds straight in, and the output records it as
+# provenance (`derived_from`). See docs/prd/23-ltx-2.5-video.md.
+VIDEO_MODES = ("auto", "t2v", "i2v", "keyframes", "a2v", "v2v", "retake", "t2a", "v2a")
+VIDEO_MAX_KEYFRAMES = 8
+VIDEO_INPUT_MAX_BYTES = 80 * 1024 * 1024
+_VIDEO_LORA_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+
+
+class _VideoInputError(ValueError):
+    pass
+
+
+def _sniff_media_type(raw: bytes, default: str) -> str:
+    head = raw[:16]
+    if head.startswith(b"\x89PNG"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if head[:4] == b"RIFF" and raw[8:12] == b"WAVE":
+        return "audio/wav"
+    if head[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if head.startswith(b"ID3") or head[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+        return "audio/mpeg"
+    if head.startswith(b"OggS"):
+        return "audio/ogg"
+    if head.startswith(b"fLaC"):
+        return "audio/flac"
+    if raw[4:8] == b"ftyp":
+        return "audio/mp4" if raw[8:12] in (b"M4A ", b"M4B ") else "video/mp4"
+    if head.startswith(b"\x1a\x45\xdf\xa3"):
+        return "video/webm"
+    return default
+
+
+def _video_media(user, value, label, default_ct):
+    """Resolve one media input to ``(forward_value, raw, content_type, source_asset)``.
+    Asset references are read (visibility-checked) and inlined as a data URI;
+    inline base64 is decoded so it can be stored; http(s) URLs pass through."""
+    import base64
+
+    from .models import MediaAsset
+
+    ref = None
+    if isinstance(value, dict):
+        ref = value.get("asset") or value.get("asset_id")
+    elif isinstance(value, str) and value.startswith("asset:"):
+        ref = value[len("asset:"):]
+    if ref:
+        asset = MediaAsset.objects.filter(public_id=str(ref).strip()).first()
+        if asset is None or not asset.is_visible_to(user):
+            raise _VideoInputError(f"{label}: asset '{ref}' not found.")
+        if asset.size_bytes and asset.size_bytes > VIDEO_INPUT_MAX_BYTES:
+            raise _VideoInputError(f"{label}: asset is too large.")
+        with asset.file.open("rb") as fh:
+            raw = fh.read()
+        ct = asset.content_type or _sniff_media_type(raw, default_ct)
+        return f"data:{ct};base64,{base64.b64encode(raw).decode('ascii')}", raw, ct, asset
+    if not isinstance(value, str) or not value.strip():
+        raise _VideoInputError(f"{label}: expected a data URI, base64, URL or asset reference.")
+    s = value.strip()
+    if s.startswith(("http://", "https://")):
+        return s, None, None, None
+    raw, ct = _decode_image_input(s)
+    if not raw:
+        raise _VideoInputError(f"{label}: could not decode.")
+    if len(raw) > VIDEO_INPUT_MAX_BYTES:
+        raise _VideoInputError(f"{label}: too large.")
+    ct = ct if s.startswith("data:") else _sniff_media_type(raw, default_ct)
+    return f"data:{ct};base64,{base64.b64encode(raw).decode('ascii')}", raw, ct, None
+
+
+def _video_extras(user, body):
+    """Validate the LTX-2.5 extension fields. Returns ``(forward, payload,
+    inputs)``: what to send upstream, what to persist (no base64), and the media
+    inputs to store/link once the request row exists."""
+    from .models import MediaAsset
+
+    fwd, pay, inputs = {}, {}, []
+    mode = body.get("mode")
+    if mode not in (None, ""):
+        if mode not in VIDEO_MODES:
+            raise _VideoInputError(f"`mode` must be one of {', '.join(VIDEO_MODES)}.")
+        fwd["mode"] = pay["mode"] = mode
+    lora = body.get("lora")
+    if lora not in (None, ""):
+        if not isinstance(lora, str) or not _VIDEO_LORA_RE.match(lora):
+            raise _VideoInputError("`lora` must be a LoRA slug like `day-to-night`.")
+        fwd["lora"] = pay["lora"] = lora
+    for key, lo, hi in (("lora_strength", 0.0, 2.0), ("video_strength", 0.0, 1.0),
+                        ("retake_start", 0.0, 600.0), ("retake_end", 0.0, 600.0),
+                        ("audio_start_time", 0.0, 3600.0)):
+        if body.get(key) is not None:
+            v = _clamp(body.get(key), lo, hi, None)
+            if v is None:
+                raise _VideoInputError(f"`{key}` must be a number.")
+            fwd[key] = pay[key] = v
+    if "retake_start" in fwd and "retake_end" in fwd and fwd["retake_end"] <= fwd["retake_start"]:
+        raise _VideoInputError("`retake_end` must be after `retake_start`.")
+    quality = body.get("quality")
+    if quality not in (None, ""):
+        if quality not in ("fast", "hq"):
+            raise _VideoInputError("`quality` must be `fast` or `hq`.")
+        fwd["quality"] = pay["quality"] = quality
+    if body.get("auto_duration") is not None:
+        fwd["auto_duration"] = pay["auto_duration"] = bool(body.get("auto_duration"))
+
+    images = body.get("images")
+    if images not in (None, []):
+        if not isinstance(images, list) or len(images) > VIDEO_MAX_KEYFRAMES:
+            raise _VideoInputError(f"`images` must be a list of at most {VIDEO_MAX_KEYFRAMES} keyframes.")
+        out = []
+        for i, c in enumerate(images):
+            if not isinstance(c, dict) or "image" not in c:
+                raise _VideoInputError(f"images[{i}] needs an `image`.")
+            uri, raw, ct, src = _video_media(user, c["image"], f"images[{i}]", "image/png")
+            entry, meta = {"image": uri}, {"index": i}
+            if c.get("frame") is not None:
+                frame = _clamp(c.get("frame"), 0, 2000, None)
+                if frame is None:
+                    raise _VideoInputError(f"images[{i}].frame must be a number.")
+                entry["frame"] = meta["frame"] = int(frame)
+            pos = c.get("position")
+            if pos in ("first", "last"):
+                entry["position"] = meta["position"] = pos
+            elif pos is not None:
+                v = _clamp(pos, 0.0, 1.0, None)
+                if v is None:
+                    raise _VideoInputError(f"images[{i}].position must be first, last or 0..1.")
+                entry["position"] = meta["position"] = v
+            entry["strength"] = meta["strength"] = _clamp(c.get("strength", 1.0), 0.0, 1.0, 1.0)
+            out.append(entry)
+            inputs.append({"role": "keyframe", "kind": MediaAsset.INPUT_IMAGE, "raw": raw, "ct": ct,
+                           "source": src, "url": uri if raw is None else None, "meta": meta})
+        fwd["images"] = out
+    for key, kind, default_ct in (("audio", MediaAsset.INPUT_AUDIO, "audio/wav"),
+                                  ("video", MediaAsset.INPUT_VIDEO, "video/mp4")):
+        if body.get(key) not in (None, ""):
+            uri, raw, ct, src = _video_media(user, body[key], f"`{key}`", default_ct)
+            fwd[key] = uri
+            inputs.append({"role": key, "kind": kind, "raw": raw, "ct": ct, "source": src,
+                           "url": uri if raw is None else None, "meta": {}})
+    return fwd, pay, inputs
+
+
+def _store_video_inputs(user, ir, inputs):
+    """Persist inline media inputs as INPUT_* assets on ``ir`` (referenced
+    assets are linked, not copied). Returns ``(refs, assets)`` — the replayable
+    payload refs and the assets the output derives from."""
+    from django.core.files.base import ContentFile
+
+    from .models import MediaAsset
+
+    refs, assets = [], []
+    for i, inp in enumerate(inputs):
+        meta = {"role": inp["role"], **inp["meta"]}
+        a = inp.get("source")
+        if a is None and inp.get("raw"):
+            try:
+                ct = inp.get("ct") or "application/octet-stream"
+                ext = (ct.rsplit("/", 1)[-1] or "bin").replace("mpeg", "mp3").replace("jpeg", "jpg")
+                a = MediaAsset(user=user, inference_request=ir, kind=inp["kind"], content_type=ct,
+                               size_bytes=len(inp["raw"]), metadata=meta)
+                a.file.save(f"{inp['role']}-{i}.{ext}", ContentFile(inp["raw"]), save=False)
+                a.save()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("video input store failed: %s", e)
+                a = None
+        if a is not None:
+            assets.append(a)
+            refs.append({**meta, "asset": a.public_id})
+        elif inp.get("url"):
+            refs.append({**meta, "url": inp["url"]})
+    return refs, assets
+
+
+def _video_inputs_forward(ir, refs):
+    """Rebuild the upstream media fields from stored payload refs (retry /
+    async). Returns ``(forward_fields, assets)``."""
+    import base64
+
+    from .models import MediaAsset
+
+    fwd, assets, images = {}, [], []
+    for ref in refs or []:
+        value = ref.get("url")
+        if ref.get("asset"):
+            a = MediaAsset.objects.filter(public_id=ref["asset"]).first()
+            if a is None or not a.is_visible_to(ir.user):
+                continue
+            with a.file.open("rb") as fh:
+                raw = fh.read()
+            value = f"data:{a.content_type or 'application/octet-stream'};base64,{base64.b64encode(raw).decode('ascii')}"
+            assets.append(a)
+        if not value:
+            continue
+        if ref.get("role") == "keyframe":
+            entry = {"image": value, "strength": ref.get("strength", 1.0)}
+            for k in ("frame", "position"):
+                if ref.get(k) is not None:
+                    entry[k] = ref[k]
+            images.append((ref.get("index", len(images)), entry))
+        elif ref.get("role") in ("audio", "video"):
+            fwd[ref["role"]] = value
+    if images:
+        fwd["images"] = [e for _, e in sorted(images, key=lambda t: t[0])]
+    return fwd, assets
+
+
+def _store_video_output(user, ir, upstream, seconds, resolved, sources):
+    """Store the generated MP4 (or WAV for text-to-audio) and link provenance."""
+    from django.core.files.base import ContentFile
+
+    from .models import MediaAsset
+
+    data = upstream.content
+    out_ct = (upstream.headers.get("content-type") or "video/mp4").split(";", 1)[0]
+    is_audio = out_ct.startswith("audio/")
+    asset = MediaAsset(
+        user=user, inference_request=ir,
+        kind=MediaAsset.OUTPUT_AUDIO if is_audio else MediaAsset.OUTPUT_VIDEO,
+        content_type=out_ct, size_bytes=len(data), duration_seconds=seconds,
+        metadata={k: resolved[k] for k in ("width", "height", "fps", "num_frames", "mode", "lora")
+                  if isinstance(resolved.get(k), (int, float, str))},
+    )
+    asset.file.save("audio.wav" if is_audio else "video.mp4", ContentFile(data), save=False)
+    asset.save()
+    asset.record_derivation(sources)
+    return asset, data, out_ct
+
+
+def _video_seconds(resolved, fallback):
+    if isinstance(resolved.get("duration"), (int, float)):
+        return float(resolved["duration"])
+    r_frames, r_fps = resolved.get("num_frames"), resolved.get("fps")
+    if isinstance(r_frames, (int, float)) and isinstance(r_fps, (int, float)) and r_fps:
+        return round(r_frames / float(r_fps), 3)
+    return fallback
+
+
 class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
     """``POST /v1/videos/generations`` — text/image-to-video (generate an MP4).
 
@@ -2658,8 +2904,20 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
         # --- generation controls, coerced to LTX's safe ranges -------------
         negative_prompt = body.get("negative_prompt")
         negative_prompt = negative_prompt.strip() if isinstance(negative_prompt, str) else ""
-        image = body.get("image") if isinstance(body.get("image"), str) else ""
+        image = body.get("image") if isinstance(body.get("image"), (str, dict)) else ""
+        image_source = None
+        if image and (isinstance(image, dict) or image.startswith("asset:")):
+            try:
+                image, _raw, _ct, image_source = _video_media(request.user, image, "`image`", "image/png")
+            except _VideoInputError as e:
+                return Response({"error": {"message": str(e), "type": "invalid_input"}},
+                                status=status.HTTP_400_BAD_REQUEST)
         image_strength = _num(body.get("image_strength"), 0.0, 1.0, 1.0)
+        try:
+            extra_fwd, extra_pay, extra_inputs = _video_extras(request.user, body)
+        except _VideoInputError as e:
+            return Response({"error": {"message": str(e), "type": "invalid_input"}},
+                            status=status.HTTP_400_BAD_REQUEST)
         duration = body.get("duration")
         duration = _num(duration, 1, 20, None) if duration is not None else None
         num_frames = (
@@ -2714,6 +2972,7 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
             forward["guidance_scale"] = guidance
         if seed is not None:
             forward["seed"] = seed
+        forward.update(extra_fwd)
 
         stored_payload = {
             # Stored so a retry / "reproduce in playground" is faithful. The
@@ -2733,12 +2992,26 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
             "guidance_scale": guidance,
             "enhance_prompt": enhance_prompt,
             "seed": seed,
+            **extra_pay,
         }
+        if image_source is not None:
+            stored_payload["image_asset"] = image_source.public_id
+
+        def _store_inputs(target):
+            """Persist/link the LTX-2.5 media inputs and record them in the
+            payload so retries and async jobs can replay them."""
+            refs, assets = _store_video_inputs(request.user, target, extra_inputs)
+            if image_source is not None:
+                assets.append(image_source)
+            if refs:
+                target.payload = {**(target.payload or {}), "inputs": refs}
+                target.save(update_fields=["payload", "modified_on"])
+            return assets
 
         def _store_first_frame(target):
             """Persist the optional first-frame image (public, like outputs) so
             the image-to-video run is replayable and its share link unfurls."""
-            if not image:
+            if not image or image_source is not None:
                 return
             from django.core.files.base import ContentFile
 
@@ -2776,6 +3049,7 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
                 idempotency_key=request.headers.get("Idempotency-Key", "") or "",
             )
             _store_first_frame(job)  # so image-to-video can run from the queue
+            _store_inputs(job)
             return accepted(job)
 
         ir = InferenceRequest.objects.create(
@@ -2790,12 +3064,13 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
         )
         file_into_collection(request.user, ir, collection_name)
         _store_first_frame(ir)
+        input_assets = _store_inputs(ir)
 
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
         started = time.monotonic()
         try:
             upstream = requests.post(
-                endpoint, json=forward, timeout=UPSTREAM_TIMEOUT_SECONDS,
+                endpoint, json=forward, timeout=settings.VIDEO_UPSTREAM_TIMEOUT_SECONDS,
                 verify=False, proxies=_tailnet_proxies(),
             )
         except requests.RequestException as e:
@@ -2822,32 +3097,19 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
                 status=upstream.status_code,
             )
 
-        video = upstream.content
-        out_ct = (upstream.headers.get("content-type") or "video/mp4").split(";", 1)[0]
         resolved = _ltx_params(upstream)
-        # Duration: prefer the resolved frame count / fps the server actually
-        # used, falling back to the requested duration.
-        r_frames = resolved.get("num_frames")
-        r_fps = resolved.get("fps")
-        if isinstance(r_frames, (int, float)) and isinstance(r_fps, (int, float)) and r_fps:
-            seconds = round(r_frames / float(r_fps), 3)
-        else:
-            seconds = duration
-
-        from django.core.files.base import ContentFile
-
+        # Duration: prefer what the server reports (probe / frames÷fps), falling
+        # back to the requested duration.
+        seconds = _video_seconds(resolved, duration)
         from .models import MediaAsset
 
+        first_frames = list(MediaAsset.objects.filter(inference_request=ir, kind=MediaAsset.INPUT_IMAGE,
+                                                      metadata__role__isnull=True))
         asset = None
+        video, out_ct = upstream.content, (upstream.headers.get("content-type") or "video/mp4").split(";", 1)[0]
         try:
-            asset = MediaAsset(
-                user=request.user, inference_request=ir, kind=MediaAsset.OUTPUT_VIDEO,
-                content_type=out_ct, size_bytes=len(video), duration_seconds=seconds,
-                metadata={k: resolved[k] for k in ("width", "height", "fps", "num_frames")
-                          if isinstance(resolved.get(k), (int, float))},
-            )
-            asset.file.save("video.mp4", ContentFile(video), save=False)
-            asset.save()
+            asset, video, out_ct = _store_video_output(
+                request.user, ir, upstream, seconds, resolved, [*input_assets, *first_frames])
         except Exception as e:
             logger.warning("video output store failed: %s", e)
 
@@ -2868,7 +3130,9 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
         from django.http import HttpResponse
 
         resp = HttpResponse(video, content_type=out_ct)
-        resp["Content-Disposition"] = 'inline; filename="video.mp4"'
+        fname = "audio.wav" if out_ct.startswith("audio/") else "video.mp4"
+        resp["Content-Disposition"] = f'inline; filename="{fname}"'
+        resp["X-Request-Id"] = str(ir.id)
         return resp
 
 
@@ -4148,7 +4412,7 @@ def _rerun_video(ir, provider_model):
     }
     if p.get("negative_prompt"):
         forward["negative_prompt"] = _normalize_prompt_punct(p["negative_prompt"])
-    if p.get("has_image"):
+    if p.get("has_image") and not p.get("image_asset"):
         image, ctype = _retry_read_input_asset(ir, MediaAsset.INPUT_IMAGE)
         if image is None:
             return _retry_simple_fail(
@@ -4158,37 +4422,38 @@ def _rerun_video(ir, provider_model):
         if p.get("image_strength") is not None:
             forward["image_strength"] = p["image_strength"]
     for key in ("duration", "num_frames", "fps", "width", "height",
-                "num_inference_steps", "guidance_scale", "seed"):
+                "num_inference_steps", "guidance_scale", "seed",
+                "mode", "lora", "lora_strength", "video_strength", "retake_start",
+                "retake_end", "audio_start_time", "quality", "auto_duration"):
         if p.get(key) is not None:
             forward[key] = p[key]
+    media_fwd, input_assets = _video_inputs_forward(ir, p.get("inputs"))
+    forward.update(media_fwd)
+    if p.get("image_asset") and "image" not in forward:
+        src = MediaAsset.objects.filter(public_id=p["image_asset"]).first()
+        if src is not None and src.is_visible_to(ir.user):
+            with src.file.open("rb") as fh:
+                forward["image"] = f"data:{src.content_type or 'image/png'};base64,{base64.b64encode(fh.read()).decode('ascii')}"
+            input_assets.append(src)
     started = time.monotonic()
     try:
         upstream = requests.post(
             _retry_endpoint(provider, "/videos/generations"), json=forward,
-            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+            timeout=settings.VIDEO_UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
         )
     except requests.RequestException as e:
         return _retry_store_exc(ir, started, e)
     if not upstream.ok:
         return _retry_store_upstream_error(ir, started, upstream)
-    video = upstream.content
-    out_ct = (upstream.headers.get("content-type") or "video/mp4").split(";", 1)[0]
     resolved = _ltx_params(upstream)
-    r_frames, r_fps = resolved.get("num_frames"), resolved.get("fps")
-    if isinstance(r_frames, (int, float)) and isinstance(r_fps, (int, float)) and r_fps:
-        seconds = round(r_frames / float(r_fps), 3)
-    else:
-        seconds = p.get("duration")
+    seconds = _video_seconds(resolved, p.get("duration"))
+    first_frames = list(MediaAsset.objects.filter(inference_request=ir, kind=MediaAsset.INPUT_IMAGE,
+                                                  metadata__role__isnull=True))
+    out_ct = (upstream.headers.get("content-type") or "video/mp4").split(";", 1)[0]
     asset = None
     try:
-        asset = MediaAsset(
-            user=ir.user, inference_request=ir, kind=MediaAsset.OUTPUT_VIDEO,
-            content_type=out_ct, size_bytes=len(video), duration_seconds=seconds,
-            metadata={k: resolved[k] for k in ("width", "height", "fps", "num_frames")
-                      if isinstance(resolved.get(k), (int, float))},
-        )
-        asset.file.save("video.mp4", ContentFile(video), save=False)
-        asset.save()
+        asset, _data, out_ct = _store_video_output(
+            ir.user, ir, upstream, seconds, resolved, [*input_assets, *first_frames])
     except Exception as e:
         logger.warning("retry: video output store failed: %s", e)
         asset = None

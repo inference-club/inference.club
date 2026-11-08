@@ -537,6 +537,14 @@ STT_STORE_INPUT_AUDIO = _env_bool("STT_STORE_INPUT_AUDIO", default=True)
 
 # ---- image generation guardrails ----------------------------------------
 IMAGE_MAX_PROMPT_CHARS = int(os.environ.get("IMAGE_MAX_PROMPT_CHARS", "4000"))
+# Video generation can run for many minutes (LTX-2.5 on a 24 GB card offloads
+# its 22B DiT); the agent itself allows 10 min. Separate from the 300 s
+# UPSTREAM_TIMEOUT_SECONDS the other modalities use.
+VIDEO_UPSTREAM_TIMEOUT_SECONDS = int(os.environ.get("VIDEO_UPSTREAM_TIMEOUT_SECONDS", "900"))
+# JSON bodies may carry base64 media (first/last frames, an audio track, a
+# source video — up to VIDEO_INPUT_MAX_BYTES = 80 MB raw ≈ 107 MB base64).
+# Django's 2.5 MB default would reject those with RequestDataTooBig.
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get("DATA_UPLOAD_MAX_MEMORY_SIZE", str(112 * 1024 * 1024)))
 IMAGE_MAX_N = int(os.environ.get("IMAGE_MAX_N", "4"))
 # Source image (and mask) upload cap for /v1/images/edits.
 IMAGE_MAX_UPLOAD_BYTES = int(os.environ.get("IMAGE_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
