@@ -6,9 +6,11 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, Loader2, Mic, Plus, Wand2, CheckCircle2 } from 'lucide-vue-next'
+import { ArrowLeft, Loader2, Mic, Plus, Wand2, CheckCircle2, Sparkles, Download, RotateCcw } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import SegmentCard from '@/components/studio/SegmentCard.vue'
 import EpisodeTimeline from '@/components/studio/EpisodeTimeline.vue'
+import ProductionSettings from '@/components/studio/ProductionSettings.vue'
 import { useStudio, type Episode, type StudioVoices } from '@/composables/useStudio'
 
 definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.studio' })
@@ -111,6 +113,35 @@ async function processAll() {
   } finally { busy.value = false }
 }
 
+function describeError(e: unknown): string {
+  const data = (e as { data?: { detail?: string } })?.data
+  return data?.detail || (e instanceof Error ? e.message : 'Something went wrong')
+}
+
+// Autopilot: the backend generates → cleans → trims → levels → grades → retakes
+// every segment not yet ready (all of them with "Redo all"); polling shows progress.
+async function autopilot(force = false) {
+  if (force && !confirm('Redo every segment from scratch? Existing takes are kept but new ones will be selected.')) return
+  busy.value = true
+  try {
+    episode.value = await studio.produceEpisode(id, force ? { force: true } : {})
+    toast.success(force ? 'Autopilot started — redoing every segment' : 'Autopilot started')
+  } catch (e) {
+    toast.error(describeError(e))
+  } finally { busy.value = false }
+}
+
+const exporting = ref(false)
+async function exportClips() {
+  exporting.value = true
+  try {
+    const name = await studio.exportEpisode(id)
+    toast.success(`Downloaded ${name}`)
+  } catch (e) {
+    toast.error(describeError(e))
+  } finally { exporting.value = false }
+}
+
 onMounted(() => {
   load()
   loadVoices()
@@ -143,13 +174,29 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
             <span v-if="queuedCount"> · {{ queuedCount }} queued</span>
           </p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <span v-if="allReady" class="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 class="size-3.5" /> All segments ready
           </span>
+          <div class="flex items-center">
+            <button
+              type="button" :disabled="busy || anyWorking || !segments.length"
+              class="flex items-center gap-1 rounded-l-md bg-fuchsia-500 px-2.5 py-1.5 text-sm font-medium text-white hover:bg-fuchsia-600 disabled:opacity-50"
+              title="Generate, clean, trim, level and grade every segment that isn't ready — retaking until each is accepted"
+              @click="autopilot(false)">
+              <Sparkles class="size-4" /> Autopilot
+            </button>
+            <button
+              type="button" :disabled="busy || anyWorking || !segments.length"
+              class="flex items-center gap-1 rounded-r-md border-l border-fuchsia-300/60 bg-fuchsia-500 px-2 py-1.5 text-sm font-medium text-white hover:bg-fuchsia-600 disabled:opacity-50"
+              title="Redo all: run Autopilot on every segment, including ready ones"
+              @click="autopilot(true)">
+              <RotateCcw class="size-3.5" /><span class="sr-only">Redo all</span>
+            </button>
+          </div>
           <button
             type="button" :disabled="busy || !needTake.length"
-            class="flex items-center gap-1 rounded-md bg-fuchsia-500 px-2.5 py-1.5 text-sm font-medium text-white hover:bg-fuchsia-600 disabled:opacity-50"
+            class="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
             :title="needTake.length ? `Generate the voice take for ${needTake.length} segment(s) that don't have one yet` : 'Every segment already has a take'"
             @click="generateAll">
             <Mic class="size-4" /> Generate all<span v-if="needTake.length"> ({{ needTake.length }})</span>
@@ -159,6 +206,13 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
             class="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
             title="Re-run clean → trim → grade on every segment that has a take" @click="processAll">
             <Wand2 class="size-4" /> Process all
+          </button>
+          <button
+            type="button" :disabled="exporting || !hasAnyTake"
+            class="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+            :title="hasAnyTake ? 'Download every selected take as a zip (01.wav… + manifest.json)' : 'Generate a take first'"
+            @click="exportClips">
+            <component :is="exporting ? Loader2 : Download" class="size-4" :class="exporting ? 'animate-spin' : ''" /> Export clips
           </button>
         </div>
       </div>
@@ -196,6 +250,12 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
           <Loader2 v-if="savingVoice" class="size-3.5 animate-spin text-muted-foreground" />
         </template>
       </div>
+
+      <!-- lexicon + Autopilot / pipeline knobs -->
+      <ProductionSettings
+        :episode-id="episode.id" :settings="episode.settings"
+        @saved="(s) => { if (episode) episode.settings = s }"
+      />
 
       <!-- whole-episode preview timeline -->
       <EpisodeTimeline :segments="segments" />

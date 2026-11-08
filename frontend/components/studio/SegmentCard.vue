@@ -8,9 +8,10 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   AlertTriangle, CheckCircle2, Circle, Clock, Hourglass, Loader2,
-  Mic, Plus, RotateCcw, Scissors, Wand2,
+  Layers, Mic, Plus, RotateCcw, Scissors, Wand2,
 } from 'lucide-vue-next'
 import WaveformEditor from '@/components/studio/WaveformEditor.vue'
+import SegmentTakes from '@/components/studio/SegmentTakes.vue'
 import { useStudio, type Segment, type Variant, type Word } from '@/composables/useStudio'
 
 interface Region { start: number; end: number }
@@ -172,10 +173,11 @@ async function saveText() {
   } catch (e) { err.value = describeError(e) } finally { savingText.value = false }
 }
 
-async function run(action: 'process' | 'regenerate') {
+async function run(action: 'process' | 'regenerate' | 'audition') {
   busy.value = true; err.value = null
   try {
     if (action === 'process') await studio.processSegment(props.segment.id)
+    else if (action === 'audition') await studio.auditionSegment(props.segment.id, { count: 4 })
     else await studio.regenerateSegment(props.segment.id)
     emit('changed', props.segment.id)
   } catch (e) { err.value = describeError(e) } finally { busy.value = false }
@@ -231,6 +233,15 @@ const fmtDur = (s: number | null | undefined) => (s ? `${s.toFixed(1)}s` : '')
           @click="run('regenerate')"
         >
           <component :is="hasTake ? RotateCcw : Mic" class="size-3" /> {{ hasTake ? 'Redo' : 'Generate' }}
+        </button>
+        <!-- audition: four scored takes of this line, best one selected -->
+        <button
+          type="button" :disabled="busy"
+          title="Generate 4 takes of this line, process and score each, and keep the best"
+          class="flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50"
+          @click="run('audition')"
+        >
+          <Layers class="size-3 text-fuchsia-500" /> Audition ×4
         </button>
         <!-- secondary: re-run clean → trim → grade on the existing take -->
         <button
@@ -394,18 +405,11 @@ const fmtDur = (s: number | null | undefined) => (s ? `${s.toFixed(1)}s` : '')
       </template>
       <p v-else class="text-xs text-muted-foreground">No take yet — press <b>{{ hasTake ? 'Redo' : 'Generate' }}</b> to create one.</p>
 
-      <!-- take A/B -->
-      <div v-if="(segment.variants?.length || 0) > 1" class="flex flex-wrap items-center gap-1 pt-1">
-        <span class="text-[11px] text-muted-foreground">Takes:</span>
-        <button
-          v-for="(v, i) in segment.variants" :key="v.id" type="button" :disabled="busy"
-          class="rounded-md border px-1.5 py-0.5 text-[11px] hover:bg-muted disabled:opacity-50"
-          :class="v.id === segment.selected_variant_id ? 'border-sky-400 text-sky-600 dark:text-sky-400' : ''"
-          @click="pick(v)"
-        >
-          {{ segment.variants.length - i }}<span v-if="v.grade"> · {{ v.grade.score.toFixed(0) }}</span>
-        </button>
-      </div>
+      <!-- takes: pick, scores, save as voice -->
+      <SegmentTakes
+        v-if="segment.variants?.length" :segment="segment" :busy="busy"
+        @pick="pick" @changed="emit('changed', segment.id)"
+      />
     </div>
   </div>
 </template>
