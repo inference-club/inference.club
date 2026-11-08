@@ -256,3 +256,12 @@ def test_export_zip_has_clips_and_manifest(client, user):
     m = json.loads(zf.read("manifest.json"))
     assert [s.get("file") for s in m["segments"]] == ["01.wav", "02.wav", None]
     assert m["segments"][0]["seed"] == 42 and m["segments"][0]["spoken"] == "Line one."
+
+
+def test_editing_text_sends_a_ready_segment_back_to_pending(client, user):
+    ep = Episode.objects.create(user=user, title="E")
+    seg, _v = _ready_variant(user, ep, "Old line.")
+    r = client.patch(f"/v1/segments/{seg.id}", {"text": "New line."}, format="json")
+    assert r.status_code == 200 and r.json()["status"] == Segment.STATUS_PENDING
+    r = client.patch(f"/v1/segments/{seg.id}", {"text": "New line."}, format="json")
+    assert r.json()["status"] == Segment.STATUS_PENDING     # unchanged text: no-op

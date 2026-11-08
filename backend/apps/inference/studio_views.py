@@ -196,6 +196,11 @@ class SegmentDetailView(APIView):
                     fields.append("original_text")
                 seg.text = new_text
                 fields.append("text")
+                # The current take no longer says this line: back to pending so
+                # autopilot (produce) re-voices it without needing force.
+                if seg.status in (Segment.STATUS_READY, Segment.STATUS_FLAGGED):
+                    seg.status = Segment.STATUS_PENDING
+                    fields.append("status")
         if "voice_sample_id" in request.data:
             vsid = request.data.get("voice_sample_id")
             if vsid in (None, ""):
