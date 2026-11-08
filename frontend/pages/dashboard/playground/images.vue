@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { ChevronDown, Dices, Image as ImageIcon, Images, Lightbulb, Sparkles, Square, Upload, X } from 'lucide-vue-next'
+import { ChevronDown, Dices, Image as ImageIcon, Images, LayoutGrid, Lightbulb, Sparkles, Square, Upload, Wand2, X } from 'lucide-vue-next'
 import { useImageGeneration } from '@/composables/useImageGeneration'
 import { SUGGESTED_IMAGE_PROMPTS } from '@/utils/imagePrompts'
 import type { ModelInfo } from '@/composables/usePlayground'
+import type { LayoutBox } from '@/components/LayoutBoxEditor.vue'
 
 definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.images' })
 
@@ -31,13 +32,21 @@ const n = ref(1)
 const current = computed(() => models.value.find((m) => m.id === model.value))
 const has = (f: string) => current.value?.supported_features?.includes(f) ?? false
 const canEdit = computed(() => has('image-edit') || (current.value?.input_modalities ?? []).includes('image'))
-const maxImages = computed(() => (has('multi-reference') ? (model.value.startsWith('qwen-image') ? 10 : 8) : has('image-edit') ? 1 : 0))
+const TEN_REFERENCE_MODELS = ['qwen-image', 'flux-3-image-klein']
+const maxImages = computed(() =>
+  has('multi-reference') ? (TEN_REFERENCE_MODELS.some((p) => model.value.startsWith(p)) ? 10 : 8) : has('image-edit') ? 1 : 0,
+)
 const hasSeed = computed(() => has('seed'))
 const hasSteps = computed(() => has('steps'))
 const hasNegative = computed(() => has('negative-prompt'))
 const hasTransparent = computed(() => has('transparent-background'))
 const hasCustomSize = computed(() => has('custom-size'))
+const has4k = computed(() => has('4k'))
+const hasUpsampling = computed(() => has('prompt-upsampling'))
+const hasLayout = computed(() => has('layout-boxes'))
 const hasAdvanced = computed(() => hasSeed.value || hasSteps.value || hasNegative.value || hasTransparent.value)
+// FLUX 3 Image Klein is a 16-step distilled model; Qwen-Image 2.1 defaults to 40.
+const defaultSteps = computed(() => (model.value.startsWith('flux-3-image-klein') ? 16 : 40))
 
 // Model-specific knobs. Empty/undefined means "model default" and is not sent.
 const seed = ref<number | null>(null)
@@ -47,6 +56,14 @@ const negativePrompt = ref('')
 const guidance = ref(4)
 const transparent = ref(false)
 const showAdvanced = ref(false)
+// The prompt upsampler expands a short prompt (or an edit instruction plus the
+// references) into the full caption the model was trained on. On by default —
+// BFL's guidance for Klein; turn it off to send an already-detailed caption.
+const upsample = ref(true)
+const layoutBoxes = ref<LayoutBox[]>([])
+const showLayout = ref(false)
+// What the model actually rendered for the last run (the upsampled caption).
+const lastRevised = ref('')
 
 // Aspect-ratio presets — each maps to a concrete WxH the API receives via the
 // `size` param. Sizes are ~1MP, SDXL-friendly dimensions (multiples of 64).
@@ -71,15 +88,26 @@ const LARGE_PRESETS: AspectPreset[] = [
   { label: '2K Widescreen', ratio: '16:9', w: 2752, h: 1536 },
   { label: '2K Tall', ratio: '9:16', w: 1536, h: 2752 },
 ]
-const presets = computed(() => (hasCustomSize.value ? [...ASPECT_PRESETS, ...LARGE_PRESETS] : ASPECT_PRESETS))
+// Native-4K presets for models that advertise `4k` (FLUX 3 Image Klein). ~8 MP:
+// several times slower than 1 MP.
+const XL_PRESETS: AspectPreset[] = [
+  { label: '4K Square', ratio: '1:1', w: 2880, h: 2880 },
+  { label: '4K UHD', ratio: '16:9', w: 3840, h: 2160 },
+  { label: '4K UHD Tall', ratio: '9:16', w: 2160, h: 3840 },
+]
+const presets = computed(() => [
+  ...ASPECT_PRESETS,
+  ...(hasCustomSize.value ? LARGE_PRESETS : []),
+  ...(has4k.value ? XL_PRESETS : []),
+])
 const size = ref(`${ASPECT_PRESETS[0].w}x${ASPECT_PRESETS[0].h}`)
-// Custom WxH (multiples of 32, ≤ 2048 per side on Qwen-Image 2.1) — only
-// offered when the model declares `custom-size`.
+// Custom WxH (multiples of 32, ≤ 2048 per side on Qwen-Image 2.1, ≤ 4096 with
+// `4k`) — only offered when the model declares `custom-size`.
 const customSize = ref(false)
 const customW = ref(1024)
 const customH = ref(1024)
-const MAX_SIDE = 2048
-const snap = (v: number) => Math.max(256, Math.min(MAX_SIDE, Math.round(v / 32) * 32))
+const MAX_SIDE = computed(() => (has4k.value ? 4096 : 2048))
+const snap = (v: number) => Math.max(256, Math.min(MAX_SIDE.value, Math.round(v / 32) * 32))
 const effectiveSize = computed(() =>
   customSize.value && hasCustomSize.value ? `${snap(customW.value)}x${snap(customH.value)}` : size.value,
 )
@@ -146,6 +174,18 @@ const onPickImage = ({ blob, name }: { blob: Blob; name: string }) => addSource(
 
 const canRun = computed(() => !!model.value && !!prompt.value.trim() && !running.value)
 
+// Described boxes as the model expects them: plain `bbox` rows for
+// text-to-image; with references, each box marks where something lands in the
+// edited image (`from: "target"`, `tgt_bbox`) — BFL's layout-edit form.
+const layoutRows = () =>
+  layoutBoxes.value
+    .filter((b) => b.desc.trim())
+    .map((b) =>
+      sources.value.length
+        ? { id: b.id, desc: b.desc.trim(), from: 'target', src_bbox: null, tgt_bbox: b.bbox }
+        : { id: b.id, desc: b.desc.trim(), bbox: b.bbox },
+    )
+
 // Everything the request carries besides the prompt. Feature-gated: a knob
 // the current model doesn't advertise is left out even if the field holds a
 // value from a previous model.
@@ -160,6 +200,8 @@ const requestOptions = () => ({
     ? { negative_prompt: negativePrompt.value.trim(), guidance: guidance.value }
     : {}),
   ...(hasTransparent.value && transparent.value ? { background: 'transparent' as const } : {}),
+  ...(hasUpsampling.value ? { upsample: upsample.value } : {}),
+  ...(hasLayout.value && layoutBoxes.value.some((b) => b.desc.trim()) ? { boxes: layoutRows() } : {}),
 })
 
 const run = async () => {
@@ -168,11 +210,12 @@ const run = async () => {
   controller = new AbortController()
   const srcs = sources.value
   try {
-    if (srcs.length) {
-      await edit(srcs.map((s) => ({ blob: s.blob, name: s.name })), requestOptions(), controller.signal)
-    } else {
-      await generate(requestOptions(), controller.signal)
-    }
+    const sent = requestOptions()
+    const out = srcs.length
+      ? await edit(srcs.map((s) => ({ blob: s.blob, name: s.name })), sent, controller.signal)
+      : await generate(sent, controller.signal)
+    const revised = out[0]?.revised_prompt?.trim() ?? ''
+    lastRevised.value = revised && revised !== sent.prompt ? revised : ''
     refreshKey.value++
   } catch (e: unknown) {
     const err = e as { name?: string; message?: string }
@@ -357,8 +400,29 @@ onBeforeUnmount(() => {
               Clear all
             </button>
             <span v-if="sources.length > 1" class="text-xs text-muted-foreground">
-              {{ sources.length }} of {{ MAX_IMAGES }} reference images — say "image 1", "image 2"… in the prompt
+              {{ sources.length }} of {{ MAX_IMAGES }} reference images — say "image 1", "image 2" (or "the first image"…) in the prompt
             </span>
+          </div>
+
+          <!-- Bounding-box layout (models with `layout-boxes`) -->
+          <div v-if="hasLayout" class="rounded-lg border">
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+              @click="showLayout = !showLayout"
+            >
+              <LayoutGrid class="size-3.5" />
+              Layout{{ layoutBoxes.length ? ` · ${layoutBoxes.length} box${layoutBoxes.length > 1 ? 'es' : ''}` : '' }}
+              <span class="font-normal">— place elements by drawing boxes</span>
+              <ChevronDown class="ml-auto size-4 transition-transform" :class="showLayout ? 'rotate-180' : ''" />
+            </button>
+            <div v-if="showLayout" class="px-3 pb-3">
+              <LayoutBoxEditor v-model="layoutBoxes" :width="currentPreset.w" :height="currentPreset.h" />
+              <div class="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>Boxes guide placement and scale; the prompt still sets the scene.</span>
+                <button v-if="layoutBoxes.length" type="button" class="hover:text-foreground" @click="layoutBoxes = []">Clear boxes</button>
+              </div>
+            </div>
           </div>
 
           <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
@@ -382,6 +446,17 @@ onBeforeUnmount(() => {
               />
             </div>
           </div>
+        </Card>
+
+        <!-- What the model rendered from (the upsampled caption) -->
+        <Card v-if="lastRevised" class="p-3">
+          <div class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <Wand2 class="size-3.5" /> Upsampled prompt — what the model actually rendered
+            <button type="button" class="ml-auto hover:text-foreground" @click="prompt = lastRevised; upsample = false">
+              Use as prompt
+            </button>
+          </div>
+          <p class="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed">{{ lastRevised }}</p>
         </Card>
 
         <!-- Recent images for this model (the just-finished one flashes in) -->
@@ -457,6 +532,15 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Model-specific knobs, shown only when the model advertises them -->
+        <div v-if="hasUpsampling">
+          <div class="flex items-center justify-between gap-2">
+            <Label for="img-upsample" class="text-xs text-muted-foreground">Prompt upsampling</Label>
+            <Switch id="img-upsample" v-model="upsample" />
+          </div>
+          <p class="mt-1 text-[11px] text-muted-foreground">
+            Expands your prompt into a detailed caption first. Leave on unless your prompt already is one.
+          </p>
+        </div>
         <div v-if="hasTransparent" class="flex items-center justify-between gap-2">
           <Label for="img-transparent" class="text-xs text-muted-foreground">Transparent background</Label>
           <Switch id="img-transparent" v-model="transparent" />
@@ -485,7 +569,7 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="hasSteps">
               <Label for="img-steps" class="text-xs text-muted-foreground">Steps</Label>
-              <Input id="img-steps" v-model.number="steps" type="number" min="1" max="100" placeholder="model default (40)" class="mt-1 h-8 text-sm tabular-nums" />
+              <Input id="img-steps" v-model.number="steps" type="number" min="1" max="100" :placeholder="`model default (${defaultSteps})`" class="mt-1 h-8 text-sm tabular-nums" />
             </div>
             <div v-if="hasNegative">
               <Label for="img-negative" class="text-xs text-muted-foreground">Negative prompt</Label>

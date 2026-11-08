@@ -1268,15 +1268,19 @@ def _asset_url(request, asset) -> str:
 # provider and keeps in the stored payload (so history, retry and async
 # jobs replay them). Which ones a model honours is advertised per model via
 # `supported_features` (e.g. `seed`, `steps`, `negative-prompt`,
-# `transparent-background`, `custom-size`) — see the Qwen-Image 2.1 service
-# in the agent docs. Unknown keys are dropped rather than forwarded blindly.
-IMAGE_EXTRA_PARAMS = ("seed", "steps", "negative_prompt", "guidance", "background")
+# `transparent-background`, `custom-size`, `prompt-upsampling`,
+# `layout-boxes`) — see the Qwen-Image 2.1 and FLUX 3 Image Klein services in
+# the agent docs. Unknown keys are dropped rather than forwarded blindly.
+IMAGE_EXTRA_PARAMS = ("seed", "steps", "negative_prompt", "guidance", "background", "upsample", "boxes")
+MAX_LAYOUT_BOXES = 32
 
 
 def _image_extras(data):
     """Pick the IMAGE_EXTRA_PARAMS present in a request body / form, coerced:
-    ints for seed/steps, float for guidance, strings otherwise. Bad values are
-    ignored (the field is simply not forwarded)."""
+    ints for seed/steps, float for guidance, bool for upsample, a compact JSON
+    list string for boxes (a list in a JSON body, a string in a form — the same
+    on the wire either way), strings otherwise. Bad values are ignored (the
+    field is simply not forwarded)."""
     out = {}
     for key in IMAGE_EXTRA_PARAMS:
         v = data.get(key)
@@ -1287,6 +1291,12 @@ def _image_extras(data):
                 out[key] = int(v)
             elif key == "guidance":
                 out[key] = float(v)
+            elif key == "upsample":
+                out[key] = v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
+            elif key == "boxes":
+                boxes = json.loads(v) if isinstance(v, str) else v
+                if isinstance(boxes, list) and boxes and all(isinstance(b, dict) for b in boxes):
+                    out[key] = json.dumps(boxes[:MAX_LAYOUT_BOXES], separators=(",", ":"))
             else:
                 out[key] = str(v)
         except (TypeError, ValueError):
@@ -2926,8 +2936,11 @@ class ImageGenerationsView(_ImageProxyBase):
             )
 
         # Forward a copy: force b64_json (the only thing the server returns and
-        # what we need to store), rewrite the model id, clamp n.
-        forward = dict(body)
+        # what we need to store), rewrite the model id, clamp n. The model
+        # knobs go out exactly as stored (coerced; unparseable ones dropped),
+        # so a live call and a retry/replay send the same thing.
+        forward = {k: v for k, v in body.items() if k not in IMAGE_EXTRA_PARAMS}
+        forward.update(_image_extras(body))
         forward["response_format"] = "b64_json"
         if served_name:
             forward["model"] = served_name

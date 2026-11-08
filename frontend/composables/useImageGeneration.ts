@@ -8,6 +8,8 @@ import type { ModelInfo } from '@/composables/usePlayground'
 export interface GeneratedImage {
   url?: string
   b64_json?: string
+  // the prompt the model actually rendered — for upsampling models, the
+  // expanded caption
   revised_prompt?: string
 }
 
@@ -19,12 +21,16 @@ export interface GenerateOptions {
   quality?: string
   // Model-specific knobs; the backend forwards them to providers that
   // advertise the matching feature (seed, steps, negative-prompt,
-  // transparent-background). See docs/api/images.
+  // transparent-background, prompt-upsampling, layout-boxes). See docs/api/images.
   seed?: number
   steps?: number
   negative_prompt?: string
   guidance?: number
   background?: 'transparent' | 'opaque'
+  // FLUX 3 Image Klein: prompt upsampler on/off (`prompt-upsampling`) and
+  // bounding-box layout (`layout-boxes`), [y_min, x_min, y_max, x_max] in 0–1.
+  upsample?: boolean
+  boxes?: Record<string, unknown>[]
 }
 
 // The optional fields, as the API spells them — shared by generate (JSON)
@@ -41,6 +47,8 @@ const optionalFields = (opts: GenerateOptions): Record<string, string | number> 
     if (opts.guidance) out.guidance = opts.guidance
   }
   if (opts.background === 'transparent') out.background = 'transparent'
+  if (opts.upsample !== undefined) out.upsample = String(opts.upsample)
+  if (opts.boxes?.length) out.boxes = JSON.stringify(opts.boxes)
   return out
 }
 

@@ -2,6 +2,7 @@
 (multipart) proxies, service-type routing, MinIO storage, response shaping,
 and public-by-URL asset access. Upstream is mocked.
 """
+import json
 from unittest.mock import patch
 
 import pytest
@@ -342,6 +343,50 @@ class TestImageEdits:
         assert "guidance" not in fields  # unparseable → dropped, not forwarded
         ir = InferenceRequest.objects.get(user=user, inference_type="IMAGE")
         assert ir.payload["seed"] == 7 and ir.payload["background"] == "transparent"
+
+    def test_upsample_and_layout_boxes_forwarded(self, user):
+        """FLUX 3 Image Klein's knobs: `upsample` (prompt upsampler on/off) as
+        a bool and `boxes` as one compact JSON string, whether the client sent
+        a list (JSON) or a string (form); a non-list `boxes` is dropped."""
+        p = _online_provider(user)
+        _image_model(p)
+        boxes = [{"id": "sun", "desc": "a red sun", "bbox": [0.05, 0.6, 0.35, 0.95]}]
+        captured = {}
+
+        def _cap(url, **kw):
+            captured["json"] = kw.get("json")
+            return _gen_resp()
+
+        with patch("apps.inference.openai_views.requests.post", side_effect=_cap):
+            resp = _client(user).post(
+                "/v1/images/generations",
+                {"model": "image-model", "prompt": "a beach", "upsample": False, "boxes": boxes},
+                format="json",
+            )
+        assert resp.status_code == 200
+        sent = captured["json"]
+        assert sent["upsample"] is False
+        assert json.loads(sent["boxes"]) == boxes
+        ir = InferenceRequest.objects.get(user=user, inference_type="IMAGE")
+        assert ir.payload["upsample"] is False and json.loads(ir.payload["boxes"]) == boxes
+
+        with patch("apps.inference.openai_views.requests.post", return_value=_gen_resp()) as post:
+            resp = _client(user).post(
+                "/v1/images/edits",
+                {"model": "image-model", "prompt": "move the cup", "image": _png_upload(),
+                 "upsample": "true", "boxes": json.dumps(boxes)},
+                format="multipart",
+            )
+        assert resp.status_code == 200
+        fields = dict(post.call_args.kwargs["data"])
+        assert fields["upsample"] == "True" and json.loads(fields["boxes"]) == boxes
+
+        with patch("apps.inference.openai_views.requests.post", side_effect=_cap):
+            _client(user).post(
+                "/v1/images/generations",
+                {"model": "image-model", "prompt": "a beach", "boxes": "not json"}, format="json",
+            )
+        assert "boxes" not in captured["json"]
 
     def test_up_to_ten_references(self, user):
         """Qwen-Image 2.1 takes 10 references; 11 is rejected."""
