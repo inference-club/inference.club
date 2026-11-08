@@ -24,6 +24,7 @@ The request is `multipart/form-data` (an audio file plus form fields), mirroring
 | `file` | yes | The audio file to enhance (wav, mp3, m4a, flac, ogg, webm). |
 | `model` | yes | An `audio-enhance` model id from `GET /v1/models`. |
 | `response_format` | no | `wav` (default) or `opus`. |
+| `delivery` | no | `bytes` (default) or `url` — see [below](#getting-a-url-instead-of-bytes). |
 
 ### curl
 
@@ -37,7 +38,26 @@ curl https://api.inference.club/v1/audio/enhance \
 
 ## Response
 
-The raw enhanced audio bytes, with `Content-Type: audio/wav` (or `audio/ogg` for Opus). The cleaned clip is also persisted to your library as an output audio asset. Metered by the duration of the audio.
+The raw enhanced audio bytes, with `Content-Type: audio/wav` (or `audio/ogg` for Opus). The cleaned clip is also persisted to your library as an output audio asset. Metered by the duration of the audio. This endpoint is synchronous only (multipart uploads can't be queued with `async`).
+
+## Getting a URL instead of bytes
+
+Add the form field `delivery=url` to get JSON instead of the raw file — easier for agents and scripts that only need a link:
+
+```json
+{
+  "object": "inference.result",
+  "id": "8812",
+  "public_id": "kQ3v9xZp1aE",
+  "inference_type": "ENHANCE",
+  "model": "<your-audio-enhance-model>",
+  "status": "PROCESSED",
+  "created": 1780266332,
+  "data": [{ "id": 551, "kind": "audio", "url": "https://…", "content_type": "audio/wav", "duration_seconds": 12.0 }]
+}
+```
+
+With the default `"delivery": "bytes"`, the response headers still name the stored copy: `X-Inference-Request-Id` (pollable at `GET /v1/jobs/<id>`), `X-Asset-Id`, and `X-Asset-Url`.
 
 ## Notes
 
@@ -52,4 +72,5 @@ The raw enhanced audio bytes, with `Content-Type: audio/wav` (or `audio/ogg` for
 | `file_too_large` | Upload exceeds the size limit | 413 |
 | `unsupported_media_type` | The file's content-type isn't an accepted audio type | 415 |
 | `no_provider` | No online audio-enhancement provider serves the model for you | 404 |
+| `at_capacity` | Every slot on the device is busy (after a ~20s wait). Honor `Retry-After` | 429 |
 | `upstream_error` | The provider's enhancement server failed | 502 |

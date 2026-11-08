@@ -12,7 +12,7 @@ order: 9
 Generate a short video from a text prompt, optionally conditioned on a first-frame image. Routes to providers running a `video` service (LTX-2). The response is the **raw MP4 bytes** — not JSON. Video generation is slow; expect minutes, not seconds.
 
 ::callout{type="tip"}
-Video renders take minutes — this endpoint can also be run asynchronously by adding `"async": true`, so you queue the job instead of holding the connection open. See [Direct vs async](/docs/services/direct-vs-async).
+Video renders take minutes — send `"async": "auto"` (queue only if the device is busy) or `"async": true` (always queue) instead of holding the connection open, and poll the job. See [Async jobs](/docs/api/jobs).
 ::
 
 ## Request
@@ -44,6 +44,8 @@ curl https://api.inference.club/v1/videos/generations \
 | `guidance_scale` | number | 0–30. |
 | `enhance_prompt` | boolean | Let the server expand your prompt. |
 | `seed` | integer | Optional fixed seed. |
+| `delivery` | string | `bytes` (default) or `url` — see [below](#getting-a-url-instead-of-bytes). |
+| `async` | bool / string | `true` or `"auto"`. |
 
 Also accepts the [`visibility` and `collection` sharing fields](/docs/sharing).
 
@@ -51,4 +53,25 @@ Also accepts the [`visibility` and `collection` sharing fields](/docs/sharing).
 
 The finished video (`video/mp4`), with the actual resolved parameters (frames, fps, resolution) recorded on the stored request. Generated videos appear in **Dashboard → Watch** and can be organized into playlists via [collections](/docs/sharing).
 
-Errors use the standard [error format](/docs/api/overview): `404 no_provider` when no online provider serves the model, `502 upstream_error` if the provider fails mid-render.
+## Getting a URL instead of bytes
+
+Add `"delivery": "url"` to get JSON instead of the raw file — easier for agents and scripts that only need a link:
+
+```json
+{
+  "object": "inference.result",
+  "id": "8812",
+  "public_id": "kQ3v9xZp1aE",
+  "inference_type": "VIDEO",
+  "model": "ltx-2",
+  "status": "PROCESSED",
+  "created": 1780266332,
+  "data": [{ "id": 551, "kind": "video", "url": "https://…", "content_type": "video/mp4", "duration_seconds": 6.0 }]
+}
+```
+
+With the default `"delivery": "bytes"`, the response headers still name the stored copy: `X-Inference-Request-Id` (pollable at `GET /v1/jobs/<id>`), `X-Asset-Id`, and `X-Asset-Url`.
+
+## Errors
+
+Errors use the standard [error format](/docs/api/overview): `400 missing_prompt`, `413 request_too_large` (prompt over 4,000 characters), `404 no_provider` when no online provider serves the model, `429 at_capacity` when the device is busy (honor `Retry-After`, or use `async`), `502 upstream_error` if the provider fails mid-render.

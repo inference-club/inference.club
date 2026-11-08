@@ -15,9 +15,15 @@ class JobSerializer(InferenceRequestListSerializer):
 
     batch_id = serializers.IntegerField(read_only=True)
     step_run_id = serializers.IntegerField(read_only=True)
+    # Agent-facing result fields: the FULL assistant text (response_preview is
+    # truncated) and every output asset as a uniform MediaItem list.
+    output_text = serializers.SerializerMethodField()
+    media = serializers.SerializerMethodField()
 
     class Meta(InferenceRequestListSerializer.Meta):
         fields = InferenceRequestListSerializer.Meta.fields + [
+            "output_text",
+            "media",
             "is_async",
             "queued_at",
             "started_at",
@@ -30,6 +36,26 @@ class JobSerializer(InferenceRequestListSerializer):
             "batch_id",
             "step_run_id",
         ]
+
+
+    def get_output_text(self, obj):
+        if obj.status != "PROCESSED" or obj.inference_type not in ("LLM", "STT", "SCRAPE"):
+            return None
+        from .serializers import _extract_response_text
+
+        r = obj.results
+        if obj.inference_type == "LLM":
+            return _extract_response_text(r) or None
+        if isinstance(r, dict):
+            return r.get("text") or r.get("markdown") or None
+        return None
+
+    def get_media(self, obj):
+        if obj.status != "PROCESSED":
+            return []
+        from .openai_views import media_items
+
+        return media_items(obj, self.context.get("request"))
 
 
 class WorkflowStepRunSerializer(serializers.ModelSerializer):

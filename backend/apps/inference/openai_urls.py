@@ -40,6 +40,7 @@ from .openai_views import (
     AudioSpeechView,
     AudioTranscriptionsView,
     AudioVoicesView,
+    CapacityView,
     ChatCompletionsView,
     CompletionsView,
     ComposeView,
@@ -58,6 +59,9 @@ app_name = "openai"
 urlpatterns = [
     path("models", ModelsView.as_view(), name="models"),
     path("models/", ModelsView.as_view()),
+    # Live device load (sync + async share one per-device budget; capacity.py).
+    path("capacity", CapacityView.as_view(), name="capacity"),
+    path("capacity/", CapacityView.as_view()),
     path("chat/completions", ChatCompletionsView.as_view(), name="chat-completions"),
     path("chat/completions/", ChatCompletionsView.as_view()),
     path("completions", CompletionsView.as_view(), name="completions"),

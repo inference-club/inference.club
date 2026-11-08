@@ -9,7 +9,7 @@ order: 2
 
 ::api-endpoint{method="GET" path="/v1/models"}
 
-Returns every model currently served by an online provider belonging to you. OpenAI-format response — drop-in compatible with anything that calls `/models` to populate a dropdown.
+Returns every model you can route to right now: models on your own online providers, services other members share with you, and any external-provider models (`provider:model`) you've pinned and hold a key for. OpenAI-format response — drop-in compatible with anything that calls `/models` to populate a dropdown.
 
 ## Request
 
@@ -50,13 +50,13 @@ curl https://api.inference.club/v1/models \
 }
 ```
 
-`owned_by` is the **provider name** that's serving the model — useful when you have multiple providers. If two providers serve the same `id`, only one entry appears (first writer wins).
+`owned_by` is the **provider name** that's serving the model — useful when you have multiple providers. If two providers serve the same `id`, only one entry appears (your own provider wins; otherwise first seen). Requests address the model by this `id`; routing picks a provider at call time.
 
 Beyond the OpenAI baseline fields, each entry carries the model's capabilities — `service_type`, `input_modalities`, `output_modalities`, `supported_features`, and `context_length` — so a caller can pick a model programmatically (e.g. "an `image` model that accepts a mask," or an `llm` with `tools`). These capabilities are **declared by the operator** who runs the model and are never guessed.
 
 ## Empty list?
 
-If `data` is empty, no agent on your account is currently advertising any model. Check that:
+If `data` is empty, nothing you can reach is online — none of your agents is advertising a model and no shared service is available to you. For your own agents, check that:
 
 - Your agent is running and shows as **online** in the dashboard (**Dashboard → Compute → My nodes**).
 - Its Kubernetes model services are labeled so the agent discovers them, and each has a running pod backing it.

@@ -7,7 +7,7 @@ order: 6
 
 # Image generation
 
-::api-endpoint{method="POST" path="/v1/images/generations"}
+::api-endpoint{method="POST" path="/v1/images/generations" async="true"}
 
 ::api-endpoint{method="POST" path="/v1/images/edits"}
 
@@ -72,7 +72,7 @@ print(img.data[0].url)
 
 | Field | Required | Description |
 |---|---|---|
-| `image` | yes | The source image to edit (png/jpeg/webp, up to 25 MB). For several references send repeated `image[]` parts (FLUX.2 Klein up to 8, Qwen-Image 2.1 up to 10) and refer to them as "image 1", "image 2", … in the prompt. |
+| `image` | yes | The source image to edit (png/jpeg/webp, up to 25 MB each, at most 10 images). For several references send repeated `image[]` parts (FLUX.2 Klein up to 8, Qwen-Image 2.1 up to 10) and refer to them as "image 1", "image 2", … in the prompt. |
 | `prompt` | yes | How to change it. |
 | `model` | yes | An image model id. |
 | `mask` | no | Optional transparency mask. |
@@ -97,9 +97,11 @@ curl https://api.inference.club/v1/images/edits \
 ```json
 {
   "created": 1780266332,
-  "data": [ { "url": "https://api.inference.club/api/inference/assets/42/" } ]
+  "data": [ { "url": "https://storage.googleapis.com/…/image.png" } ]
 }
 ```
+
+Public images are linked directly at their storage URL. Non-public ones (`PRIVATE`, `SECRET`, and anything not world-readable) use the owner-gated route `https://api.inference.club/api/inference/assets/<public_id>/` — fetch those with your `Authorization` header.
 
 - **`url` (default):** the image is stored on object storage and the response returns its URL, ready to drop into an `<img>` tag. Like every generation endpoint, `/v1/images/generations` and `/v1/images/edits` accept `visibility` and `collection` fields so you control who can see each image and how it's organized — see [Sharing](/docs/sharing).
 - **`b64_json`:** set `response_format: b64_json` to also get the raw base64 bytes inline. The image is still stored.
@@ -115,11 +117,12 @@ Every request is recorded as an inference request with the prompt, the source im
 | `file_too_large` / `request_too_large` | Source image or prompt over the limit | 413 |
 | `unsupported_media_type` | Source image isn't png/jpeg/webp | 415 |
 | `no_provider` | No online image provider serves the model for you | 404 |
+| `at_capacity` | Every slot on the device is busy (after a ~20s wait). Honor `Retry-After`, or send `"async": "auto"` | 429 |
 | `upstream_error` | The provider's image server failed | 502 |
 
 ## Async generation
 
-Add `"async": true` to the request body to queue the image generation instead of waiting. Returns `202 Accepted` with a job envelope. Poll `GET /v1/jobs/<id>` for status, then read `result_url` when done. See [Async jobs](/docs/api/jobs).
+`/v1/images/generations` accepts `"async": true` (always queue) or `"async": "auto"` (queue only when the device is busy). A queued request returns `202 Accepted` with a job envelope; poll `GET /v1/jobs/<id>` and read `media[].url` (or `image_urls`) once the status is `PROCESSED`. See [Async jobs](/docs/api/jobs). `/v1/images/edits` is multipart and synchronous only.
 
 ## Not supported (yet)
 

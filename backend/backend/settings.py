@@ -70,7 +70,7 @@ CSRF_TRUSTED_ORIGINS = _env_list("DJANGO_CSRF_TRUSTED_ORIGINS", _DEV_FRONTEND_OR
 CORS_ALLOW_CREDENTIALS = True
 # Let the (cross-origin in dev) frontend read the stored-audio handle that
 # /v1/audio/speech returns on headers (the body is raw audio bytes).
-CORS_EXPOSE_HEADERS = ["X-Asset-Id", "X-Asset-Url"]
+CORS_EXPOSE_HEADERS = ["X-Asset-Id", "X-Asset-Url", "X-Inference-Request-Id", "Retry-After"]
 CORS_ALLOW_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"]
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -360,6 +360,31 @@ WORKFLOW_MAX_FANOUT = int(os.environ.get("WORKFLOW_MAX_FANOUT", "64"))
 # How many `compose`/RENDER jobs may run at once on the central worker (PRD 12
 # §5.5). FFmpeg is CPU/encode-heavy, so this is deliberately small.
 RENDER_MAX_CONCURRENT = int(os.environ.get("RENDER_MAX_CONCURRENT", "1"))
+
+# --- device capacity (apps/inference/capacity.py) ---------------------------
+# Sync, async, agent-tool and retry requests share one per-device budget
+# (manifest services[].max_concurrent / resource_groups). A synchronous media
+# request that finds its device full waits this long for a slot, then gets 429
+# at_capacity (Retry-After). Kept short: each waiter holds a gunicorn thread.
+# Callers that send async:"auto" skip the wait and are queued as a job instead.
+SYNC_CAPACITY_WAIT_SECONDS = float(os.environ.get("SYNC_CAPACITY_WAIT_SECONDS", "20"))
+SYNC_CAPACITY_POLL_SECONDS = float(os.environ.get("SYNC_CAPACITY_POLL_SECONDS", "1.0"))
+# A sync slot whose web worker died is ignored after this long (crash safety).
+SYNC_SLOT_STALE_SECONDS = int(os.environ.get("SYNC_SLOT_STALE_SECONDS", "900"))
+# Service types NOT gated on the sync path. LLM servers (vLLM / LM Studio / NIM)
+# batch concurrent requests internally, and chat streams are long-lived.
+CAPACITY_EXEMPT_SERVICE_TYPES = tuple(
+    t.strip() for t in os.environ.get("CAPACITY_EXEMPT_SERVICE_TYPES", "llm").split(",")
+    if t.strip()
+)
+# Playground-agent media tools wait this long for a busy device before telling
+# the model it's busy.
+AGENT_TOOL_CAPACITY_WAIT_SECONDS = float(
+    os.environ.get("AGENT_TOOL_CAPACITY_WAIT_SECONDS", "90")
+)
+# Remote MCP endpoint (/mcp): how long a generation tool waits for a queued job
+# before returning the job id for the agent to poll.
+MCP_TOOL_WAIT_SECONDS = float(os.environ.get("MCP_TOOL_WAIT_SECONDS", "45"))
 
 CELERY_BEAT_SCHEDULE = {}
 if ASYNC_ENABLED:

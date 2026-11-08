@@ -59,8 +59,13 @@ def pop_async_flag(body) -> None:
         body.pop("async", None)
 
 
-def accepted(job) -> Response:
-    """The 202 returned to an async submitter: an OpenAI-ish job envelope."""
+def accepted(job, reason="requested") -> Response:
+    """The 202 returned to an async submitter: an OpenAI-ish job envelope.
+
+    ``queued_reason`` tells an agent *why* it got a job instead of a result:
+    ``requested`` (it sent ``async: true``), ``at_capacity`` (``async: "auto"``
+    and the device was busy) or ``no_provider`` (``auto`` and the model's
+    provider was momentarily offline). ``poll_url`` is where to poll."""
     return Response(
         {
             "id": str(job.id),
@@ -70,13 +75,15 @@ def accepted(job) -> Response:
             "model": job.model_name,
             "created": int(job.created_on.timestamp()),
             "queued_at": job.queued_at.isoformat() if job.queued_at else None,
+            "poll_url": f"/v1/jobs/{job.id}",
+            "queued_reason": reason,
         },
         status=status.HTTP_202_ACCEPTED,
     )
 
 
 def submit_async(request, inference_type, payload, *, visibility="", collection_name=None,
-                 batch=None, model_name=""):
+                 batch=None, model_name="", on_queued=None):
     """Create a queued job from an already-validated payload and return the 202
     Response (or a 503 if async is disabled). Used by the /v1 views' async
     branch."""
@@ -92,8 +99,10 @@ def submit_async(request, inference_type, payload, *, visibility="", collection_
         model_name=model_name, visibility=visibility, collection_name=collection_name,
         batch=batch, idempotency_key=idem,
     )
+    if on_queued is not None:
+        on_queued(job)
     jobs.kick_dispatch()
-    return accepted(job)
+    return accepted(job, getattr(request, "_ic_queued_reason", None) or "requested")
 
 
 # --- jobs --------------------------------------------------------------------

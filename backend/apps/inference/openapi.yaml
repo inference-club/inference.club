@@ -1,33 +1,96 @@
 openapi: 3.1.0
 info:
   title: inference.club API
-  version: "1.0.0"
+  version: "2.0.0"
   description: |
-    The inference.club API is **OpenAI-compatible**. Point any OpenAI client at
-    the base URL below and it just works — no other changes.
+    The inference.club API is **OpenAI-compatible** for the endpoints OpenAI
+    defines (`/models`, `/chat/completions`, `/completions`, `/audio/*`,
+    `/images/*`). Point any OpenAI client at the base URL and it works:
 
     ```python
     from openai import OpenAI
     client = OpenAI(base_url="https://api.inference.club/v1", api_key="<your-api-key>")
     ```
 
-    Requests are proxied to a member's home GPU that serves the requested model.
-    Get an API key from **Dashboard → Settings → Token**.
+    Requests are proxied to a member's home GPU serving the requested model.
+    Get an API key from **Dashboard → Settings → Token** and send it as
+    `Authorization: Bearer <key>`. All paths below are relative to `/v1`.
 
-    Each model on `GET /models` reports a `service_type` (`llm`, `stt`,
-    `image`, `tts`, or `mesh`) plus its modalities, and requests only route to a
-    matching service — a transcription never lands on a chat model, an image
-    request never on a text model.
+    Beyond OpenAI, the API adds video, music, 3D, voice cloning, audio
+    cleanup, web scraping, a tool-calling agent, async jobs, batches,
+    workflow DAGs, a media library and a narration studio.
 
-    Every generation endpoint also accepts two optional inference.club
-    extensions on top of the OpenAI request shape (stripped before the request
-    reaches a provider):
+    ## Routing by service type
 
-    - `visibility` — `PUBLIC` | `UNLISTED` | `PRIVATE` | `SECRET`; who can see
-      the stored request. Defaults to your account's default visibility.
-    - `collection` — a collection *name* (unique per account,
-      case-insensitive); files the request into that collection, creating it
-      on first use. Defaults to your account's default collection, if set.
+    Each model on `GET /models` reports a `service_type` (`llm`, `stt`, `tts`,
+    `image`, `mesh`, `music`, `video`, `scrape`, `render`, `audio-enhance`)
+    plus modalities and `supported_features`. Each endpoint routes only to
+    services of its type (a transcription never lands on a chat model).
+
+    ## Request extensions (all JSON generation endpoints)
+
+    Stripped before the request reaches a provider:
+
+    - `visibility`: `PUBLIC` | `UNLISTED` | `PRIVATE` | `SECRET`. Who can see
+      the stored request. Defaults to your account default (`UNLISTED`).
+    - `collection`: a collection *name* (unique per account,
+      case-insensitive). Files the request into it, creating it on first use.
+    - `async`: `true` (always queue, returns `202` + `JobEnvelope`), `false`
+      or omitted (synchronous), or `"auto"` (run synchronously if a GPU slot
+      is free right now, otherwise queue and return `202`). With `"auto"`, a
+      known model whose provider is momentarily offline is also queued (the
+      queue waits up to 1 hour for a provider) instead of returning `404`.
+      Async-submittable endpoints: `/chat/completions`, `/completions`,
+      `/images/generations`, `/videos/generations`, `/music/generations`,
+      `/audio/speech`, `/scrape`. Multipart endpoints are always synchronous.
+      Send an `Idempotency-Key` header to make queued submissions safe to
+      retry (a repeat returns the existing job).
+    - `delivery` (binary endpoints only: `/audio/speech`, `/audio/enhance`,
+      `/music/generations`, `/videos/generations`, `/voice/generations`):
+      `"bytes"` (default, the raw media body) or `"url"` (a JSON
+      `InferenceResult` with stored-asset URLs). Byte responses always carry
+      `X-Inference-Request-Id`, `X-Asset-Id` and `X-Asset-Url` headers.
+
+    ## Capacity and rate limits
+
+    Each provider service has a `max_concurrent` (default 1) and may share a
+    GPU `resource_group`. A synchronous non-LLM request that finds its device
+    busy waits briefly server-side for a slot; if none frees it returns
+    **429** with a `Retry-After` header and
+    `{"error": {"type": "at_capacity", "retry_after": <seconds>, ...}}`.
+    That is distinct from the per-user **rate limit** 429 (body
+    `{"detail": "Request was throttled. Expected available in N seconds."}`,
+    also with `Retry-After`). LLM chat is not capacity-gated on the sync path
+    (LLM servers batch internally). `GET /capacity` shows live load.
+
+    Rate-limit headroom is on every response: `X-RateLimit-Limit`,
+    `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
+
+    ## Errors
+
+    inference.club errors use `{"error": {"message", "type"}}`. Auth (401/403),
+    rate-limit (429 throttle), studio, and media-library errors use DRF's
+    `{"detail": "..."}`. When a provider returns an error, its body and status
+    are passed through verbatim.
+
+    ## For AI agents
+
+    1. Discover models with `GET /models`; pick by `service_type` (and
+       `supported_features`), never by guessing a model id.
+    2. For media, send `async: "auto"` plus `delivery: "url"`. You get either
+       the result immediately (`200`) or a `202` `JobEnvelope`.
+    3. On `202`, poll `GET /jobs/{id}` (the envelope's `poll_url`) every few
+       seconds until `status` is `PROCESSED`, `FAILED` or `CANCELED`. Read
+       `media[].url` and `output_text` from the job.
+    4. On `429`, wait `Retry-After` seconds before retrying. Check
+       `GET /capacity` before fanning out.
+    5. Don't run more than a few concurrent media requests. Most devices
+       have one slot, so extra requests just queue. Use `/batches` or
+       `/workflows/runs` for many items.
+
+    An MCP (Model Context Protocol) server is also available at `POST /mcp`
+    (outside `/v1`; JSON-RPC 2.0, same Bearer auth). It exposes these
+    capabilities as MCP tools.
 
     > **Try it out** makes real calls against a live provider's GPU using your
     > API key (click **Authorize**). They count against your rate limit.
@@ -37,45 +100,68 @@ info:
 servers:
   - url: https://api.inference.club/v1
     description: Production
+  - url: http://localhost:8001/v1
+    description: Local development
 security:
   - bearerAuth: []
 tags:
   - name: Models
-    description: Discover the models you can use.
+    description: Discover the models you can use, and live capacity.
   - name: Chat
-    description: Text generation (LLM) — OpenAI chat & completions.
+    description: "Text generation (LLM): OpenAI chat and legacy completions."
   - name: Audio
-    description: Speech-to-text (STT) and text-to-speech (TTS).
+    description: Speech-to-text, text-to-speech, voices, and speech enhancement.
   - name: Images
     description: Image generation and editing.
-  - name: 3D
-    description: Image-to-3D (mesh) — turn one image into a textured GLB model.
+  - name: Video
+    description: Text/image-to-video generation and slideshow compositing.
   - name: Music
-    description: Text-to-music — generate a song from a prompt (and optional lyrics).
+    description: Text-to-music.
+  - name: 3D
+    description: Image-to-3D (textured GLB mesh).
+  - name: Voice
+    description: Voice cloning and two-speaker dialogue (Dia).
+  - name: Scrape
+    description: URL to clean markdown.
+  - name: Agent
+    description: Server-side tool-calling agent (search, image, video, music, voice tools).
+  - name: Async jobs
+    description: Queued inference requests. Poll here after any 202.
+  - name: Batches
+    description: Submit many async requests at once.
+  - name: Workflows
+    description: Multi-step DAGs of inference steps (templates, runs, gates, saved workflows).
+  - name: Files & assets
+    description: Upload media, list your library, read asset metadata and bytes.
+  - name: Studio
+    description: Narration Studio (episodes, segments, takes). Full members only.
 
 paths:
+  # ---------------------------------------------------------------- Models
   /models:
     get:
       tags: [Models]
+      operationId: listModels
       summary: List available models
       description: |
-        Every model you can reach — your own providers' models plus shared
-        services on the network you have access to. OpenAI-compatible, with
-        extra capability fields (`input_modalities`, `output_modalities`,
-        `supported_features`, `service_type`).
-      operationId: listModels
+        Every model you can reach: your own providers' models, shared services
+        on the network you have access to, and external-provider models you
+        pinned (with a key set). Call this first, then choose a model by
+        `service_type`. Offline providers are excluded.
       responses:
         "200":
           description: The list of models.
           headers:
             X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
             X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
           content:
             application/json:
               schema:
                 type: object
+                required: [object, data]
                 properties:
-                  object: { type: string, example: list }
+                  object: { type: string, const: list }
                   data:
                     type: array
                     items: { $ref: "#/components/schemas/Model" }
@@ -84,29 +170,79 @@ paths:
                 data:
                   - id: qwen/qwen3-30b-a3b
                     object: model
+                    created: 1780266332
                     owned_by: brian-home
                     service_type: llm
                     input_modalities: [text]
                     output_modalities: [text]
                     supported_features: [reasoning]
                     context_length: 32768
-                  - id: qwen/qwen3-asr-1.7b
+                  - id: ltx-2
                     object: model
+                    created: 1780266332
                     owned_by: brian-home
-                    service_type: stt
-                    input_modalities: [audio]
-                    output_modalities: [text]
+                    service_type: video
+                    input_modalities: [text, image]
+                    output_modalities: [video]
+                    supported_features: []
+                    context_length: null
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /capacity:
+    get:
+      tags: [Models]
+      operationId: getCapacity
+      summary: Live per-service load
+      description: |
+        Current load for every provider service you can route to: how many
+        requests are in flight versus `max_concurrent`, how many are queued,
+        and whether a slot is free right now. Check this before fanning out
+        media work, or to decide between sync and async.
+      responses:
+        "200":
+          description: Per-service capacity.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object: { type: string, const: list }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/CapacityEntry" }
+              example:
+                object: list
+                data:
+                  - model: ltx-2
+                    service_type: video
+                    provider: brian-home
+                    in_flight: 1
+                    max_concurrent: 1
+                    queued: 2
+                    resource_group: spark-gpu
+                    available: false
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  # ------------------------------------------------------------------ Chat
   /chat/completions:
     post:
       tags: [Chat]
+      operationId: createChatCompletion
       summary: Create a chat completion
       description: |
-        OpenAI chat completions. Set `stream: true` for a Server-Sent Events
-        stream of delta chunks ending with `data: [DONE]`. Models that support
-        vision/audio input accept multimodal `content` parts.
-      operationId: createChatCompletion
+        OpenAI chat completions. Use for any text generation with an `llm`
+        model. `stream: true` returns Server-Sent Events of
+        `chat.completion.chunk` objects ending with `data: [DONE]` (usage is
+        included in the final chunk). Vision/audio models accept multimodal
+        `content` parts. Pinned external models use `provider:model` ids.
+        If the model is unavailable (404/502) and you set a fallback model in
+        settings, the request is retried once on it.
+        Not capacity-gated on the synchronous path. With `async`, returns a 202
+        job. Poll `/jobs/{id}` and read `output_text`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -120,61 +256,89 @@ paths:
               stream: false
       responses:
         "200":
-          description: "A chat completion (or an SSE stream when `stream: true`)."
+          description: "A chat completion, or an SSE stream when `stream: true`."
           headers:
             X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
             X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ChatCompletion" }
             text/event-stream:
-              schema: { type: string, description: "SSE stream of chat.completion.chunk objects." }
+              schema: { type: string, description: "SSE stream of chat.completion.chunk objects, then `data: [DONE]`." }
+        "202": { $ref: "#/components/responses/Queued" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NoProvider" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
 
   /completions:
     post:
       tags: [Chat]
-      summary: Create a completion (legacy)
-      description: OpenAI legacy text completions. Prefer `/chat/completions`.
       operationId: createCompletion
+      summary: Create a completion (legacy)
+      description: |
+        OpenAI legacy text completions (raw `prompt` in, text out). Use only
+        if you need raw prompting; prefer `/chat/completions`. Same routing,
+        streaming, fallback and `async` behavior as chat.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [model, prompt]
-              properties:
-                model: { type: string }
-                prompt: { type: string }
-                stream: { type: boolean, default: false }
-                max_tokens: { type: integer }
-                temperature: { type: number }
-              additionalProperties: true
+              allOf:
+                - $ref: "#/components/schemas/AsyncExtensions"
+                - type: object
+                  required: [model, prompt]
+                  properties:
+                    model: { type: string, description: "An `llm` model id from /models." }
+                    prompt:
+                      oneOf:
+                        - type: string
+                        - type: array
+                          items: { type: string }
+                    stream: { type: boolean, default: false }
+                    max_tokens: { type: integer, description: "Clamped server-side to the output-token ceiling (default 8192)." }
+                    temperature: { type: number }
+                  additionalProperties: true
             example: { model: qwen/qwen3-30b-a3b, prompt: "Once upon a time" }
       responses:
         "200":
-          description: A text completion.
+          description: An OpenAI `text_completion` object (or an SSE stream).
           content:
             application/json:
-              schema: { type: object }
+              schema: { type: object, additionalProperties: true }
+            text/event-stream:
+              schema: { type: string }
+        "202": { $ref: "#/components/responses/Queued" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
 
+  # ----------------------------------------------------------------- Audio
   /audio/transcriptions:
     post:
       tags: [Audio]
+      operationId: createTranscription
       summary: Transcribe audio to text
       description: |
-        Speech-to-text. `multipart/form-data` with an audio `file`. Request
-        `response_format=verbose_json` with `timestamp_granularities[]` for
-        word/segment timings **when the model supports it** (see the model's
-        `supported_features`); otherwise it's transparently downgraded to plain
-        text. Audio is metered by duration (`usage.seconds`).
-      operationId: createTranscription
+        Speech-to-text with an `stt` model. Send `multipart/form-data` with an
+        audio `file`. `response_format=verbose_json` with
+        `timestamp_granularities[]` returns word/segment timings **only if**
+        the model lists `timestamps` in `supported_features`. Otherwise it is
+        quietly downgraded to `json`. The response is always a JSON object
+        (even for `response_format=text`, which yields `{"text": ...}`). When
+        input audio is stored, it also includes `audio_asset_id` and
+        `audio_url`. Always synchronous.
       requestBody:
         required: true
         content:
@@ -186,7 +350,7 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: "The audio file (wav, mp3, m4a, flac, ogg, webm). Up to 25 MB."
+                  description: "Audio (wav, mp3, m4a, flac, ogg, webm; mp4/webm video with an audio track). Up to 25 MB."
                 model: { type: string, description: "An `stt` model id from /models." }
                 language: { type: string, description: "Optional ISO-639-1 hint, e.g. `en`." }
                 prompt: { type: string, description: "Optional decoding hint (names, jargon)." }
@@ -197,6 +361,8 @@ paths:
                 "timestamp_granularities[]":
                   type: array
                   items: { type: string, enum: [word, segment] }
+                visibility: { $ref: "#/components/schemas/Visibility" }
+                collection: { type: string }
       responses:
         "200":
           description: The transcription.
@@ -206,59 +372,71 @@ paths:
               example:
                 text: "Hey, this is a demo of the new model."
                 usage: { type: duration, seconds: 10 }
+                audio_asset_id: 812
+                audio_url: "https://api.inference.club/api/inference/assets/a1b2c3/"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NoProvider" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "415": { $ref: "#/components/responses/UnsupportedMedia" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
 
   /audio/speech:
     post:
       tags: [Audio]
+      operationId: createSpeech
       summary: Synthesize speech from text
       description: |
-        Text-to-speech. Returns the **raw audio** (WAV by default, or Opus),
-        exactly like OpenAI. A copy is stored on inference.club for your
-        history. Metered by audio duration.
-      operationId: createSpeech
+        Text-to-speech with a `tts` model. By default it returns the **raw
+        audio** (WAV, or OGG/Opus with `response_format: opus`), like OpenAI.
+        mp3/aac/flac fall back to WAV. With `delivery: "url"` it returns a JSON
+        `InferenceResult` instead. List voices with `GET /audio/voices`.
+        Supports `async`. For voice cloning use `/voice/generations`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [model, input]
-              properties:
-                model: { type: string, description: "A `tts` model id from /models." }
-                input: { type: string, description: "The text to synthesize." }
-                voice: { type: string, description: "A voice name (see /audio/voices)." }
-                response_format: { type: string, enum: [wav, opus], default: wav }
-                language: { type: string, description: "Optional language hint, e.g. en-US." }
+              allOf:
+                - $ref: "#/components/schemas/AsyncExtensions"
+                - $ref: "#/components/schemas/DeliveryExtension"
+                - type: object
+                  required: [model, input]
+                  properties:
+                    model: { type: string, description: "A `tts` model id from /models." }
+                    input: { type: string, maxLength: 5000, description: "The text to synthesize." }
+                    voice: { type: string, description: "A voice name from /audio/voices. Defaults to the server default (Magpie-Multilingual.EN-US.Mia)." }
+                    response_format: { type: string, enum: [wav, pcm, opus, ogg, mp3, aac, flac], default: wav, description: "Only wav and opus/ogg are produced; others resolve to wav." }
+                    language: { type: string, description: "Language hint, e.g. `en-US`." }
+                    sample_rate_hz: { type: integer, description: "Output sample rate. Not stored for async/retry." }
             example:
               model: magpie-tts-multilingual
               input: "Hello from inference club"
               voice: "Magpie-Multilingual.EN-US.Mia"
+              async: auto
+              delivery: url
       responses:
-        "200":
-          description: The synthesized audio bytes.
-          content:
-            audio/wav:
-              schema: { type: string, format: binary }
-            audio/ogg:
-              schema: { type: string, format: binary }
+        "200": { $ref: "#/components/responses/AudioOrResult" }
+        "202": { $ref: "#/components/responses/Queued" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NoProvider" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
 
   /audio/voices:
     get:
       tags: [Audio]
+      operationId: listVoices
       summary: List a TTS model's voices
       description: |
-        The voices a text-to-speech model offers. An inference.club extension
-        (not part of OpenAI's API).
-      operationId: listVoices
+        The voice names a `tts` model offers, to use as `voice` on
+        `/audio/speech`. An inference.club extension.
       parameters:
         - name: model
           in: query
@@ -267,46 +445,100 @@ paths:
           description: A `tts` model id.
       responses:
         "200":
-          description: The available voices.
+          description: The available voices (sorted, de-duplicated).
           content:
             application/json:
               schema:
                 type: object
+                required: [voices]
                 properties:
                   voices: { type: array, items: { type: string } }
               example:
-                voices: ["Magpie-Multilingual.EN-US.Mia", "Magpie-Multilingual.EN-US.Jason"]
+                voices: ["Magpie-Multilingual.EN-US.Jason", "Magpie-Multilingual.EN-US.Mia"]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NoProvider" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
 
+  /audio/enhance:
+    post:
+      tags: [Audio]
+      operationId: enhanceAudio
+      summary: Clean up / denoise speech audio
+      description: |
+        Speech enhancement (for example NVIDIA Maxine Studio Voice) with an
+        `audio-enhance` model. Send noisy speech, get back clean audio.
+        `multipart/form-data`. Non-WAV input is transcoded to WAV before
+        forwarding. Returns raw audio by default, or a JSON `InferenceResult`
+        with `delivery=url`. Always synchronous.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, model]
+              properties:
+                file: { type: string, format: binary, description: "Audio file (same types as transcriptions). Up to 25 MB." }
+                model: { type: string, description: "An `audio-enhance` model id from /models." }
+                response_format: { type: string, enum: [wav, opus], default: wav }
+                delivery: { $ref: "#/components/schemas/Delivery" }
+                visibility: { $ref: "#/components/schemas/Visibility" }
+                collection: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/AudioOrResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMedia" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+
+  # ---------------------------------------------------------------- Images
   /images/generations:
     post:
       tags: [Images]
+      operationId: createImage
       summary: Generate images from a prompt
       description: |
-        Text-to-image. The image is stored on inference.club; by default the
-        response returns a `url` you can use directly in an `<img>` tag. Set
-        `response_format: b64_json` to also get the bytes inline. Metered by
-        image count.
-      operationId: createImage
+        Text-to-image with an `image` model. Images are stored, and each
+        `data[]` item has a `url` by default, or only `b64_json` when
+        `response_format: b64_json`. Model-specific knobs are forwarded only
+        when set. Each model advertises which it honors in
+        `supported_features` (`seed`, `steps`, `negative-prompt`,
+        `transparent-background`, `custom-size`, `prompt-upsampling`,
+        `layout-boxes`). Supports `async`. Job results are in
+        `image_urls`/`media`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [model, prompt]
-              properties:
-                model: { type: string, description: "An `image` model id from /models." }
-                prompt: { type: string }
-                n: { type: integer, default: 1, description: "Number of images (clamped server-side)." }
-                size: { type: string, example: "1024x1024", description: "`WxH`. Models with the `custom-size` feature accept any size up to their limit (Qwen-Image 2.1: 2048 per side, e.g. `2752x1536` for 16:9 2K)." }
-                response_format: { type: string, enum: [url, b64_json], default: url }
-                seed: { type: integer, description: "Reproducible sampling (models with the `seed` feature). Omit for random." }
-                steps: { type: integer, minimum: 1, maximum: 100, description: "Denoising steps (models with the `steps` feature; Qwen-Image 2.1 defaults to 40)." }
-                negative_prompt: { type: string, description: "What to avoid (models with the `negative-prompt` feature). Turns on classifier-free guidance together with `guidance`." }
-                guidance: { type: number, minimum: 1, maximum: 20, description: "Classifier-free guidance scale, only meaningful with `negative_prompt` (Qwen-Image 2.1: 4 is a good value; its default is no guidance)." }
-                background: { type: string, enum: [transparent, opaque], description: "`transparent` asks models with the `transparent-background` feature for a real RGBA PNG." }
+              allOf:
+                - $ref: "#/components/schemas/AsyncExtensions"
+                - type: object
+                  required: [model, prompt]
+                  properties:
+                    model: { type: string, description: "An `image` model id from /models." }
+                    prompt: { type: string, maxLength: 4000 }
+                    n: { type: integer, default: 1, description: "Number of images, clamped to 4." }
+                    size: { type: string, example: "1024x1024", description: "`WxH`. `custom-size` models accept any size up to their limit (Qwen-Image 2.1: 2048 per side)." }
+                    quality: { type: string }
+                    response_format: { type: string, enum: [url, b64_json], default: url }
+                    seed: { type: integer, description: "Reproducible sampling (`seed` feature)." }
+                    steps: { type: integer, description: "Denoising steps (`steps` feature)." }
+                    negative_prompt: { type: string, description: "What to avoid (`negative-prompt` feature)." }
+                    guidance: { type: number, description: "Classifier-free guidance scale, used with `negative_prompt`." }
+                    background: { type: string, enum: [transparent, opaque], description: "`transparent` returns an RGBA PNG on `transparent-background` models." }
+                    upsample: { type: boolean, description: "Let the model rewrite/expand the prompt (`prompt-upsampling` feature)." }
+                    boxes:
+                      type: array
+                      maxItems: 32
+                      description: "Layout boxes (`layout-boxes` feature, e.g. FLUX 3). Objects are passed through to the provider."
+                      items: { type: object, additionalProperties: true }
             example: { model: qwen-image-2.1, prompt: "a sticker of a capybara wearing a wizard hat", size: "1024x1024", background: transparent, seed: 42 }
       responses:
         "200":
@@ -316,20 +548,29 @@ paths:
               schema: { $ref: "#/components/schemas/ImageResponse" }
               example:
                 created: 1780266332
+                request_id: "4211"
                 data:
-                  - url: "https://api.inference.club/api/inference/assets/42/"
+                  - url: "https://api.inference.club/api/inference/assets/a1b2c3/"
+        "202": { $ref: "#/components/responses/Queued" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
 
   /images/edits:
     post:
       tags: [Images]
-      summary: Edit an image with a prompt
-      description: |
-        Image + prompt → edited image. `multipart/form-data`. Same response
-        shape as generations.
       operationId: createImageEdit
+      summary: Edit image(s) with a prompt
+      description: |
+        Image(s) + prompt → edited image. `multipart/form-data`. Send one
+        `image` or several `image[]` parts for multi-reference edits (FLUX.2
+        Klein up to 8, Qwen-Image 2.1 up to 10; refer to them as "image 1",
+        "image 2" in the prompt). At most 10 images. Same response shape and
+        extras as generations. Always synchronous.
       requestBody:
         required: true
         content:
@@ -338,21 +579,26 @@ paths:
               type: object
               required: [image, prompt, model]
               properties:
-                image:
-                  type: string
-                  format: binary
-                  description: "Source image (png, jpeg, webp). Up to 25 MB. Send several as repeated `image[]` parts for multi-reference edits (FLUX.2 Klein up to 8, Qwen-Image 2.1 up to 10; refer to them as \"image 1\", \"image 2\" in the prompt)."
+                image: { type: string, format: binary, description: "Source image (png, jpeg, webp). Up to 25 MB each." }
+                "image[]":
+                  type: array
+                  maxItems: 10
+                  items: { type: string, format: binary }
                 prompt: { type: string }
-                model: { type: string }
+                model: { type: string, description: "An `image` model id from /models." }
                 mask: { type: string, format: binary, description: "Optional transparency mask." }
-                n: { type: integer }
+                n: { type: integer, description: "Clamped to 4." }
                 size: { type: string }
                 response_format: { type: string, enum: [url, b64_json], default: url }
                 seed: { type: integer }
-                steps: { type: integer, minimum: 1, maximum: 100 }
+                steps: { type: integer }
                 negative_prompt: { type: string }
-                guidance: { type: number, minimum: 1, maximum: 20 }
-                background: { type: string, enum: [transparent, opaque], description: "`transparent` returns an RGBA cutout/composition on models with the `transparent-background` feature." }
+                guidance: { type: number }
+                background: { type: string, enum: [transparent, opaque] }
+                upsample: { type: boolean }
+                boxes: { type: string, description: "JSON-encoded array of layout boxes." }
+                visibility: { $ref: "#/components/schemas/Visibility" }
+                collection: { type: string }
       responses:
         "200":
           description: The edited image(s).
@@ -362,23 +608,179 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
         "415": { $ref: "#/components/responses/UnsupportedMedia" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
 
+  # ----------------------------------------------------------------- Video
+  /videos/generations:
+    post:
+      tags: [Video]
+      operationId: createVideo
+      summary: Generate a video from text (or a first-frame image)
+      description: |
+        Text-to-video or image-to-video with a `video` model (for example
+        LTX-2). Returns the raw MP4 by default, or a JSON `InferenceResult`
+        with `delivery: "url"`. Generation can take minutes, so prefer
+        `async: "auto"` + `delivery: "url"`. Values are clamped to the ranges
+        shown. The server may snap width/height/frames to what the model
+        supports (the resolved values appear on the job's `video` field).
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/AsyncExtensions"
+                - $ref: "#/components/schemas/DeliveryExtension"
+                - type: object
+                  required: [model, prompt]
+                  properties:
+                    model: { type: string, description: "A `video` model id from /models." }
+                    prompt: { type: string, maxLength: 4000 }
+                    negative_prompt: { type: string }
+                    image: { type: string, description: "Optional first frame: a `data:` URI, raw base64, or an http(s) URL." }
+                    image_strength: { type: number, minimum: 0, maximum: 1, default: 1 }
+                    duration: { type: number, minimum: 1, maximum: 20, description: "Seconds." }
+                    num_frames: { type: integer, minimum: 1, maximum: 1281 }
+                    fps: { type: number, minimum: 1, maximum: 60 }
+                    width: { type: integer, minimum: 64, maximum: 1920 }
+                    height: { type: integer, minimum: 64, maximum: 1920 }
+                    num_inference_steps: { type: integer, minimum: 1, maximum: 100 }
+                    guidance_scale: { type: number, minimum: 0, maximum: 30 }
+                    enhance_prompt: { type: boolean, default: false }
+                    seed: { type: integer }
+            example: { model: ltx-2, prompt: "a paper boat drifting down a rainy street, cinematic", duration: 5, async: auto, delivery: url }
+      responses:
+        "200":
+          description: The MP4 bytes, or an `InferenceResult` when `delivery` is `url`.
+          headers:
+            X-Inference-Request-Id: { $ref: "#/components/headers/XInferenceRequestId" }
+            X-Asset-Id: { $ref: "#/components/headers/XAssetId" }
+            X-Asset-Url: { $ref: "#/components/headers/XAssetUrl" }
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+            application/json:
+              schema: { $ref: "#/components/schemas/InferenceResult" }
+        "202": { $ref: "#/components/responses/Queued" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
+
+  /videos/compose:
+    post:
+      tags: [Video]
+      operationId: composeVideo
+      summary: Compose a narrated slideshow MP4 (always async)
+      description: |
+        Build an MP4 from per-section images and narration audio you already
+        generated, using FFmpeg on the central worker (not a GPU provider).
+        Each `images[i]` is shown for the length of `audio[i]`. Optional
+        `captions` are burned in, and an optional `music` bed is ducked
+        under the narration. **Always** returns a 202 job. The video is on the
+        job's `video_url`/`media`. Asset ids can be bare integers or any
+        objects/lists containing asset ids (such as workflow step outputs).
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [images, audio]
+              properties:
+                images: { type: array, minItems: 1, items: {}, description: "Image asset ids (ints) or objects carrying them, one per section." }
+                audio: { type: array, minItems: 1, items: {}, description: "Audio asset ids, one per section." }
+                captions:
+                  type: array
+                  description: "Optional per-section captions: strings, or section objects with `text`."
+                  items: {}
+                music: { description: "Optional background-music asset id(s)." }
+                visibility: { $ref: "#/components/schemas/Visibility" }
+                collection: { type: string }
+            example: { images: [101, 102], audio: [201, 202], captions: ["Intro", "Outro"] }
+      responses:
+        "202": { $ref: "#/components/responses/Queued" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
+
+  # ----------------------------------------------------------------- Music
+  /music/generations:
+    post:
+      tags: [Music]
+      operationId: createMusic
+      summary: Generate music from a prompt
+      description: |
+        Text-to-music with a `music` model (for example ACE-Step). Describe
+        style, mood and instruments, optionally with `lyrics`. Returns raw
+        audio (MP3 by default), or a JSON `InferenceResult` with
+        `delivery: "url"`. Renders often take up to a minute, so prefer
+        `async: "auto"`. Values are clamped to the ranges shown.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/AsyncExtensions"
+                - $ref: "#/components/schemas/DeliveryExtension"
+                - type: object
+                  required: [model, prompt]
+                  properties:
+                    model: { type: string, description: "A `music` model id from /models." }
+                    prompt: { type: string, description: "Describe the song (style, mood, instruments). prompt+lyrics ≤ 5000 chars." }
+                    lyrics: { type: string, description: "Optional lyrics. Leave empty for an instrumental." }
+                    audio_duration: { type: number, minimum: 5, maximum: 300, description: "Length in seconds. Omit for the model default." }
+                    inference_steps: { type: integer, minimum: 1, maximum: 200, default: 8 }
+                    guidance_scale: { type: number, minimum: 0, maximum: 30, default: 7 }
+                    use_random_seed: { type: boolean, default: true }
+                    seed: { type: integer, description: "Used when use_random_seed is false." }
+                    audio_format: { type: string, enum: [mp3, wav, wav32, flac, opus, aac], default: mp3 }
+                    bpm: { type: integer }
+                    key_scale: { type: string, example: "C Major" }
+                    vocal_language: { type: string, description: "Vocal language hint. Synchronous path only (not kept for async)." }
+            example:
+              model: acestep-v15-turbo
+              prompt: "dreamy lo-fi hip-hop with mellow piano and soft vinyl crackle"
+              audio_duration: 30
+              async: auto
+              delivery: url
+      responses:
+        "200": { $ref: "#/components/responses/AudioOrResult" }
+        "202": { $ref: "#/components/responses/Queued" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
+
+  # -------------------------------------------------------------------- 3D
   /3d/generations:
     post:
       tags: ["3D"]
+      operationId: createModel3D
       summary: Generate a 3D model from an image
       description: |
-        Image-to-3D. Send **one image**; get back a textured **GLB** mesh
-        (geometry + PBR textures in a single self-contained file that loads
-        directly in three.js `GLTFLoader`). `multipart/form-data`.
-
-        Routes to a `mesh` model (e.g. TRELLIS.2). The GLB is generated on a
-        provider's GPU and stored on inference.club; the response returns a
-        `url` to the stored model plus generation `metadata` (seed, vertices,
-        faces, timing). Generation takes ~30s once the provider is warm — keep
-        client timeouts generous.
-      operationId: createModel3D
+        Image-to-3D with a `mesh` model (for example TRELLIS.2). Send **one
+        image** and get a JSON manifest whose `data[0].url` points to a
+        textured GLB (loads in three.js `GLTFLoader`). `multipart/form-data`.
+        Takes about 30s or more when warm, so use a generous client timeout.
+        Always synchronous.
       requestBody:
         required: true
         content:
@@ -387,22 +789,20 @@ paths:
               type: object
               required: [image, model]
               properties:
-                image:
-                  type: string
-                  format: binary
-                  description: "Source image (png, jpeg, webp). A transparent background is used if present; otherwise it's removed automatically. Up to 25 MB."
+                image: { type: string, format: binary, description: "Source image (png, jpeg, webp). Background removed automatically if not transparent. Up to 25 MB." }
                 model: { type: string, description: "A `mesh` model id from /models." }
                 options:
                   type: string
                   description: |
-                    Optional JSON string of generation options:
-                    `resolution` (`"512"` fast · `"1024"` · `"1536"` sharpest),
-                    `seed` (integer), `randomize_seed` (boolean), `texture_size`
-                    (512–4096). Output is always a single GLB.
+                    Optional JSON object string: `resolution` ("512" | "1024" | "1536"),
+                    `seed` (int), `randomize_seed` (bool), `texture_size` (512–4096).
+                    Output is always one GLB.
                   example: '{"resolution":"512","seed":42}'
+                visibility: { $ref: "#/components/schemas/Visibility" }
+                collection: { type: string }
       responses:
         "200":
-          description: The generated 3D model.
+          description: The generated 3D model manifest.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Mesh3DResponse" }
@@ -411,65 +811,1311 @@ paths:
                 request_id: "98"
                 metadata: { seed: 42, resolution: "512", vertices: 332812, faces: 499906 }
                 data:
-                  - url: "https://api.inference.club/api/inference/assets/51/"
+                  - url: "https://api.inference.club/api/inference/assets/d4e5f6/"
                     type: model/gltf-binary
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NoProvider" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "415": { $ref: "#/components/responses/UnsupportedMedia" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
 
-  /music/generations:
+  # ----------------------------------------------------------------- Voice
+  /voice/generations:
     post:
-      tags: [Music]
-      summary: Generate music from a prompt
+      tags: [Voice]
+      operationId: createVoice
+      summary: Voice cloning / two-speaker dialogue (Dia)
       description: |
-        Text-to-music. Describe a song — style, mood, instruments — with an
-        optional `lyrics` block, and get back the **raw audio** (MP3 by default).
-        A copy is stored on inference.club for your history. Metered by audio
-        duration.
+        Generate speech in a cloned voice, or a two-speaker dialogue, with a
+        `tts` model that has the `voice-cloning` feature. `input` is a script.
+        With no tags it is one speaker. With tags it must start with `[S1]`
+        and use only `[S1]`/`[S2]`. `speakers` maps `S1`/`S2` to the id of one
+        of **your** voice samples (each needs a transcript; manage them in the
+        dashboard). Without `speakers` the voice is random. Pin `seed` to keep a
+        voice consistent. Returns WAV bytes (with an `x-seed` header), or a
+        JSON `InferenceResult` with `delivery: "url"`. Always synchronous.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/DeliveryExtension"
+                - type: object
+                  required: [input]
+                  properties:
+                    model: { type: string, description: "Optional voice-cloning `tts` model id. If omitted, the first reachable voice-cloning model is used." }
+                    input: { type: string, maxLength: 5000, example: "[S1] Welcome back. [S2] Glad to be here." }
+                    speakers:
+                      type: object
+                      properties:
+                        S1: { type: integer, description: "Voice sample id." }
+                        S2: { type: integer, description: "Voice sample id." }
+                    cfg_scale: { type: number, minimum: 1, maximum: 5, default: 3 }
+                    temperature: { type: number, minimum: 0.1, maximum: 2, default: 1.8 }
+                    top_p: { type: number, minimum: 0.1, maximum: 1, default: 0.95 }
+                    cfg_filter_top_k: { type: integer, minimum: 1, maximum: 100, default: 45 }
+                    speed_factor: { type: number, minimum: 0.5, maximum: 2, default: 1 }
+                    max_new_tokens: { type: integer, minimum: 256, maximum: 4096, default: 3072 }
+                    seed: { type: integer, default: -1, description: "-1 = random." }
+                    visibility: { $ref: "#/components/schemas/Visibility" }
+                    collection: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/AudioOrResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoProvider" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
 
-        Routes to a `music` model (e.g. ACE-Step). The underlying engine is
-        async (it queues a job), but inference.club waits for the render and
-        returns the finished audio in a single response — generation is
-        typically under a minute, so keep client timeouts generous.
-      operationId: createMusic
+  # ---------------------------------------------------------------- Scrape
+  /scrape:
+    post:
+      tags: [Scrape]
+      operationId: scrapeUrl
+      summary: Fetch a URL as clean markdown
+      description: |
+        Crawl a web page with a `scrape` model (for example Firecrawl) and get
+        clean markdown. The markdown is also stored as a document asset
+        (`doc_asset_id`) for workflows. Supports `async`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/AsyncExtensions"
+                - type: object
+                  required: [model, url]
+                  properties:
+                    model: { type: string, description: "A `scrape` model id from /models." }
+                    url: { type: string, format: uri }
+            example: { model: firecrawl, url: "https://example.com/article" }
+      responses:
+        "200":
+          description: The scraped document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScrapeResponse" }
+        "202": { $ref: "#/components/responses/Queued" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NoProvider" }
+        "429": { $ref: "#/components/responses/RateLimitedOrAtCapacity" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
+
+  # ----------------------------------------------------------------- Agent
+  /agent:
+    post:
+      tags: [Agent]
+      operationId: runAgent
+      summary: Run the server-side tool-calling agent
+      description: |
+        Runs an agent loop on the server with an `llm` model. The model can
+        call inference.club tools (web search, scrape, image/video/music/voice
+        generation, and more) and the loop runs them for you. It is
+        **stateless**: send the full `messages` history each turn, and append
+        the returned `messages` for the next turn. By default it streams SSE
+        `data: <AgentEvent JSON>` lines. Send `stream: false` to get a single
+        JSON object. Use this when you want inference.club to orchestrate
+        tools. Use `/chat/completions` for plain chat.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [model, prompt]
+              required: [model, messages]
               properties:
-                model: { type: string, description: "A `music` model id from /models." }
-                prompt: { type: string, description: "Describe the song (style, mood, instruments)." }
-                lyrics: { type: string, description: "Optional lyrics; leave blank for an instrumental." }
-                audio_duration: { type: number, description: "Length in seconds (clamped 5–300).", default: 30 }
-                inference_steps: { type: integer, description: "Denoising steps (clamped 1–200).", default: 8 }
-                guidance_scale: { type: number, description: "Prompt adherence (clamped 0–30).", default: 7 }
-                use_random_seed: { type: boolean, default: true }
-                seed: { type: integer, description: "Used when use_random_seed is false." }
-                audio_format: { type: string, enum: [mp3, wav, flac, opus], default: mp3 }
-                bpm: { type: integer, description: "Optional tempo." }
-                key_scale: { type: string, description: "Optional key/scale, e.g. \"C Major\"." }
+                model: { type: string, description: "An `llm` model id (tool-calling capable)." }
+                messages:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items: { $ref: "#/components/schemas/ChatMessage" }
+                tools:
+                  type: array
+                  items: { type: string }
+                  description: "Tool names to enable (from /agent/tools). Omit for all available (or the skill's set)."
+                skill: { type: string, description: "Optional skill preset name (from /agent/tools `skills`)." }
+                stream: { type: boolean, default: true }
             example:
-              model: acestep-v15-turbo
-              prompt: "dreamy lo-fi hip-hop with mellow piano and soft vinyl crackle"
-              audio_duration: 30
-              audio_format: mp3
+              model: qwen/qwen3-30b-a3b
+              messages: [{ role: user, content: "Make me a picture of a lighthouse at dusk." }]
+              stream: false
       responses:
         "200":
-          description: The generated song audio bytes.
+          description: SSE stream of `AgentEvent`s, or (with `stream:false`) the collected result.
           content:
-            audio/mpeg:
-              schema: { type: string, format: binary }
-            audio/wav:
-              schema: { type: string, format: binary }
+            text/event-stream:
+              schema:
+                type: string
+                description: "Lines of `data: <AgentEvent>`; terminates with a `done` or `error` event."
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentResult" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NoProvider" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502":
+          description: "`stream:false` only: the loop ended with an error (`type: agent_error`)."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "503":
+          description: 'The Agent is disabled on this server (`type: agent_disabled`).'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /agent/tools:
+    get:
+      tags: [Agent]
+      operationId: listAgentTools
+      summary: List the agent's tools and skills
+      description: The tools you may enable on `/agent`, plus skill presets. When the Agent is disabled this returns `enabled:false` and an empty list.
+      responses:
+        "200":
+          description: Tools and skills.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, enabled, data]
+                properties:
+                  object: { type: string, const: list }
+                  enabled: { type: boolean }
+                  brave_key_set: { type: boolean }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        description: { type: string }
+                        full_member_only: { type: boolean }
+                  skills:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        title: { type: string }
+                        description: { type: string }
+                        tools: { type: array, items: { type: string } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /agent/brave-key:
+    post:
+      tags: [Agent]
+      operationId: setAgentBraveKey
+      summary: Set your Brave Search API key
+      description: Stores your personal Brave Search key for the agent's web-search tool. Write-only (never returned). Full members only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_key]
+              properties:
+                api_key: { type: string, maxLength: 128 }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema: { type: object, properties: { brave_key_set: { type: boolean, const: true } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [Agent]
+      operationId: clearAgentBraveKey
+      summary: Clear your Brave Search API key
+      description: Removes your stored Brave Search key. Full members only.
+      responses:
+        "200":
+          description: Cleared.
+          content:
+            application/json:
+              schema: { type: object, properties: { brave_key_set: { type: boolean, const: false } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # ------------------------------------------------------------ Async jobs
+  /jobs:
+    get:
+      tags: [Async jobs]
+      operationId: listJobs
+      summary: List your async jobs
+      description: Your queued/async jobs, newest first. Use `active=1` to see what is still queued or running.
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/JobStatus" }
+          description: Filter by status (case-insensitive).
+        - name: active
+          in: query
+          schema: { type: string, enum: ["1", "true"] }
+          description: Only QUEUED + PROCESSING jobs.
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1 }
+      responses:
+        "200":
+          description: Jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Job" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /jobs/{id}:
+    get:
+      tags: [Async jobs]
+      operationId: getJob
+      summary: Get a job's status and result
+      description: |
+        Poll this after any 202 (`poll_url`). It is terminal when `status` is
+        `PROCESSED`, `FAILED` or `CANCELED`. Read `output_text` for LLM jobs
+        and `media[]` for generated files. Per-modality URL fields
+        (`image_urls`, `video_url`, `output_audio_url`, `model_url`) are also
+        present. On failure, see `error`. Works for any inference request you
+        own, sync or async (the `id` from `X-Inference-Request-Id` /
+        `InferenceResult.id`).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenEnvelope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/cancel:
+    post:
+      tags: [Async jobs]
+      operationId: cancelJob
+      summary: Cancel a job
+      description: A QUEUED job becomes CANCELED immediately. A PROCESSING job finishes its current attempt and is not retried. Terminal jobs are unchanged (`canceled:false`).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Result of the cancel.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status, canceled]
+                properties:
+                  id: { type: string }
+                  status: { $ref: "#/components/schemas/JobStatus" }
+                  canceled: { type: boolean, description: "Whether anything changed." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenEnvelope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/retry:
+    post:
+      tags: [Async jobs]
+      operationId: retryJob
+      summary: Re-queue a failed or canceled job
+      description: Re-queues a FAILED/CANCELED job with the same payload, clearing old outputs. Returns a 202 envelope. Other statuses get 409.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "202": { $ref: "#/components/responses/Queued" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenEnvelope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  # --------------------------------------------------------------- Batches
+  /batches:
+    get:
+      tags: [Batches]
+      operationId: listBatches
+      summary: List your batches
+      description: Your 50 most recent batches, each with its jobs.
+      responses:
+        "200":
+          description: Batches.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Batch" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Batches]
+      operationId: createBatch
+      summary: Submit a batch of async requests
+      description: |
+        Queue up to 256 requests at once. Each item names an `endpoint` and a
+        `body` (the same JSON you would send to that endpoint). All items are
+        validated first, so one bad item fails the whole batch with 400.
+        Batchable endpoints: `/v1/chat/completions`, `/v1/completions`,
+        `/v1/images/generations`, `/v1/videos/generations`,
+        `/v1/music/generations`, `/v1/audio/speech`. Poll `GET /batches/{id}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requests]
+              properties:
+                label: { type: string }
+                requests:
+                  type: array
+                  minItems: 1
+                  maxItems: 256
+                  items:
+                    type: object
+                    required: [endpoint, body]
+                    properties:
+                      endpoint:
+                        type: string
+                        enum: [/v1/chat/completions, /v1/completions, /v1/images/generations, /v1/videos/generations, /v1/music/generations, /v1/audio/speech]
+                      body: { type: object, additionalProperties: true }
+            example:
+              label: sticker set
+              requests:
+                - { endpoint: /v1/images/generations, body: { model: qwen-image-2.1, prompt: "a fox sticker" } }
+                - { endpoint: /v1/images/generations, body: { model: qwen-image-2.1, prompt: "an owl sticker" } }
+      responses:
+        "202":
+          description: The created batch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Batch" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
+
+  /batches/{id}:
+    get:
+      tags: [Batches]
+      operationId: getBatch
+      summary: Get a batch
+      description: The batch's aggregate status, per-status counts, and every job (with media).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The batch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Batch" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Batches]
+      operationId: cancelBatch
+      summary: Cancel a batch
+      description: Any POST cancels every QUEUED/PROCESSING job in the batch (no body needed) and returns the updated batch.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The updated batch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Batch" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ------------------------------------------------------------- Workflows
+  /workflows/templates:
+    get:
+      tags: [Workflows]
+      operationId: listWorkflowTemplates
+      summary: List curated workflow templates
+      description: Ready-to-run workflows with their input schemas. Start one with `POST /workflows/runs` `{template, inputs}`. Templates choose models automatically.
+      responses:
+        "200":
+          description: Templates.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/WorkflowTemplate" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /workflows/suggestions:
+    get:
+      tags: [Workflows]
+      operationId: listWorkflowSuggestions
+      summary: Sample prompt suggestions for a template
+      description: A random sample of example prompts for a template's main input.
+      parameters:
+        - name: template
+          in: query
+          required: true
+          schema: { type: string }
+        - name: n
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 20, default: 5 }
+      responses:
+        "200":
+          description: Suggestions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { type: string } }
+        "400":
+          description: "`template` missing. Note: this error has `message` but no `type`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /workflows/runs:
+    get:
+      tags: [Workflows]
+      operationId: listWorkflowRuns
+      summary: List your workflow runs
+      description: Your 50 most recent runs (summary only).
+      responses:
+        "200":
+          description: Runs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/WorkflowRunSummary" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Workflows]
+      operationId: createWorkflowRun
+      summary: Start a workflow run
+      description: |
+        Start a DAG run, either from a curated `template` key plus `inputs`,
+        or from an inline `spec`. Before starting, the server checks that you
+        can reach every needed service type (409 `services_unavailable` with
+        `missing` if not). Returns the run (202). Poll
+        `GET /workflows/runs/{id}` until `status` is `DONE`/`FAILED`/`CANCELED`
+        (or `AWAITING` when a gate needs approval).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template: { type: string, description: "Template key from /workflows/templates. Use this or `spec`." }
+                spec: { $ref: "#/components/schemas/WorkflowSpec" }
+                inputs: { type: object, additionalProperties: true, description: "Values referenced as `{{inputs.<name>}}`." }
+                name: { type: string }
+            example: { template: illustrated-story, inputs: { topic: "a lighthouse keeper who befriends a whale", scenes: 3 } }
+      responses:
+        "202":
+          description: The started run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/ServicesUnavailable" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
+
+  /workflows/runs/{id}:
+    get:
+      tags: [Workflows]
+      operationId: getWorkflowRun
+      summary: Get a workflow run (live DAG)
+      description: The run's status, inputs, every step (with its jobs and media), and the DAG edges. Poll this while a run is in progress.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: The run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /workflows/runs/{id}/steps/{step_id}/rerun:
+    post:
+      tags: [Workflows]
+      operationId: rerunWorkflowStep
+      summary: Re-run one step and everything downstream
+      description: Re-runs an `inference`, `map` or `prompt` step (for example to re-roll an image) and then everything downstream of it, using the run's existing context. Old jobs are detached but kept. 409 if the step is still running or of another kind.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - $ref: "#/components/parameters/StepIdPath"
+      responses:
+        "200":
+          description: The updated run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /workflows/runs/{id}/steps/{step_id}/{action}:
+    post:
+      tags: [Workflows]
+      operationId: resolveWorkflowGate
+      summary: Approve or reject a gate step
+      description: |
+        Resolves a `gate` step that is `AWAITING` human review. `approve`
+        resumes the run. The gate's output is `edit` if given, else its first
+        dependency's output. `reject` fails the step. 409 if the step is not an
+        awaiting gate or the action is invalid.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - $ref: "#/components/parameters/StepIdPath"
+        - name: action
+          in: path
+          required: true
+          schema: { type: string, enum: [approve, reject] }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                edit: { description: "Optional replacement output for the gate (any JSON) on approve." }
+      responses:
+        "200":
+          description: The updated run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /workflows:
+    get:
+      tags: [Workflows]
+      operationId: listWorkflows
+      summary: List your saved workflows
+      description: Your saved workflow library (up to 100, newest edits first), without full specs.
+      responses:
+        "200":
+          description: Saved workflows.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/WorkflowSummary" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Workflows]
+      operationId: createWorkflow
+      summary: Save a workflow
+      description: Saves a reusable workflow. Drafts are allowed. Only the structure is checked (unique string step `id`s, known `kind`s); full validation happens at run time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 160 }
+                description: { type: string, maxLength: 2000 }
+                spec: { $ref: "#/components/schemas/WorkflowSpec" }
+      responses:
+        "201":
+          description: The saved workflow.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /workflows/from-template/{key}:
+    post:
+      tags: [Workflows]
+      operationId: forkWorkflowTemplate
+      summary: Save a template as an editable workflow
+      description: Copies a curated template, including its input schema in `spec.inputs`, into your library.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        "201":
+          description: The new workflow.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /workflows/from-run/{run_id}:
+    post:
+      tags: [Workflows]
+      operationId: forkWorkflowRun
+      summary: Save a past run's spec as a workflow
+      description: Copies the spec a run executed into a new editable workflow.
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        "201":
+          description: The new workflow.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /workflows/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [Workflows]
+      operationId: getWorkflow
+      summary: Get a saved workflow
+      description: A saved workflow including its full `spec`.
+      responses:
+        "200":
+          description: The workflow.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Workflows]
+      operationId: replaceWorkflow
+      summary: Update a saved workflow
+      description: Same as PATCH. Only the fields you send (`name`, `description`, `spec`) change.
+      requestBody: { $ref: "#/components/requestBodies/WorkflowUpdate" }
+      responses:
+        "200":
+          description: The updated workflow.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Workflows]
+      operationId: updateWorkflow
+      summary: Partially update a saved workflow
+      description: Change any of `name`, `description` or `spec` (spec is checked for structure only).
+      requestBody: { $ref: "#/components/requestBodies/WorkflowUpdate" }
+      responses:
+        "200":
+          description: The updated workflow.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Workflows]
+      operationId: deleteWorkflow
+      summary: Delete a saved workflow
+      description: Deletes the workflow definition. Past runs remain.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /workflows/{id}/runs:
+    post:
+      tags: [Workflows]
+      operationId: runSavedWorkflow
+      summary: Run a saved workflow
+      description: Launches a saved workflow. `inputs` are checked against the spec's `inputs` schema (defaults applied, numbers coerced and clamped). Returns the run (202).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                inputs: { type: object, additionalProperties: true }
+                name: { type: string }
+      responses:
+        "202":
+          description: The started run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/ServicesUnavailable" }
+        "503": { $ref: "#/components/responses/AsyncDisabled" }
+
+  # -------------------------------------------------------- Files & assets
+  /files:
+    get:
+      tags: [Files & assets]
+      operationId: listFiles
+      summary: List your media library
+      description: All media assets you own (uploads and generated outputs), paginated.
+      parameters:
+        - name: kind
+          in: query
+          schema: { $ref: "#/components/schemas/AssetKind" }
+        - name: bound
+          in: query
+          schema: { type: string, enum: ["true", "false"] }
+          description: "`true` = attached to an inference request; `false` = standalone uploads."
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Substring match on the stored file name.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 60 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: A page of assets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, total, limit, offset, data]
+                properties:
+                  object: { type: string, const: list }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+                  data: { type: array, items: { $ref: "#/components/schemas/MediaAsset" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Files & assets]
+      operationId: uploadFile
+      summary: Upload a file
+      description: |
+        Upload media (image, audio, video or document). It is stored as a
+        **private, owner-only** asset. The kind is detected from the content
+        type or extension unless `kind` is given. Limits: images and audio
+        25 MB (allow-listed types), video/docs 100 MB. Use the returned `id`
+        (for example `speakers`, `compose`, or chat `asset_id` parts) and
+        `url`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                kind: { type: string, enum: [INPUT_IMAGE, INPUT_AUDIO, INPUT_VIDEO, INPUT_DOC] }
+      responses:
+        "201":
+          description: The stored asset.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaAsset" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMedia" }
+
+  /files/{ref}:
+    parameters:
+      - $ref: "#/components/parameters/AssetRef"
+    get:
+      tags: [Files & assets]
+      operationId: getFile
+      summary: Get a file's metadata
+      description: Metadata and provenance for one asset. Readable by anyone the asset is visible to (anonymous for public assets).
+      security: [{}, { bearerAuth: [] }]
+      responses:
+        "200":
+          description: The asset.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaAsset" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+    patch:
+      tags: [Files & assets]
+      operationId: updateFile
+      summary: Change a file's visibility or metadata
+      description: Owner only. `metadata` replaces the whole object. Guest accounts cannot set `PUBLIC` (it becomes `UNLISTED`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visibility: { $ref: "#/components/schemas/Visibility" }
+                metadata: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: The updated asset.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaAsset" }
+        "400":
+          description: Invalid visibility.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DetailError" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+    delete:
+      tags: [Files & assets]
+      operationId: deleteFile
+      summary: Delete a file
+      description: Owner only. Deletes the asset and its stored bytes.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+
+  /files/{ref}/content:
+    get:
+      tags: [Files & assets]
+      operationId: getFileContent
+      summary: Download a file's bytes
+      description: The raw bytes, served only to viewers allowed to see the asset. Public assets may redirect (302) to a storage/CDN URL.
+      security: [{}, { bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/AssetRef"
+      responses:
+        "200":
+          description: The file bytes.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "302": { description: Redirect to the public storage URL. }
+        "403": { description: Not visible to you. }
+        "404": { description: No such asset. }
+
+  /assets/{ref}:
+    get:
+      tags: [Files & assets]
+      operationId: getAsset
+      summary: Get an asset's metadata and provenance
+      description: |
+        JSON metadata for any media asset (generated or uploaded): kind, size,
+        duration, `metadata`, a browser `url`, the request that produced it,
+        and `derived_from`/`derivatives` provenance links. Same visibility
+        rule as `/files/{ref}`. Use the `url` (or `/files/{ref}/content`) to
+        fetch the bytes.
+      security: [{}, { bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/AssetRef"
+      responses:
+        "200":
+          description: The asset.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaAsset" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+
+  # ---------------------------------------------------------------- Studio
+  /studio/voices:
+    get:
+      tags: [Studio]
+      operationId: listStudioVoices
+      summary: Voices available to the narration studio
+      description: The TTS/voice models on your own online providers (`voice_cloning` marks Dia-style cloners) and your voice samples. Full members only.
+      responses:
+        "200":
+          description: Voices and samples.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  voices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        model: { type: string, description: "The provider's served model name (not necessarily the /models slug)." }
+                        label: { type: string }
+                        provider: { type: string }
+                        voice_cloning: { type: boolean }
+                  samples:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        name: { type: string }
+                        has_transcript: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /episodes:
+    get:
+      tags: [Studio]
+      operationId: listEpisodes
+      summary: List your narration episodes
+      description: Your episodes (summaries).
+      responses:
+        "200":
+          description: Episodes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/EpisodeSummary" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Studio]
+      operationId: createEpisode
+      summary: Create an empty episode
+      description: Creates an episode. Add segments with `POST /episodes/{id}/segments`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, maxLength: 200 }
+                description: { type: string }
+      responses:
+        "201":
+          description: The episode.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Episode" }
+        "400": { $ref: "#/components/responses/BadRequestDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /episodes/from-text:
+    post:
+      tags: [Studio]
+      operationId: createEpisodeFromText
+      summary: Create an episode by splitting text into segments
+      description: Paste text. It is split into narration-sized segments (whole sentences grouped toward `target_words`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+                title: { type: string, description: "Defaults to the first segment." }
+                description: { type: string }
+                target_words: { type: integer, default: 32 }
+      responses:
+        "201":
+          description: The episode with its segments.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Episode" }
+        "400": { $ref: "#/components/responses/BadRequestDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /episodes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [Studio]
+      operationId: getEpisode
+      summary: Get an episode with segments and takes
+      description: The full studio workspace for one episode.
+      responses:
+        "200":
+          description: The episode.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Episode" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+    patch:
+      tags: [Studio]
+      operationId: updateEpisode
+      summary: Update an episode
+      description: Change title, description, or default voice (`voice_model`, `voice_sample_id`; null clears).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description: { type: string }
+                voice_model: { type: string }
+                voice_sample_id: { type: [integer, "null"] }
+      responses:
+        "200":
+          description: The episode.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Episode" }
+        "400": { $ref: "#/components/responses/BadRequestDetail" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+    delete:
+      tags: [Studio]
+      operationId: deleteEpisode
+      summary: Delete an episode
+      description: Deletes the episode and its segments.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+
+  /episodes/{id}/segments:
+    post:
+      tags: [Studio]
+      operationId: createSegment
+      summary: Append a segment
+      description: Adds a segment to the end of the episode, with an optional per-segment voice. (There is no GET; segments come with `GET /episodes/{id}`.)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+                voice_sample_id: { type: integer }
+      responses:
+        "201":
+          description: The segment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Segment" }
+        "400": { $ref: "#/components/responses/BadRequestDetail" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+
+  /episodes/{id}/segments/reorder:
+    post:
+      tags: [Studio]
+      operationId: reorderSegments
+      summary: Reorder an episode's segments
+      description: Sets each listed segment's position to its index in `order`. Ids not in the episode are ignored.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order]
+              properties:
+                order: { type: array, items: { type: integer } }
+      responses:
+        "200":
+          description: The episode.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Episode" }
+        "400": { $ref: "#/components/responses/BadRequestDetail" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+
+  /segments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    patch:
+      tags: [Studio]
+      operationId: updateSegment
+      summary: Edit a segment
+      description: Change `text` (the previous text is saved once in `original_text`) or `voice_sample_id` (null clears it).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+                voice_sample_id: { type: [integer, "null"] }
+      responses:
+        "200":
+          description: The segment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Segment" }
+        "400": { $ref: "#/components/responses/BadRequestDetail" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+    delete:
+      tags: [Studio]
+      operationId: deleteSegment
+      summary: Delete a segment
+      description: Removes the segment.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+
+  /segments/{id}/variants/{vid}/select:
+    post:
+      tags: [Studio]
+      operationId: selectSegmentVariant
+      summary: Choose a segment's active take
+      description: Makes a variant (take) the one that plays and exports. The segment's status becomes `ready`.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: vid
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: The segment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Segment" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+
+  /segments/{id}/process:
+    post:
+      tags: [Studio]
+      operationId: processSegment
+      summary: Clean, transcribe, trim and grade the selected take
+      description: Runs the narration pipeline on the selected take. When a worker is available it runs in the background (status `queued`, then `generating`); otherwise it runs inline. Returns the segment (202). Poll `GET /episodes/{id}`. 409 if there is no take yet.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "202":
+          description: The segment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Segment" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+        "409":
+          description: No audio take to process.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DetailError" }
+
+  /segments/{id}/regenerate:
+    post:
+      tags: [Studio]
+      operationId: regenerateSegment
+      summary: Generate a fresh take
+      description: Generates a new take with Dia (using the segment's or episode's voice sample) and runs the full pipeline on it. Optional `text` overrides the spoken line, and `seed` pins the voice. Returns the segment (202).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+                seed: { type: integer }
+      responses:
+        "202":
+          description: The segment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Segment" }
+        "400": { $ref: "#/components/responses/BadRequestDetail" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+
+  /segments/{id}/retrim:
+    post:
+      tags: [Studio]
+      operationId: retrimSegment
+      summary: Re-cut a take by removing time ranges
+      description: Rebuilds the selected take's trimmed audio by cutting out `remove` ranges (seconds on the enhanced, untrimmed timeline). Runs inline.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remove:
+                  type: array
+                  items:
+                    type: array
+                    minItems: 2
+                    maxItems: 2
+                    items: { type: number }
+            example: { remove: [[1.2, 1.9], [4.0, 4.4]] }
+      responses:
+        "200":
+          description: The segment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Segment" }
+        "400": { $ref: "#/components/responses/BadRequestDetail" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundDetail" }
+        "409":
+          description: No take to trim.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DetailError" }
 
 components:
   securitySchemes:
@@ -478,6 +2124,31 @@ components:
       scheme: bearer
       description: "Your API key from Dashboard → Settings → Token, sent as `Authorization: Bearer <key>`."
 
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    StepIdPath:
+      name: step_id
+      in: path
+      required: true
+      schema: { type: string }
+      description: The step's `id` from the workflow spec.
+    AssetRef:
+      name: ref
+      in: path
+      required: true
+      schema: { type: string }
+      description: The asset's opaque `public_id` or its integer `id`.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string }
+      description: When the request is queued, a repeat with the same key returns the existing job instead of creating another.
+
   headers:
     RateLimitLimit:
       description: Requests allowed in the current window.
@@ -485,95 +2156,458 @@ components:
     RateLimitRemaining:
       description: Requests remaining in the current window.
       schema: { type: integer }
+    RateLimitReset:
+      description: Seconds until the window resets.
+      schema: { type: integer }
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema: { type: integer }
+    XInferenceRequestId:
+      description: The stored inference request id (same id space as `/jobs/{id}`).
+      schema: { type: string }
+    XAssetId:
+      description: The stored output asset's id.
+      schema: { type: string }
+    XAssetUrl:
+      description: A browser URL for the stored output asset.
+      schema: { type: string }
+
+  requestBodies:
+    WorkflowUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name: { type: string, maxLength: 160 }
+              description: { type: string, maxLength: 2000 }
+              spec: { $ref: "#/components/schemas/WorkflowSpec" }
 
   responses:
     Unauthorized:
-      description: Missing or invalid API key.
+      description: Missing or invalid API key (DRF `detail` shape).
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-          example: { error: { message: "Authentication credentials were not provided.", type: "not_authenticated" } }
+          schema: { $ref: "#/components/schemas/DetailError" }
+          example: { detail: "Authentication credentials were not provided." }
+    Forbidden:
+      description: Not allowed (for example not a full member, or not your asset).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/DetailError" }
+    ForbiddenEnvelope:
+      description: 'The resource belongs to someone else (`type: forbidden`).'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    NotFound:
+      description: 'No such resource (`type: not_found`).'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    NotFoundDetail:
+      description: No such resource (DRF `detail` shape).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/DetailError" }
+    BadRequestDetail:
+      description: Invalid input (DRF `detail` shape).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/DetailError" }
+    Conflict:
+      description: 'The action doesn''t apply in the current state (`type: conflict`).'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    ServicesUnavailable:
+      description: 'You can''t currently reach a service type the workflow needs (`type: services_unavailable`).'
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ErrorEnvelope"
+              - type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      missing: { type: array, items: {}, description: "The missing service types/labels." }
     NoProvider:
-      description: No online provider serves the requested model for you.
+      description: 'No online provider you can use serves the requested model (`type: no_provider`). With `async:"auto"`, a known model whose provider is offline is queued instead.'
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
           example: { error: { message: "No online provider serving model 'x' for this user.", type: "no_provider" } }
     BadRequest:
-      description: The request was malformed (e.g. missing a required field).
+      description: |
+        Malformed request. Types include `invalid_request`, `missing_input`,
+        `missing_prompt`, `missing_url`, `missing_file`, `invalid_options`,
+        `invalid_script`, `invalid_voice_sample`, `missing_transcript`,
+        `audio_decode_failed`, `too_many_images`, `invalid_kind`,
+        `invalid_spec`, `missing_api_key`.
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
     TooLarge:
-      description: The request exceeded a size limit.
+      description: A size limit was exceeded (`request_too_large` / `file_too_large`).
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
     UnsupportedMedia:
-      description: The uploaded file type isn't supported.
+      description: The uploaded file type isn't supported (`unsupported_media_type`).
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
     UpstreamError:
-      description: The provider's local server failed or didn't respond.
+      description: The provider failed or didn't respond (`upstream_error`). Provider error bodies and statuses are otherwise passed through.
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    AsyncDisabled:
+      description: Async processing is disabled on this server (`async_disabled`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    RateLimited:
+      description: Per-user rate limit hit (DRF throttle). Wait `Retry-After` seconds.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/DetailError" }
+          example: { detail: "Request was throttled. Expected available in 12 seconds." }
+    RateLimitedOrAtCapacity:
+      description: |
+        Either the per-user rate limit (`{"detail": ...}`), or the target GPU is
+        at capacity (`{"error": {"type": "at_capacity", "retry_after": N}}`).
+        Both set `Retry-After`. For capacity you can resend with
+        `async: "auto"` to queue instead.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/AtCapacityError"
+              - $ref: "#/components/schemas/DetailError"
+          example: { error: { message: "All GPU slots for 'ltx-2' are busy.", type: at_capacity, retry_after: 30 } }
+    Queued:
+      description: Queued as an async job. Poll `poll_url` (`GET /jobs/{id}`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/JobEnvelope" }
+          example:
+            id: "4312"
+            object: inference.job
+            status: QUEUED
+            inference_type: VIDEO
+            model: ltx-2
+            created: 1780266332
+            queued_at: "2026-11-08T12:00:00+00:00"
+            poll_url: /v1/jobs/4312
+            queued_reason: at_capacity
+    AudioOrResult:
+      description: Raw audio bytes (default), or an `InferenceResult` JSON when `delivery` is `url`.
+      headers:
+        X-Inference-Request-Id: { $ref: "#/components/headers/XInferenceRequestId" }
+        X-Asset-Id: { $ref: "#/components/headers/XAssetId" }
+        X-Asset-Url: { $ref: "#/components/headers/XAssetUrl" }
+      content:
+        audio/wav:
+          schema: { type: string, format: binary }
+        audio/ogg:
+          schema: { type: string, format: binary }
+        audio/mpeg:
+          schema: { type: string, format: binary }
+        audio/flac:
+          schema: { type: string, format: binary }
+        application/json:
+          schema: { $ref: "#/components/schemas/InferenceResult" }
 
   schemas:
-    Error:
+    # --- errors ---------------------------------------------------------
+    ErrorEnvelope:
       type: object
+      required: [error]
       properties:
         error:
           type: object
+          required: [message]
           properties:
             message: { type: string }
-            type: { type: string }
+            type: { type: string, description: "Machine-readable error type, e.g. no_provider, at_capacity, upstream_error." }
+          additionalProperties: true
+    Error:
+      $ref: "#/components/schemas/ErrorEnvelope"
+    AtCapacityError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message, type, retry_after]
+          properties:
+            message: { type: string }
+            type: { type: string, const: at_capacity }
+            retry_after: { type: integer, description: "Seconds; same as the Retry-After header." }
+    DetailError:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+
+    # --- request extensions --------------------------------------------
+    Visibility:
+      type: string
+      enum: [PUBLIC, UNLISTED, PRIVATE, SECRET]
+      description: "PUBLIC = everyone; UNLISTED = anyone with the link; PRIVATE = members only; SECRET = only you."
+    AsyncMode:
+      description: "`true` = always queue (202); `false`/omitted = synchronous; `\"auto\"` = run now if a slot is free, else queue (also queues when the provider is momentarily offline)."
+      oneOf:
+        - type: boolean
+        - type: string
+          enum: [auto]
+    Delivery:
+      type: string
+      enum: [bytes, url]
+      default: bytes
+      description: "`bytes` = raw media body; `url` = JSON InferenceResult with stored-asset URLs."
+    AsyncExtensions:
+      type: object
+      properties:
+        async: { $ref: "#/components/schemas/AsyncMode" }
+        visibility: { $ref: "#/components/schemas/Visibility" }
+        collection: { type: string, description: "Collection name to file the request into (created on first use)." }
+    DeliveryExtension:
+      type: object
+      properties:
+        delivery: { $ref: "#/components/schemas/Delivery" }
+
+    # --- jobs / results -------------------------------------------------
+    JobStatus:
+      type: string
+      enum: [REQUESTED, QUEUED, PROCESSING, PROCESSED, FAILED, CANCELED, SAVED]
+    InferenceType:
+      type: string
+      enum: [LLM, STT, TTS, IMAGE, MESH, MUSIC, VIDEO, SCRAPE, RENDER, ENHANCE, VOICE, TRIM]
+    JobEnvelope:
+      type: object
+      required: [id, object, status, inference_type, model, created, poll_url, queued_reason]
+      properties:
+        id: { type: string, description: "Job id (also the inference request id); use with /jobs/{id}." }
+        object: { type: string, const: inference.job }
+        status: { $ref: "#/components/schemas/JobStatus" }
+        inference_type: { $ref: "#/components/schemas/InferenceType" }
+        model: { type: string }
+        created: { type: integer, description: Unix seconds. }
+        queued_at: { type: [string, "null"], format: date-time }
+        poll_url: { type: string, example: /v1/jobs/4312 }
+        queued_reason:
+          type: string
+          enum: [requested, at_capacity, no_provider]
+          description: "Why you got a job: you sent `async:true`, or `auto` found the device busy / provider offline."
+    MediaItem:
+      type: object
+      required: [id, kind, url]
+      properties:
+        id: { type: integer, description: Asset id. }
+        kind: { type: string, enum: [image, audio, video, model, document] }
+        url: { type: [string, "null"] }
+        content_type: { type: [string, "null"] }
+        duration_seconds: { type: [number, "null"] }
+    InferenceResult:
+      type: object
+      description: Returned by binary endpoints when `delivery` is `url`.
+      required: [object, id, inference_type, model, status, created, data]
+      properties:
+        object: { type: string, const: inference.result }
+        id: { type: string, description: "Inference request id (same id space as /jobs/{id})." }
+        public_id: { type: [string, "null"] }
+        inference_type: { $ref: "#/components/schemas/InferenceType" }
+        model: { type: string }
+        status: { type: string, const: PROCESSED }
+        created: { type: integer }
+        data: { type: array, items: { $ref: "#/components/schemas/MediaItem" } }
+    ProviderMini:
+      type: [object, "null"]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        owner_handle: { type: [string, "null"] }
+        is_online: { type: boolean }
+    HostInfo:
+      type: object
+      properties:
+        host_id: { type: [string, "null"] }
+        hostname: { type: string }
+        provider_id: { type: [integer, "null"] }
+        gpus:
+          type: array
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              model: { type: string }
+              vram_gb: { type: [number, "null"] }
+        gpu: { type: [object, "null"], description: "The specific GPU used, when known ({index, model})." }
+      additionalProperties: true
+    Job:
+      type: object
+      description: |
+        An inference request with its queue lifecycle. Note `id` is an integer
+        here (the envelope's `id` is the same value as a string). Media
+        fields are null/empty when they don't apply to the job's
+        `inference_type`.
+      properties:
+        id: { type: integer }
+        public_id: { type: string }
+        inference_type: { $ref: "#/components/schemas/InferenceType" }
+        status: { $ref: "#/components/schemas/JobStatus" }
+        model_name: { type: string }
+        provider: { $ref: "#/components/schemas/ProviderMini" }
+        owner: { type: string }
+        github_login: { type: [string, "null"] }
+        is_owner: { type: boolean }
+        visibility: { $ref: "#/components/schemas/Visibility" }
+        share_token: { type: [string, "null"] }
+        star_count: { type: integer }
+        is_starred: { type: boolean }
+        is_bookmarked: { type: boolean }
+        is_featured: { type: boolean }
+        latency_ms: { type: [integer, "null"] }
+        gpu_label: { type: [string, "null"] }
+        host: { $ref: "#/components/schemas/HostInfo" }
+        usage:
+          type: [object, "null"]
+          properties:
+            prompt_tokens: { type: [integer, "null"] }
+            completion_tokens: { type: [integer, "null"] }
+            total_tokens: { type: [integer, "null"] }
+        audio_seconds: { type: [number, "null"], description: "Audio duration (also used as video duration)." }
+        audio_url: { type: [string, "null"], description: "Input audio (STT), owner only." }
+        output_audio_url: { type: [string, "null"], description: "TTS / music / voice / enhance output." }
+        image_count: { type: [integer, "null"] }
+        image_urls: { type: array, items: { type: string }, description: "IMAGE outputs." }
+        input_image_url: { type: [string, "null"] }
+        input_image_urls: { type: array, items: { type: string } }
+        model_url: { type: [string, "null"], description: "MESH output (GLB)." }
+        mesh: { type: [object, "null"], description: "MESH stats (seed, vertices, faces, timing_sec)." }
+        video_url: { type: [string, "null"], description: "VIDEO / RENDER output (MP4)." }
+        video: { type: [object, "null"], description: "VIDEO stats: seconds, width, height, fps, num_frames, seed." }
+        cover_image_url: { type: [string, "null"] }
+        prompt_preview: { type: string }
+        response_preview: { type: string, description: "Truncated (280 chars); use output_text for the full text." }
+        output_text: { type: [string, "null"], description: "Full LLM assistant text; null for non-text jobs." }
+        media: { type: array, items: { $ref: "#/components/schemas/MediaItem" }, description: "Every output asset." }
+        message_count: { type: integer }
+        streamed: { type: boolean }
+        has_reasoning: { type: boolean }
+        created_on: { type: string, format: date-time }
+        modified_on: { type: string, format: date-time }
+        is_async: { type: boolean }
+        queued_at: { type: [string, "null"], format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        run_after: { type: [string, "null"], format: date-time, description: "Earliest next attempt (backoff)." }
+        attempts: { type: integer }
+        max_attempts: { type: integer }
+        priority: { type: integer }
+        error: { description: "Failure details (object or null)." }
+        batch_id: { type: [integer, "null"] }
+        step_run_id: { type: [integer, "null"] }
+    Batch:
+      type: object
+      properties:
+        id: { type: integer }
+        label: { type: string }
+        status: { type: string, enum: [EMPTY, RUNNING, DONE, FAILED, PARTIAL] }
+        counts: { type: object, additionalProperties: { type: integer }, description: "Job count per JobStatus." }
+        created_on: { type: string, format: date-time }
+        jobs: { type: array, items: { $ref: "#/components/schemas/Job" } }
+    CapacityEntry:
+      type: object
+      required: [model, service_type, provider, in_flight, max_concurrent, queued, available]
+      properties:
+        model: { type: string, description: "Model slug (as on /models)." }
+        service_type: { type: string }
+        provider: { type: string }
+        in_flight: { type: integer }
+        max_concurrent: { type: integer }
+        queued: { type: integer }
+        resource_group: { type: [string, "null"], description: "Shared GPU group, if the service shares a device." }
+        available: { type: boolean, description: "A slot is free right now." }
+
+    # --- models / modality payloads --------------------------------------
     Model:
       type: object
+      required: [id, object, service_type]
       properties:
-        id: { type: string }
-        object: { type: string, example: model }
+        id: { type: string, description: "Use as `model` in requests." }
+        object: { type: string, const: model }
         created: { type: integer }
         owned_by: { type: string }
-        service_type: { type: string, enum: [llm, stt, image, tts, mesh], description: "Which surface this model serves." }
+        service_type:
+          type: string
+          enum: [llm, stt, tts, image, mesh, music, video, scrape, render, audio-enhance]
+          description: Which endpoint family this model serves.
         input_modalities: { type: array, items: { type: string }, example: [text] }
         output_modalities: { type: array, items: { type: string }, example: [text] }
-        supported_features: { type: array, items: { type: string }, example: [reasoning] }
-        context_length: { type: integer, nullable: true }
+        supported_features: { type: array, items: { type: string }, example: [reasoning], description: "e.g. reasoning, timestamps, voice-cloning, seed, steps, negative-prompt, transparent-background, custom-size, prompt-upsampling, layout-boxes." }
+        context_length: { type: [integer, "null"] }
+        external: { type: boolean, description: "Pinned external-provider model (BYO key)." }
+        provider: { type: string, description: "External provider slug (external models only)." }
+        provider_label: { type: string }
+        display_name: { type: string }
     ChatMessage:
       type: object
-      required: [role, content]
+      required: [role]
       properties:
-        role: { type: string, enum: [system, user, assistant] }
+        role: { type: string, enum: [system, user, assistant, tool] }
         content:
-          description: "A string, or an array of multimodal parts for vision/audio models."
+          description: |
+            A string, or an array of parts (`text`, `image_url`, `video_url`,
+            `input_audio`). A media part may carry an `asset_id` (from
+            `/files`) so the stored history references the asset instead of
+            inline base64.
           oneOf:
             - type: string
             - type: array
-              items: { type: object }
-    ChatCompletionRequest:
-      type: object
-      required: [model, messages]
-      properties:
-        model: { type: string }
-        messages: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } }
-        stream: { type: boolean, default: false }
-        temperature: { type: number, default: 0.7 }
-        top_p: { type: number }
-        max_tokens: { type: integer }
-        frequency_penalty: { type: number }
-        presence_penalty: { type: number }
-        stop:
-          oneOf:
-            - { type: string }
-            - { type: array, items: { type: string } }
+              items: { type: object, additionalProperties: true }
+            - type: "null"
+        tool_calls: { type: array, items: { type: object } }
+        tool_call_id: { type: string }
+        name: { type: string }
       additionalProperties: true
+    ChatCompletionRequest:
+      allOf:
+        - $ref: "#/components/schemas/AsyncExtensions"
+        - type: object
+          required: [model, messages]
+          properties:
+            model: { type: string, description: "An `llm` model id from /models (or `provider:model` for pinned external models)." }
+            messages: { type: array, maxItems: 200, items: { $ref: "#/components/schemas/ChatMessage" }, description: "Total input ≤ 100k characters." }
+            stream: { type: boolean, default: false }
+            temperature: { type: number }
+            top_p: { type: number }
+            max_tokens: { type: integer, description: "Clamped to the server ceiling (default 8192)." }
+            frequency_penalty: { type: number }
+            presence_penalty: { type: number }
+            stop:
+              oneOf:
+                - { type: string }
+                - { type: array, items: { type: string } }
+            response_format: { type: object, description: "OpenAI response_format (json_schema), passed through." }
+            tools: { type: array, items: { type: object }, description: "OpenAI function tools, passed through to the model." }
+            chat_template_kwargs: { type: object, description: "Passed through, e.g. `{enable_thinking:false}`." }
+          additionalProperties: true
     ChatCompletion:
       type: object
       properties:
         id: { type: string }
         object: { type: string, example: chat.completion }
+        created: { type: integer }
         model: { type: string }
         choices:
           type: array
@@ -582,13 +2616,14 @@ components:
             properties:
               index: { type: integer }
               message: { $ref: "#/components/schemas/ChatMessage" }
-              finish_reason: { type: string }
+              finish_reason: { type: [string, "null"] }
         usage:
           type: object
           properties:
             prompt_tokens: { type: integer }
             completion_tokens: { type: integer }
             total_tokens: { type: integer }
+      additionalProperties: true
     Transcription:
       type: object
       properties:
@@ -609,36 +2644,291 @@ components:
           properties:
             type: { type: string, example: duration }
             seconds: { type: number }
+        audio_asset_id: { type: integer, description: "Stored input audio asset (when stored)." }
+        audio_url: { type: string }
+      additionalProperties: true
     ImageResponse:
       type: object
       properties:
-        created: { type: integer }
+        created: { type: [integer, "null"] }
+        request_id: { type: string, description: "Stored inference request id (usable with /jobs/{id})." }
         data:
           type: array
           items:
             type: object
             properties:
-              url: { type: string, description: "inference.club asset URL (default)." }
-              b64_json: { type: string, description: "Base64 image bytes (when response_format=b64_json)." }
+              url: { type: string, description: "Stored image URL (response_format=url)." }
+              b64_json: { type: string, description: "Base64 PNG (response_format=b64_json; no url then)." }
               revised_prompt: { type: string }
     Mesh3DResponse:
       type: object
       properties:
         created: { type: integer }
-        request_id: { type: string, description: "Id of the stored inference request (view at /dashboard/inference/requests/<id>)." }
+        request_id: { type: string, description: "Stored inference request id." }
         metadata:
           type: object
-          description: "Generation stats from the provider."
+          description: Generation stats from the provider.
           properties:
             seed: { type: integer }
             resolution: { type: string }
             vertices: { type: integer }
             faces: { type: integer }
             timing_sec: { type: object, additionalProperties: { type: number } }
+          additionalProperties: true
         data:
           type: array
           items:
             type: object
             properties:
-              url: { type: string, description: "inference.club asset URL for the GLB." }
-              type: { type: string, example: model/gltf-binary }
+              url: { type: [string, "null"], description: "Stored GLB URL." }
+              type: { type: string, const: model/gltf-binary }
+    ScrapeResponse:
+      type: object
+      properties:
+        request_id: { type: string }
+        markdown: { type: string }
+        title: { type: string }
+        source_url: { type: string }
+        doc_asset_id: { type: [integer, "null"] }
+        chars: { type: integer }
+
+    # --- agent ------------------------------------------------------------
+    AgentEvent:
+      type: object
+      required: [type]
+      description: |
+        One SSE event. `reasoning`/`token`: `{delta}`. `tool_call`:
+        `{id, name, arguments}`. `tool_result`: `{id, name, ok, summary, data}`.
+        `error`: `{message}` (terminal). `done`: `{usage, messages, message}`
+        (terminal; `messages` = new messages to append to your history).
+      properties:
+        type: { type: string, enum: [reasoning, token, tool_call, tool_result, error, done] }
+      additionalProperties: true
+    AgentResult:
+      type: object
+      properties:
+        content: { type: string, description: The final answer text. }
+        tool_events: { type: array, items: { $ref: "#/components/schemas/AgentEvent" } }
+        messages: { type: array, items: { $ref: "#/components/schemas/ChatMessage" }, description: "New assistant/tool messages to append." }
+        usage: { type: object, additionalProperties: { type: integer } }
+
+    # --- files ------------------------------------------------------------
+    AssetKind:
+      type: string
+      enum: [INPUT_AUDIO, OUTPUT_AUDIO, INPUT_IMAGE, OUTPUT_IMAGE, INPUT_VIDEO, OUTPUT_MODEL, OUTPUT_VIDEO, INPUT_DOC, OUTPUT_DOC, OUTPUT_SUBTITLE]
+    MediaAsset:
+      type: object
+      properties:
+        id: { type: integer }
+        public_id: { type: string }
+        kind: { $ref: "#/components/schemas/AssetKind" }
+        visibility: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: [integer, "null"] }
+        duration_seconds: { type: [number, "null"] }
+        metadata: { type: [object, "null"], additionalProperties: true }
+        url: { type: [string, "null"], description: "Browser URL for the bytes." }
+        produced_by:
+          type: [object, "null"]
+          properties:
+            request_id: { type: integer }
+            type: { $ref: "#/components/schemas/InferenceType" }
+        derived_from:
+          type: array
+          items: { type: object, properties: { id: { type: integer }, kind: { type: string } } }
+        derivatives:
+          type: array
+          items: { type: object, properties: { id: { type: integer }, kind: { type: string } } }
+        created_on: { type: string, format: date-time }
+
+    # --- workflows ----------------------------------------------------------
+    WorkflowStep:
+      type: object
+      required: [id, kind]
+      description: |
+        One DAG node. Strings anywhere in a step can use templates:
+        `{{inputs.<name>}}`, `{{steps.<id>.output...}}`, and inside a `map`
+        body `{{item...}}` / `{{index}}`. A step runs when every referenced
+        or `depends_on` step is DONE.
+        - `inference`: one job. Set `endpoint` (for example
+          `/v1/images/generations`) or `type` (chat, llm, image, video, music,
+          tts, stt, transcribe, voice, dia, scrape, compose, render, clean,
+          enhance, trim). `body` is the request body, and `model` is optional
+          (auto-picked if omitted).
+        - `map`: one job per item of `over` (a list reference), capped at 64.
+        - `prompt`: an LLM writes a prompt for `target` (image, video, music,
+          tts, text) from `input`/`brief`. `count` > 1 yields
+          `output.prompts[]`.
+        - `transform`: inline `op` (passthrough, pluck, split_lines, join,
+          zip, split_sections, subtitle, chunk) on `input`.
+        - `collect`: gather a map step's outputs (`from`).
+        - `gate`: pause for human approve/reject.
+        `extract: json` or a `response_schema` parses LLM output as JSON.
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [inference, map, transform, collect, gate, prompt] }
+        title: { type: string }
+        endpoint: { type: string }
+        type: { type: string }
+        model: { type: string }
+        body: { type: object, additionalProperties: true }
+        over: { description: "List or template reference (map)." }
+        from: { type: string, description: "Step id (collect)." }
+        op: { type: string }
+        input: {}
+        target: { type: string }
+        count: { type: integer }
+        instructions: { type: string }
+        extract: { type: string, enum: [json] }
+        response_schema: { type: object }
+        schema_name: { type: string }
+        depends_on: { type: array, items: { type: string } }
+        priority: { type: integer }
+      additionalProperties: true
+    WorkflowSpec:
+      type: object
+      required: [steps]
+      properties:
+        name: { type: string }
+        steps: { type: array, items: { $ref: "#/components/schemas/WorkflowStep" } }
+        inputs: { type: array, items: { $ref: "#/components/schemas/WorkflowInputField" }, description: "Input form schema (saved workflows)." }
+        layout: { type: object, description: "Builder node positions (UI only)." }
+      additionalProperties: true
+    WorkflowInputField:
+      type: object
+      properties:
+        name: { type: string }
+        label: { type: string }
+        type: { type: string, enum: [text, textarea, number, select] }
+        default: {}
+        placeholder: { type: string }
+        required: { type: boolean }
+        min: { type: number }
+        max: { type: number }
+        options: { type: array, items: {} }
+    WorkflowTemplate:
+      type: object
+      properties:
+        key: { type: string }
+        title: { type: string }
+        description: { type: string }
+        icon: { type: string }
+        inputs: { type: array, items: { $ref: "#/components/schemas/WorkflowInputField" } }
+        step_count: { type: integer }
+    WorkflowStatus:
+      type: string
+      enum: [PENDING, RUNNING, AWAITING, DONE, FAILED, CANCELED, SKIPPED]
+    WorkflowStepRun:
+      type: object
+      properties:
+        id: { type: integer }
+        step_id: { type: string }
+        kind: { type: string }
+        title: { type: string }
+        depends_on: { type: array, items: { type: string } }
+        status: { $ref: "#/components/schemas/WorkflowStatus" }
+        output: { description: "The step's output (any JSON)." }
+        error: {}
+        position: { type: integer }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        jobs: { type: array, items: { $ref: "#/components/schemas/Job" } }
+    WorkflowRun:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        status: { $ref: "#/components/schemas/WorkflowStatus" }
+        inputs: { type: object, additionalProperties: true }
+        error: {}
+        created_on: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        steps: { type: array, items: { $ref: "#/components/schemas/WorkflowStepRun" } }
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              from: { type: string }
+              to: { type: string }
+    WorkflowRunSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        status: { $ref: "#/components/schemas/WorkflowStatus" }
+        created_on: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        step_count: { type: integer }
+    WorkflowSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        step_count: { type: integer }
+        run_count: { type: integer }
+        created_on: { type: string, format: date-time }
+        modified_on: { type: string, format: date-time }
+    Workflow:
+      allOf:
+        - $ref: "#/components/schemas/WorkflowSummary"
+        - type: object
+          properties:
+            spec: { $ref: "#/components/schemas/WorkflowSpec" }
+
+    # --- studio -------------------------------------------------------------
+    Variant:
+      type: object
+      description: One take of a segment.
+      properties:
+        id: { type: integer }
+        text: { type: string }
+        duration_seconds: { type: [number, "null"] }
+        words: {}
+        audio_url: { type: [string, "null"] }
+        cleaned_audio_url: { type: [string, "null"] }
+        clean_status: { type: string }
+        enhanced_audio_url: { type: [string, "null"] }
+        enhanced_duration: { type: [number, "null"] }
+        enhanced_words: {}
+        trim_intervals: {}
+        transcript: {}
+        grade: {}
+        inference_request_id: { type: [integer, "null"] }
+        created_on: { type: string, format: date-time }
+    Segment:
+      type: object
+      properties:
+        id: { type: integer }
+        position: { type: integer }
+        text: { type: string }
+        original_text: { type: string }
+        status: { type: string, enum: [pending, queued, generating, ready, flagged, error] }
+        selected_variant_id: { type: [integer, "null"] }
+        voice_sample_id: { type: [integer, "null"] }
+        voice_sample_name: { type: [string, "null"] }
+        variants: { type: array, items: { $ref: "#/components/schemas/Variant" } }
+        created_on: { type: string, format: date-time }
+        modified_on: { type: string, format: date-time }
+    EpisodeSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        description: { type: string }
+        workflow_run_id: { type: [integer, "null"] }
+        segment_count: { type: integer }
+        created_on: { type: string, format: date-time }
+        modified_on: { type: string, format: date-time }
+    Episode:
+      allOf:
+        - $ref: "#/components/schemas/EpisodeSummary"
+        - type: object
+          properties:
+            voice_model: { type: string }
+            voice_sample_id: { type: [integer, "null"] }
+            voice_sample_name: { type: [string, "null"] }
+            segments: { type: array, items: { $ref: "#/components/schemas/Segment" } }

@@ -32,9 +32,10 @@ Every ~30 seconds the agent sends a heartbeat over that outbound beacon, adverti
 When a consumer calls `/v1/chat/completions` with a given `model`, inference.club:
 
 1. Authenticates the consumer's API key.
-2. Selects the **first online provider** serving that model for the requested service type.
-3. Forwards the request over the tailnet to that provider's agent, addressing it by its MagicDNS hostname.
-4. The agent routes the request to the right in-cluster model server, and the response is streamed back to the consumer.
+2. Selects the **first online provider** serving that model for the requested service type (honoring the consumer's routing preference — own nodes only, own nodes first, or any accessible node).
+3. Takes a slot from that service's **capacity budget** (`max_concurrent`, default 1 — see [Capacity](/docs/providers/kubernetes-agent#capacity)), so your hardware never receives more concurrent requests than you declared. LLM chat is exempt on the direct path.
+4. Forwards the request over the tailnet to that provider's agent, dialing the tailnet IP the agent reports in its heartbeat (falling back to its MagicDNS hostname for older agents).
+5. The agent routes the request to the right in-cluster model server, and the response is streamed back to the consumer.
 
 ::callout{type="note"}
 For the full end-to-end request path — authentication, provider selection, the tailnet hop, and routing inside the cluster — see [Architecture overview](/docs/architecture/overview).

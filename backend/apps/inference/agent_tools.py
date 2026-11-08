@@ -251,12 +251,33 @@ def _run_generation(ctx, *, inference_type, service_type, payload, noun, preferr
         )
     slug = _model_slug(pm)
     payload = {**payload, "model": slug}
+    from django.conf import settings as _settings
+
+    from .capacity import claim_existing
+
     ir = InferenceRequest.objects.create(
         user=ctx.user, provider=pm.provider, model_name=slug,
-        inference_type=inference_type, payload=payload, status="PROCESSING",
+        inference_type=inference_type, payload=payload, status="QUEUED",
     )
+    # Share the device's capacity budget with every other caller: wait for a
+    # slot instead of stacking another job onto a busy GPU.
+    if not claim_existing(ir, pm, wait_seconds=getattr(
+            _settings, "AGENT_TOOL_CAPACITY_WAIT_SECONDS", 90)):
+        ir.status = "FAILED"
+        ir.results = {"error": "Device busy (at capacity)."}
+        ir.save(update_fields=["status", "results", "modified_on"])
+        return ToolResult(
+            text=(f"The {noun}-generation device is busy with other requests right now. "
+                  "Tell the user and offer to try again shortly."),
+            ok=False,
+        )
+    from .capacity import end_lease
+
     runner = _RETRY_RUNNERS.get(inference_type)
-    ok, err = runner(ir, pm)
+    try:
+        ok, err = runner(ir, pm)
+    finally:
+        end_lease(ir)
     if not ok:
         return ToolResult(text=f"{noun.capitalize()} generation failed: {err}", ok=False)
 

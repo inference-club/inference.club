@@ -39,6 +39,7 @@ curl https://api.inference.club/v1/voice/generations \
 | `speed_factor` | number | 0.5–2.0, default 1.0. Speaking rate. |
 | `max_new_tokens` | integer | 256–4096, default 3072. |
 | `seed` | integer | Fixed seed for reproducibility. Omit (or `-1`) for random. |
+| `delivery` | string | `bytes` (default) or `url` — see [below](#getting-a-url-instead-of-bytes). |
 
 Also accepts the [`visibility` and `collection` sharing fields](/docs/sharing).
 
@@ -72,7 +73,28 @@ If a sample has no transcript, the request is rejected — Dia needs the transcr
 
 ## Response
 
-The finished audio as `audio/wav` bytes. The request is stored in your dashboard and visible in **Dashboard → Queue** (or history). Output is a WAV of whatever length the dialogue requires.
+The finished audio as `audio/wav` bytes, as long as the dialogue requires. The request is stored in your dashboard history.
+
+This endpoint is **synchronous only** — it doesn't accept `async`. In a [workflow](/docs/api/workflows), a `voice` step runs Dia through the job queue.
+
+## Getting a URL instead of bytes
+
+Add `"delivery": "url"` to get JSON instead of the raw file — easier for agents and scripts that only need a link:
+
+```json
+{
+  "object": "inference.result",
+  "id": "8812",
+  "public_id": "kQ3v9xZp1aE",
+  "inference_type": "VOICE",
+  "model": "dia",
+  "status": "PROCESSED",
+  "created": 1780266332,
+  "data": [{ "id": 551, "kind": "audio", "url": "https://…", "content_type": "audio/wav", "duration_seconds": 8.1 }]
+}
+```
+
+With the default `"delivery": "bytes"`, the response headers still name the stored copy: `X-Inference-Request-Id` (pollable at `GET /v1/jobs/<id>`), `X-Asset-Id`, and `X-Asset-Url`.
 
 ## Errors
 
@@ -85,10 +107,26 @@ The finished audio as `audio/wav` bytes. The request is stored in your dashboard
 | `audio_decode_failed` | A voice sample's audio couldn't be decoded | 400 |
 | `request_too_large` | Input text over the character limit | 413 |
 | `no_provider` | No online voice-cloning provider available | 404 |
+| `at_capacity` | Every slot on the device is busy (after a ~20s wait). Honor `Retry-After` | 429 |
 | `upstream_error` | The Dia server failed | 502 |
 
 ## Managing voice samples
 
-List, upload, and delete voice samples through the dashboard UI (Dashboard → Voice library). Each sample has a `speaker_name` and an optional `is_default` flag; the default sample is pre-selected in the Voice playground.
+Manage samples in the dashboard (**Dashboard → Voice library**) or over the API with the same Bearer key (these live under `/api/inference/`, not `/v1`):
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/inference/voice-samples/` | List your samples — `id` is what `speakers` takes. |
+| `POST` | `/api/inference/voice-samples/` | Upload one: multipart `audio` file plus optional `speaker_name`, `transcript`, `label`, `language`, `is_default`. With no `transcript`, one is auto-filled via your STT service if you have one. |
+| `GET` / `PATCH` / `DELETE` | `/api/inference/voice-samples/<id>/` | Read, edit (transcript, label, language, speaker, default), or delete a sample. |
+| `POST` | `/api/inference/voice-samples/<id>/transcribe/` | Re-run STT on the sample and store the transcript. |
+
+```bash
+curl https://api.inference.club/api/inference/voice-samples/ \
+  -H "Authorization: Bearer $INFERENCE_CLUB_KEY" \
+  -F audio=@me.wav -F speaker_name="Brian" -F transcript="Hi, this is a short sample of my voice."
+```
+
+Each sample has a `speaker_name` and an optional `is_default` flag; the default sample is pre-selected in the Voice playground.
 
 You can also record directly in the browser — the recording is stored as webm/opus and transcoded to WAV on the backend before being sent to Dia.

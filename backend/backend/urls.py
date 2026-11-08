@@ -19,6 +19,7 @@ from django.contrib import admin
 from django.urls import include, path
 
 from apps.core.views import healthz, readyz
+from apps.inference.mcp_server import MCPView
 from apps.inference.views import OpenAPISchemaView
 
 urlpatterns = [
@@ -37,6 +38,9 @@ urlpatterns = [
     path("api/admin/", include("apps.accounts.staff_urls")),
     # Public OpenAPI spec for the OpenAI-compatible /v1 API (powers the docs
     # page and is importable by external tools).
+    # Remote MCP server (Model Context Protocol, Streamable HTTP, Bearer auth).
+    path("mcp", MCPView.as_view(), name="mcp"),
+    path("mcp/", MCPView.as_view()),
     path("openapi.json", OpenAPISchemaView.as_view(), name="openapi-json"),
     path("openapi.yaml", OpenAPISchemaView.as_view(as_yaml=True), name="openapi-yaml"),
 ]

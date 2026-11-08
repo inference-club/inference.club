@@ -168,6 +168,49 @@ Everything else is **derived, not declared**:
 A service with no running pod is simply left out — the manifest reports what's
 actually serving. Scale a Deployment back up and it reappears on the next poll.
 
+## Capacity
+
+inference.club never sends a service more concurrent requests than it says it
+can handle. Two manifest fields control that:
+
+- `hosts[].services[].max_concurrent` — how many requests this service runs at once.
+  Defaults to **1**, which is right for most single-GPU media servers (image,
+  video, music, TTS, 3D).
+- `resource_groups` (top level) + `hosts[].services[].resource_group` — services that
+  share one physical GPU join a named group whose own `max_concurrent` caps
+  them *together*, so a TTS server and an image server on the same card don't
+  both run at once.
+
+```yaml
+resource_groups:
+  gpu0: { max_concurrent: 1 }   # one job at a time across everything on this card
+hosts:
+  - id: a1
+    services:
+      - name: flux
+        type: image
+        max_concurrent: 1
+        resource_group: gpu0
+      - name: magpie
+        type: tts
+        max_concurrent: 2
+        resource_group: gpu0
+```
+
+The budget is enforced for **every** path that reaches the service — direct
+`/v1` calls, async jobs, batches, workflow steps, playground agent tools, and
+retries. When it's full, direct callers wait briefly and then get
+`429 at_capacity`, while queued work waits its turn (see
+[Direct vs async → Capacity](/docs/services/direct-vs-async#capacity)). LLM
+services aren't gated on the direct path because LLM servers batch concurrent
+requests internally; async LLM jobs still respect `max_concurrent`.
+
+::callout{type="limitation" title="Not yet settable via labels"}
+Kubernetes discovery doesn't read a `max_concurrent` or `resource_group`
+label/annotation yet, so every discovered service runs with the defaults:
+`max_concurrent: 1` and no shared group.
+::
+
 ## 4. Verify
 
 ```bash
