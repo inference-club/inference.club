@@ -56,6 +56,14 @@ export const stackConfig = {
     tailscaleStaticAuthkey: pulumi
         .output(cfg.getSecret("tailscaleStaticAuthkey"))
         .apply((v) => v ?? ""),
+    // OAuth client (preferred over the static key — never expires; the
+    // backend mints per-registration ephemeral keys with it).
+    tailscaleOauthClientId: pulumi
+        .output(cfg.getSecret("tailscaleOauthClientId"))
+        .apply((v) => v ?? ""),
+    tailscaleOauthClientSecret: pulumi
+        .output(cfg.getSecret("tailscaleOauthClientSecret"))
+        .apply((v) => v ?? ""),
     tailscaleWebAuthkey: pulumi
         .output(cfg.getSecret("tailscaleWebAuthkey"))
         .apply((v) => v ?? ""),

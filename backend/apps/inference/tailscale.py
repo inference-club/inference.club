@@ -52,9 +52,11 @@ def _mint_via_oauth(provider) -> MintedKey:
     token_resp.raise_for_status()
     access = token_resp.json()["access_token"]
 
-    tailnet = settings.TAILSCALE_TAILNET or "-"
+    # Always "-" (the OAuth client's own tailnet). TAILSCALE_TAILNET holds the
+    # MagicDNS name used to build agent FQDNs (e.g. "tailXXXX"), which the
+    # keys API does not necessarily accept as a tailnet identifier.
     resp = requests.post(
-        f"https://api.tailscale.com/api/v2/tailnet/{tailnet}/keys",
+        "https://api.tailscale.com/api/v2/tailnet/-/keys",
         headers={"Authorization": f"Bearer {access}"},
         json={
             "capabilities": {

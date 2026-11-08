@@ -15,21 +15,18 @@ GUNICORN_WORKERS=3
 
 # Tailscale: lets the server reach provider agents over the inference.club
 # tailnet. TAILSCALE_TAILNET is the tailnet name (without .ts.net) used to
-# build agent FQDNs; STATIC_AUTHKEY is the bootstrap key handed to every
-# registering agent.
+# build agent FQDNs. Agents get their join key from the backend on register:
+#   - OAUTH_CLIENT_ID/SECRET (preferred): the backend mints a fresh one-shot,
+#     ephemeral, tagged key per registration. OAuth clients don't expire, and
+#     ephemeral devices self-reap, so stale club-host-1-N devices don't pile up.
+#   - STATIC_AUTHKEY (fallback): one reusable key handed to every agent.
+#     Tailscale auth keys expire after <=90 days, so this silently breaks
+#     agent (re)joins once it lapses — which is what took prod down in 2026.
 TAILSCALE_TAILNET=__TAILSCALE_TAILNET__
+TAILSCALE_OAUTH_CLIENT_ID=__TAILSCALE_OAUTH_CLIENT_ID__
+TAILSCALE_OAUTH_CLIENT_SECRET=__TAILSCALE_OAUTH_CLIENT_SECRET__
 TAILSCALE_STATIC_AUTHKEY=__TAILSCALE_STATIC_AUTHKEY__
 TAILSCALE_HOST_TAG=tag:club-host
-
-# Object storage (MinIO) for media — legacy fallback during the GCS
-# migration. When the GCS_* vars below are set the backend ignores these;
-# keep them (and the minio service) until the GCS cutover is verified, then
-# remove both.
-OBJECT_STORAGE_BUCKET=inference-club-media
-OBJECT_STORAGE_ENDPOINT=http://minio:9000
-OBJECT_STORAGE_ACCESS_KEY=inferenceclub
-OBJECT_STORAGE_SECRET_KEY=__MINIO_ROOT_PASSWORD__
-OBJECT_STORAGE_REGION=us-east-1
 
 # Google Cloud Storage for media. Public asset kinds (generated images/
 # audio/video/3D, input images) land in the public bucket and are served to

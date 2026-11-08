@@ -81,7 +81,6 @@ export function deploy(
         BACKEND_IMAGE: stackConfig.backendImage,
         FRONTEND_IMAGE: stackConfig.frontendImage,
         POSTGRES_PASSWORD: postgresPassword.result,
-        MINIO_ROOT_PASSWORD: minioPassword.result,
         DOMAIN: stackConfig.domain,
         TAILSCALE_WEB_AUTHKEY: stackConfig.tailscaleWebAuthkey,
     });
@@ -97,7 +96,8 @@ export function deploy(
         GITHUB_OAUTH_CLIENT_SECRET: stackConfig.githubOauthClientSecret,
         TAILSCALE_TAILNET: stackConfig.tailscaleTailnet,
         TAILSCALE_STATIC_AUTHKEY: stackConfig.tailscaleStaticAuthkey,
-        MINIO_ROOT_PASSWORD: minioPassword.result,
+        TAILSCALE_OAUTH_CLIENT_ID: stackConfig.tailscaleOauthClientId,
+        TAILSCALE_OAUTH_CLIENT_SECRET: stackConfig.tailscaleOauthClientSecret,
         DOMAIN: stackConfig.domain,
         GCS_PUBLIC_BUCKET: media.publicBucket,
         GCS_PRIVATE_BUCKET: media.privateBucket,
