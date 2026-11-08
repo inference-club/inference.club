@@ -17,8 +17,13 @@ mode.
 """
 from dataclasses import dataclass
 
+import logging
+import re
+
 import requests
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,10 +36,16 @@ def mint_authkey_for_provider(provider) -> MintedKey:
     if settings.TAILSCALE_OAUTH_CLIENT_ID and settings.TAILSCALE_OAUTH_CLIENT_SECRET:
         try:
             return _mint_via_oauth(provider)
-        except Exception:
+        except Exception as exc:
             # Fall through to the static-key fallback so a misconfigured
-            # OAuth client doesn't permanently brick registration.
-            pass
+            # OAuth client doesn't permanently brick registration — but say
+            # so loudly, or an expired static key looks like a tsnet bug.
+            detail = getattr(getattr(exc, "response", None), "text", "")[:300]
+            logger.error(
+                "Tailscale OAuth key mint failed for provider %s; falling back "
+                "to TAILSCALE_STATIC_AUTHKEY: %s %s",
+                provider.id, exc, detail,
+            )
     if settings.TAILSCALE_STATIC_AUTHKEY:
         return MintedKey(authkey=settings.TAILSCALE_STATIC_AUTHKEY)
     return MintedKey(authkey="")
@@ -70,9 +81,18 @@ def _mint_via_oauth(provider) -> MintedKey:
                 }
             },
             "expirySeconds": 900,
-            "description": f"club-host-{provider.id} ({provider.user.email})",
+            "description": _key_description(provider),
         },
         timeout=10,
     )
     resp.raise_for_status()
     return MintedKey(authkey=resp.json()["key"])
+
+
+def _key_description(provider) -> str:
+    """Tailscale rejects descriptions with characters outside [A-Za-z0-9 -_]
+    (an email's "@" or parentheses -> 400 "description had invalid
+    characters") and caps them at 50 chars."""
+    handle = getattr(provider.user, "handle", "") or getattr(provider.user, "username", "")
+    desc = f"club-host-{provider.id} {handle}".strip()
+    return re.sub(r"[^A-Za-z0-9 _-]", "-", desc)[:50]
