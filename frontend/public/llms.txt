@@ -1,64 +1,72 @@
 # inference.club
 
-> A community-run inference network. Members run agents on their own hardware that expose local AI model servers. Other members call those models through a single OpenAI-compatible API.
+> A community-run inference network with an OpenAI-compatible API. Members run an agent on their own GPUs (Kubernetes) that exposes local model servers; members call those models — LLM, image, video, music, speech, transcription, voice cloning, 3D, scrape — through one API. Devices are real, mostly single-GPU machines: be gentle with concurrency.
 
-## What it is
+Base URL: https://api.inference.club/v1
+Auth: `Authorization: Bearer <api-key>` (key from https://inference.club/dashboard/settings/token)
+OpenAPI spec: https://api.inference.club/openapi.json
 
-inference.club is a peer-to-peer inference network with an OpenAI-compatible API surface. You can:
-- **Use** models that other members (or you) are serving, via standard OpenAI SDKs
-- **Serve** models from your own hardware by running `inference-club-agent` and registering it
+## Recommended agent pattern
 
-## Base URL
+1. `GET /v1/models` → pick a model by `service_type` (llm, image, tts, music, video, stt, audio-enhance, mesh, scrape). Check `supported_features` (e.g. `streaming`, `tools`, `voice-cloning`, `timestamps`). Only online models are listed — re-list instead of caching ids.
+2. POST with `"async": "auto"` and, on audio/video endpoints, `"delivery": "url"`. Send an `Idempotency-Key` header and reuse it on retries.
+3. `200` → result inline. `202` → a job envelope `{id, object:"inference.job", status:"QUEUED", poll_url:"/v1/jobs/<id>", queued_reason: requested|at_capacity|no_provider, ...}`; poll `poll_url` with backoff 3s → 15s until status is `PROCESSED`, `FAILED` or `CANCELED`.
+4. Read the finished job's `output_text` (LLM / transcript / scrape text) or `media[]` = `{id, kind: image|audio|video|model|document, url, content_type, duration_seconds}`. Failed jobs carry `error: {message, kind, attempt}`. There is no `result_url` field.
+5. `429` with `{"error":{"type":"at_capacity","retry_after":N}}` = that model's GPU is busy: wait `Retry-After`, resubmit (or use async). `429` with `{"detail": ...}` = your account rate limit (default 60 req/min).
+6. Keep ≤ 2 media requests in flight per device. `GET /v1/capacity` lists `{model, service_type, provider, in_flight, max_concurrent, queued, resource_group, available}`.
 
-```
-https://api.inference.club/v1
-```
+## `async` values
 
-Auth: `Authorization: Bearer <api-key>`
+- omitted/false: synchronous. Busy media devices wait ~20s server-side, then `429 at_capacity`.
+- `true`: always queue → 202.
+- `"auto"`: run now if a slot is free, else queue → 202. Also queues (up to 1h) when a known model's provider is briefly offline, instead of `404 no_provider`.
 
-## Supported modalities
+Async-capable: chat/completions, completions, images/generations, videos/generations, music/generations, audio/speech, scrape. Sync-only: audio/transcriptions, audio/enhance, images/edits, 3d/generations (multipart) and voice/generations. LLM chat is not capacity-gated on the sync path.
 
-| Endpoint | Modality |
-|---|---|
-| POST /v1/chat/completions | LLM chat (streaming supported) |
-| POST /v1/completions | Legacy text completions |
-| POST /v1/audio/transcriptions | Speech-to-text (STT/ASR) |
-| POST /v1/audio/speech | Text-to-speech (TTS) |
-| POST /v1/images/generations | Image generation |
-| POST /v1/images/edits | Image editing (multipart) |
-| POST /v1/music/generations | Music generation (ACE-Step) |
-| POST /v1/videos/generations | Video generation (LTX-2) |
-| POST /v1/voice/generations | Voice cloning (Dia, multi-speaker) |
-| POST /v1/3d/generations | 3D mesh generation |
+## Endpoints
 
-## Model discovery
+| Endpoint | Body | Sync response |
+|---|---|---|
+| GET /v1/models | — | model list with capabilities |
+| POST /v1/chat/completions | JSON | chat.completion, or SSE with `stream: true` |
+| POST /v1/completions | JSON | text_completion |
+| POST /v1/images/generations | JSON | `{data:[{url}]}` (`response_format: b64_json` also inlines bytes) |
+| POST /v1/images/edits | multipart `image` (≤10), `prompt`, `model` | `{data:[{url}]}` |
+| POST /v1/audio/speech | JSON `{model, input, voice}` | audio bytes, or `delivery:"url"` JSON |
+| GET /v1/audio/voices?model= | — | `{voices:[...]}` |
+| POST /v1/voice/generations | JSON `{input:"[S1] ... [S2] ...", speakers:{S1:<sample id>}}` | audio bytes, or `delivery:"url"` JSON |
+| POST /v1/music/generations | JSON `{model, prompt, lyrics?, audio_duration?}` | audio bytes, or `delivery:"url"` JSON |
+| POST /v1/videos/generations | JSON `{model, prompt, image?, duration?}` | MP4 bytes, or `delivery:"url"` JSON |
+| POST /v1/audio/transcriptions | multipart `file`, `model` | `{text}` |
+| POST /v1/audio/enhance | multipart `file`, `model` | audio bytes, or `delivery=url` JSON |
+| POST /v1/3d/generations | multipart `image`, `model` | `{data:[{url, type:"model/gltf-binary"}]}` |
+| POST /v1/scrape | JSON `{model, url}` | `{markdown, title, source_url}` |
+| GET /v1/capacity | — | live slot usage per model |
+| GET /v1/jobs, GET /v1/jobs/<id> | — | job(s) with `status`, `output_text`, `media`, `error` |
+| POST /v1/jobs/<id>/cancel, /retry | — | cancel queued / re-queue failed |
+| POST /v1/batches | `{requests:[{endpoint, body}], label?}` (≤256) | 202 batch; `GET /v1/batches/<id>` for status, `POST /v1/batches/<id>` cancels |
+| GET /v1/workflows/templates | — | curated DAG templates + input schemas |
+| POST /v1/workflows/runs | `{template, inputs}` or `{spec, inputs}` | 202 run; poll `GET /v1/workflows/runs/<id>` |
 
-`GET /v1/models` returns each model's `service_type` (llm/stt/tts/image/music/video/mesh), `input_modalities`, `output_modalities`, `supported_features`, and `context_length` — enough for a client to select the right model for a task without hardcoding names.
+`delivery:"url"` JSON = `{object:"inference.result", id, public_id, inference_type, model, status, created, data:[MediaItem]}`. Byte responses carry `X-Inference-Request-Id`, `X-Asset-Id`, `X-Asset-Url` headers.
 
-## Async jobs
+Sharing extras on any JSON generation body: `visibility` (PUBLIC | UNLISTED default | PRIVATE | SECRET), `collection` (name). Non-public media URLs are owner-gated — download with your Bearer header.
 
-Add `"async": true` to any JSON-bodied request to queue it instead of blocking. Returns 202 with a job id. Poll `GET /v1/jobs/<id>`. Supported: chat/completions, completions, images/generations, videos/generations, music/generations, audio/speech.
+## Errors
 
-## Batches
-
-`POST /v1/batches` accepts up to 256 async requests in one call.
+OpenAI envelope `{"error":{"message","type"}}`: 400 invalid_request/missing_*, 404 no_provider, 413 request_too_large/file_too_large, 415 unsupported_media_type, 429 at_capacity, 502 upstream_error (retry with backoff), 503 async_disabled (drop `async`, call sync). Auth (401) and rate-limit 429s use `{"detail": "..."}`.
 
 ## Workflows
 
-`POST /v1/workflows/runs` runs a DAG of inference steps. Step kinds: inference (one job), map (fan-out), transform (inline data), collect (gather fan-out outputs), gate (human approval pause). Steps template on each other via `{{ steps.<id>.output.<field> }}`. Curated templates available at `GET /v1/workflows/templates`.
-
-## Voice cloning
-
-`POST /v1/voice/generations` takes a `[S1]`/`[S2]`-tagged dialogue script and optional voice sample IDs, then produces cloned speech via Dia. Voice samples live in the user's library (`/api/inference/voice-samples/`).
-
-## Routing
-
-Requests route to the first online provider on the caller's account that serves the requested model and service type. No load balancing. `404 no_provider` when nothing matches; `502 upstream_error` when the provider's local server fails.
+Run statuses: PENDING, RUNNING, AWAITING (gate needs `POST /v1/workflows/runs/<id>/steps/<step_id>/approve|reject`), DONE, FAILED. Step kinds: inference, map (fan-out), prompt, transform, collect, gate. Templates: illustrated-story, image-variations, storyboard-to-video, miniature-construction-timelapse, image-to-video, song-and-cover, narrated-explainer, url-to-video. A run needing a modality you can't reach is rejected with 409 services_unavailable.
 
 ## Docs
 
-- Full docs: https://inference.club/docs
-- Quickstart for AI agents: https://inference.club/docs/quickstart-agents
-- API reference: https://inference.club/docs/api/overview
+- Agent quickstart: https://inference.club/docs/quickstart-agents
+- Agent integrations: https://inference.club/docs/agents/overview
+- API overview (errors, async, capacity, limits): https://inference.club/docs/api/overview
+- Async jobs: https://inference.club/docs/api/jobs
+- Direct vs async, capacity: https://inference.club/docs/services/direct-vs-async
+- Batches: https://inference.club/docs/api/batches
+- Workflows: https://inference.club/docs/api/workflows
 - Interactive API explorer: https://inference.club/api-reference
-- OpenAPI spec: https://api.inference.club/openapi.json

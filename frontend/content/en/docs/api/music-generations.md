@@ -12,7 +12,7 @@ order: 8
 Generate music from a text prompt, with optional lyrics. Routes to providers running a `music` service (ACE-Step). The response is the **raw audio bytes** (`audio/mpeg` by default) — not JSON.
 
 ::callout{type="tip"}
-This endpoint can also be run asynchronously — add `"async": true` to queue it as a job instead of blocking. See [Direct vs async](/docs/services/direct-vs-async).
+Songs take a while — add `"async": "auto"` (queue only if the device is busy) or `"async": true` (always queue) instead of holding the connection. See [Async jobs](/docs/api/jobs).
 ::
 
 ## Request
@@ -43,6 +43,8 @@ curl https://api.inference.club/v1/music/generations \
 | `bpm` | integer | Optional tempo hint. |
 | `key_scale` | string | Optional, e.g. `"C major"`. |
 | `vocal_language` | string | Optional, e.g. `"en"`. |
+| `delivery` | string | `bytes` (default) or `url` — see [below](#getting-a-url-instead-of-bytes). |
+| `async` | bool / string | `true` or `"auto"`. |
 
 Also accepts the [`visibility` and `collection` sharing fields](/docs/sharing).
 
@@ -50,4 +52,25 @@ Also accepts the [`visibility` and `collection` sharing fields](/docs/sharing).
 
 The finished audio, streamed back with `Content-Disposition: inline`. The request and its audio are stored in your dashboard (and in **Dashboard → Music**) for replay, sharing, and playlists.
 
-Errors use the standard [error format](/docs/api/overview): `404 no_provider` when no online provider serves the model, `413` when prompt + lyrics are too long.
+## Getting a URL instead of bytes
+
+Add `"delivery": "url"` to get JSON instead of the raw file — easier for agents and scripts that only need a link:
+
+```json
+{
+  "object": "inference.result",
+  "id": "8812",
+  "public_id": "kQ3v9xZp1aE",
+  "inference_type": "MUSIC",
+  "model": "ace-step",
+  "status": "PROCESSED",
+  "created": 1780266332,
+  "data": [{ "id": 551, "kind": "audio", "url": "https://…", "content_type": "audio/mpeg", "duration_seconds": 60.0 }]
+}
+```
+
+With the default `"delivery": "bytes"`, the response headers still name the stored copy: `X-Inference-Request-Id` (pollable at `GET /v1/jobs/<id>`), `X-Asset-Id`, and `X-Asset-Url`.
+
+## Errors
+
+Errors use the standard [error format](/docs/api/overview): `404 no_provider` when no online provider serves the model, `413 request_too_large` when prompt + lyrics exceed 5,000 characters, `429 at_capacity` when the device is busy (honor `Retry-After`), `502 upstream_error` if generation fails.

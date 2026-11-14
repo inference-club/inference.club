@@ -20,7 +20,7 @@ A request goes to the **first** online provider serving the model and service ty
 ::
 
 ::callout{type="limitation" title="No billing or quotas yet"}
-Every request is metered into an `InferenceRequest` row, but nothing is charged and there are no enforced quotas. There are also no hard rate limits in the current build — be considerate of other people's GPUs.
+Every request is metered into an `InferenceRequest` row, but nothing is charged and there are no quotas. There are per-account rate limits (60 inference requests/minute by default) and per-device [capacity limits](/docs/services/direct-vs-async#capacity), but no spend caps — be considerate of other people's GPUs.
 ::
 
 ::callout{type="limitation" title="Compute is per-user by default"}

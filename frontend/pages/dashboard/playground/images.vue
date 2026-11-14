@@ -32,9 +32,14 @@ const n = ref(1)
 const current = computed(() => models.value.find((m) => m.id === model.value))
 const has = (f: string) => current.value?.supported_features?.includes(f) ?? false
 const canEdit = computed(() => has('image-edit') || (current.value?.input_modalities ?? []).includes('image'))
+// Prefix match covers model variants (e.g. flux-3-image-klein-fp8), but the
+// NVIDIA NIM builds (`*-nim`) cap edits at 8 reference images and return 422
+// for a 9th, so they fall back to the default limit of 8.
 const TEN_REFERENCE_MODELS = ['qwen-image', 'flux-3-image-klein']
+const allowsTenReferences = (id: string) =>
+  !id.endsWith('-nim') && TEN_REFERENCE_MODELS.some((p) => id.startsWith(p))
 const maxImages = computed(() =>
-  has('multi-reference') ? (TEN_REFERENCE_MODELS.some((p) => model.value.startsWith(p)) ? 10 : 8) : has('image-edit') ? 1 : 0,
+  has('multi-reference') ? (allowsTenReferences(model.value) ? 10 : 8) : has('image-edit') ? 1 : 0,
 )
 const hasSeed = computed(() => has('seed'))
 const hasSteps = computed(() => has('steps'))

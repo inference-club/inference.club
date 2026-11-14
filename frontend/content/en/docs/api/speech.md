@@ -12,7 +12,7 @@ order: 7
 Generate natural speech from text with any TTS model on the network. The endpoint mirrors OpenAI's speech API, so the official SDKs and `curl` work unchanged.
 
 ::callout{type="tip"}
-This endpoint can also be run asynchronously — add `"async": true` to queue it as a job instead of blocking. See [Direct vs async](/docs/services/direct-vs-async).
+This endpoint can also be run asynchronously — add `"async": true` to always queue it as a job, or `"async": "auto"` to queue only when the device is busy. See [Direct vs async](/docs/services/direct-vs-async).
 ::
 
 Requests route only to services a provider declared as `type: tts`. The response is the **raw audio** (just like OpenAI), and a copy is stored on inference.club so it shows up in your history.
@@ -28,6 +28,8 @@ Requests route only to services a provider declared as `type: tts`. The response
 | `voice` | no | A voice name (see [voices](#voices)). Defaults to the provider's default. |
 | `response_format` | no | `wav` (default) or `opus`. |
 | `language` | no | Language hint, e.g. `en-US` (the model is multilingual). |
+| `delivery` | no | `bytes` (default) or `url` — see [below](#getting-a-url-instead-of-bytes). |
+| `async` | no | `true` or `"auto"` — see [Async jobs](/docs/api/jobs). |
 
 ### curl
 
@@ -56,6 +58,25 @@ with client.audio.speech.with_streaming_response.create(
 ## Response
 
 The raw audio bytes, with `Content-Type: audio/wav` (or `audio/ogg` for Opus). Metered by the duration of the generated audio.
+
+## Getting a URL instead of bytes
+
+Add `"delivery": "url"` to get JSON instead of the raw file — easier for agents and scripts that only need a link:
+
+```json
+{
+  "object": "inference.result",
+  "id": "8812",
+  "public_id": "kQ3v9xZp1aE",
+  "inference_type": "TTS",
+  "model": "<your-tts-model>",
+  "status": "PROCESSED",
+  "created": 1780266332,
+  "data": [{ "id": 551, "kind": "audio", "url": "https://…", "content_type": "audio/wav", "duration_seconds": 2.4 }]
+}
+```
+
+With the default `"delivery": "bytes"`, the response headers still name the stored copy: `X-Inference-Request-Id` (pollable at `GET /v1/jobs/<id>`), `X-Asset-Id`, and `X-Asset-Url`.
 
 ## Voices
 
@@ -87,4 +108,5 @@ For expressive multi-speaker dialogue with voice cloning, see [`POST /v1/voice/g
 | `missing_input` | No `input` text | 400 |
 | `request_too_large` | Input text over the limit | 413 |
 | `no_provider` | No online TTS provider serves the model for you | 404 |
+| `at_capacity` | Every slot on the device is busy (after a ~20s wait). Honor `Retry-After`, or send `"async": "auto"` | 429 |
 | `upstream_error` | The provider's speech server failed | 502 |

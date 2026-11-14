@@ -29,7 +29,7 @@ Voice cloning lets you provide short audio samples for one or two speakers, and 
 
 ### What's the difference between async jobs, batches, and workflows?
 
-- **Async job**: a single inference request that runs in the background. Add `"async": true` to any JSON-bodied call.
+- **Async job**: a single inference request that runs in the background. Add `"async": true` (always queue) or `"async": "auto"` (queue only when the GPU is busy) to an async-capable call — chat, completions, images, video, music, speech, scrape.
 - **Batch**: up to 256 async requests submitted as one unit — useful for bulk generation.
 - **Workflow**: a DAG of steps that chain together, fan out (one image per list item), do inline data transforms, and can pause for human review (gate steps). Workflows are the right tool when each request's output feeds the next.
 
@@ -37,13 +37,11 @@ See the [jobs](/docs/api/jobs), [batches](/docs/api/batches), and [workflows](/d
 
 ### What happens if my agent goes offline mid-request?
 
-Synchronous request: fails with `502 upstream_error`. Subsequent requests fail with `404 no_provider` until the agent comes back. Async job: remains `QUEUED` until a provider comes online. There's no automatic failover to a second provider.
+Synchronous request: fails with `502 upstream_error`. Subsequent requests fail with `404 no_provider` until the agent comes back — unless you send `"async": "auto"`, which queues the request for up to an hour while the provider returns. An async job that hits a transient failure is retried with backoff (up to 3 attempts). There's no automatic failover to a second provider for a synchronous call.
 
 ### Can other people use my agent's hardware?
 
-No. inference.club only routes a user's requests to that user's own providers. Your hardware serves your inferences.
-
-That model will probably evolve as the community grows (the whole point is shared compute), but for now it's strictly per-user.
+Only if you share it. Each service you run has an access policy: **private** (the default — only you), **any signed-in member**, or a **restricted** allowlist of GitHub usernames. Shared services show up in those members' `GET /v1/models` and their requests route to your hardware. Either way, your service's declared `max_concurrent` caps how many requests it receives at once.
 
 ### How is usage metered?
 
@@ -51,7 +49,7 @@ Every successful proxied request is recorded as an `InferenceRequest` row tied t
 
 ### What about rate limits?
 
-None in the MVP. Don't be a jerk about it.
+Yes: by default 60 inference requests per minute per account (15 for guest accounts) and 120 `GET /v1/models` calls per minute. Every response carries `X-RateLimit-Limit` / `-Remaining` / `-Reset` headers, and a throttled request returns `429` with `Retry-After`. Separately, a busy GPU returns `429 at_capacity` — see [Capacity](/docs/services/direct-vs-async#capacity).
 
 ### How does the agent run — Docker or Kubernetes?
 

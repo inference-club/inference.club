@@ -79,4 +79,4 @@ There's no load balancing or automatic failover *within* a tier. If the chosen p
 
 ## Async jobs, batches & workflows
 
-Every JSON generation endpoint accepts `"async": true`, which queues the request as a **job** and returns immediately. A **batch** submits up to 256 jobs atomically. A **workflow** wires steps into a DAG — fan out, transform, collect, and pause for human approval. See [Direct vs async](/docs/services/direct-vs-async).
+Async-capable endpoints (chat, completions, images, video, music, speech, scrape) accept `"async": true`, which queues the request as a **job** and returns immediately, or `"async": "auto"`, which queues only when the GPU is busy. A **batch** submits up to 256 jobs atomically. A **workflow** wires steps into a DAG — fan out, transform, collect, and pause for human approval. See [Direct vs async](/docs/services/direct-vs-async).

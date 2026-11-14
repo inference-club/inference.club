@@ -287,8 +287,12 @@ def dispatch_due_jobs(limit=50):
         seconds=settings.JOB_NO_PROVIDER_TIMEOUT_SECONDS
     )
 
-    with transaction.atomic():
-        tally = _running_counts()
+    from .capacity import ledger_lock, norm_type, running_counts
+
+    with transaction.atomic(), ledger_lock():
+        # One ledger for sync + async in-flight work (capacity.py), so queued
+        # jobs never stack onto a device already busy with sync requests.
+        tally = running_counts()
         jobs = list(_claim_queryset(now)[:limit])
         for job in jobs:
             # Central jobs (RENDER/compose) run on the worker — no provider.
@@ -340,6 +344,10 @@ def dispatch_due_jobs(limit=50):
                 group_max,
                 group_types,
             ) = _resolve_capacity(provider_model)
+            # Ledger keys are normalized ("" LLM jobs ≡ "llm" manifest services),
+            # otherwise async LLM jobs were never counted against their cap.
+            svc_type = norm_type(svc_type)
+            group_types = {norm_type(t) for t in group_types}
 
             if _service_load(tally, provider_id, svc_type) >= svc_max:
                 continue  # service is at capacity; try this job next tick
