@@ -24,6 +24,7 @@ The `/v1` namespace mirrors the OpenAI API surface. Anything that speaks OpenAI 
 | Endpoint | Modality |
 |---|---|
 | `GET /v1/models` | List models you can reach (with capabilities). |
+| `GET /v1/catalog` | [Catalog](/docs/api/catalog) — every node, service and model you can reach, grouped by type, with readiness. |
 | `POST /v1/chat/completions` | [Chat completions](/docs/api/chat-completions) — text chat, multimodal input. |
 | `POST /v1/completions` | Legacy text completions. |
 | `POST /v1/audio/transcriptions` | [Speech-to-text](/docs/api/audio-transcriptions) — audio in, text out. |

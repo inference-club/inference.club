@@ -17,6 +17,7 @@ def test_openapi_json_public_and_valid(client):
     # The public inference surface is documented.
     for path in (
         "/models",
+        "/catalog",
         "/chat/completions",
         "/audio/transcriptions",
         "/images/generations",

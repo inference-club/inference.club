@@ -56,3 +56,5 @@ Every generation endpoint accepts two optional fields on top of the OpenAI reque
 Collections have their own visibility, independent of their contents. Privacy is enforced item by item: a public collection that contains a secret request shows everyone *except* that request. A collection created implicitly by the `collection` parameter inherits the visibility of the request that created it; changing it later never touches the items.
 
 Manage collections in **Dashboard → Collections**, or via `POST /api/inference/collections/` (get-or-creates by name).
+
+To see what you filed, pick the collection in the **Gallery**'s collection menu, or pass `?collection=<slug or name>` to the request lists (`GET /api/inference/requests/` for your history, `/api/inference/requests/all/` for the gallery feed, plus the starred and bookmarked lists). It matches your own collections only (slug exactly, or name case-insensitively) and composes with the other filters, e.g. `?type=IMAGE&collection=late-night-beats`. An unknown collection returns an empty list.

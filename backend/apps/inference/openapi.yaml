@@ -98,6 +98,54 @@ paths:
                     output_modalities: [text]
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /catalog:
+    get:
+      tags: [Models]
+      summary: Catalog of nodes, services and models
+      description: |
+        Every node (machine + GPUs), service and model you can reach, grouped
+        by type — built from providers' uploaded manifests and heartbeats.
+        Your own providers in full, plus other members' services you have
+        access to. `ready` means the node is online and accepting requests and
+        the service has active models (a parked service is not ready).
+        Fields with no value are omitted.
+      operationId: getCatalog
+      responses:
+        "200":
+          description: The catalog.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Catalog" }
+              example:
+                generated_at: "2026-11-14T18:59:48Z"
+                nodes:
+                  - name: spark
+                    provider: club-host
+                    gpus: [{ name: NVIDIA GB10, memory_gb: 128.0 }]
+                    online: true
+                    last_seen: "2026-11-14T18:59:40Z"
+                services:
+                  - type: llm
+                    name: vllm-spark
+                    node: spark
+                    provider: club-host
+                    engine: vllm
+                    endpoint_kind: /v1/chat/completions
+                    ready: true
+                    models:
+                      - id: nemotron-3-super
+                        name: Nemotron 3 Super
+                        input_modalities: [text]
+                        output_modalities: [text]
+                        features: [reasoning, tools]
+                        context_length: 131072
+                by_type:
+                  llm: [nemotron-3-super]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /chat/completions:
     post:
       tags: [Chat]
@@ -541,6 +589,53 @@ components:
         output_modalities: { type: array, items: { type: string }, example: [text] }
         supported_features: { type: array, items: { type: string }, example: [reasoning] }
         context_length: { type: integer, nullable: true }
+    Catalog:
+      type: object
+      properties:
+        generated_at: { type: string, format: date-time }
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string, description: "Manifest host id, e.g. a1." }
+              provider: { type: string }
+              gpus:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    memory_gb: { type: number }
+              online: { type: boolean }
+              last_seen: { type: string, format: date-time, nullable: true }
+        services:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [llm, asr, tts, image, music, video, 3d, other] }
+              name: { type: string }
+              node: { type: string }
+              provider: { type: string }
+              engine: { type: string }
+              endpoint_kind: { type: string, description: "The /v1 path requests to this service are routed from." }
+              ready: { type: boolean }
+              models:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    name: { type: string }
+                    input_modalities: { type: array, items: { type: string } }
+                    output_modalities: { type: array, items: { type: string } }
+                    features: { type: array, items: { type: string } }
+                    context_length: { type: integer }
+        by_type:
+          type: object
+          description: Model ids grouped by service type.
+          additionalProperties: { type: array, items: { type: string } }
     ChatMessage:
       type: object
       required: [role, content]
