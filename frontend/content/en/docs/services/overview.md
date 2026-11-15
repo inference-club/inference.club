@@ -17,7 +17,7 @@ Which modalities are live at any moment depends on what the providers are runnin
 |---|---|---|---|
 | **Chat / LLM** | `/v1/chat/completions`, `/v1/completions` | text → text | Qwen3, Nemotron |
 | **Speech-to-text** | `/v1/audio/transcriptions` | audio → text | Nemotron ASR |
-| **Text-to-speech** | `/v1/audio/speech` | text → audio | Magpie TTS |
+| **Text-to-speech** | `/v1/audio/speech` | text → audio | Magpie TTS, nano-edge-tts |
 | **Voice cloning** | `/v1/voice/generations` | script + samples → audio | Dia |
 | **Image** | `/v1/images/generations`, `/v1/images/edits` | text/image → image | FLUX.2 Klein, Qwen-Image 2.1 |
 | **Video** | `/v1/videos/generations` | text/image → video | LTX-2 |

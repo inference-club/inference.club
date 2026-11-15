@@ -92,6 +92,31 @@ GET /v1/audio/voices?model=<model-id>
 
 (`/v1/audio/voices` is an inference.club extension, not part of OpenAI's API.) The in-dashboard [Speech playground](/dashboard/playground/speech) populates a voice dropdown from this.
 
+## More than one TTS model
+
+A provider can run several TTS models side by side, for example a multilingual GPU model and a small CPU model. Each appears on `GET /v1/models` with its own id, and `model` decides which one speaks. Voice names are not shared between models, so list a model's voices before choosing one; a voice the model doesn't know falls back to that model's default.
+
+```json
+{ "voices": ["af_heart", "am_michael", "bf_emma", "bm_george", "…"] }
+```
+
+That is what `GET /v1/audio/voices?model=nano-edge-tts` returns for [nano-edge-tts](https://huggingface.co/drmhse/nano-edge-tts), a CPU-only English model built on Kokoro.
+
+## Serving a TTS model (providers)
+
+Any speech server can join the network as a `type: tts` service if it answers two paths, the same two an NVIDIA Riva speech NIM serves:
+
+| Path | Request | Response |
+|---|---|---|
+| `POST /v1/audio/synthesize` | `multipart/form-data` fields `text`, `language`, `voice`, `sample_rate_hz`, `encoding` (`LINEAR_PCM` or `OGGOPUS`) | the audio bytes (`audio/wav` or `audio/ogg`) |
+| `GET /v1/audio/list_voices` | none | `{"<language tags>": {"voices": ["…"]}}` |
+
+inference.club adds `?model=<served id>` to both calls. The agent uses it to pick the right service when a host runs more than one, and a server is free to ignore it. Tips from wiring up a non-Riva model:
+
+- Honor `sample_rate_hz` (the default request is 44100) by resampling if the model has another native rate.
+- Accept an unknown `voice` and fall back to a default instead of returning an error, since a client may still hold another model's voice name.
+- Declare the model id on the service (see the [Kubernetes agent](/docs/providers/kubernetes-agent) labels) so it routes by name.
+
 ## Voice cloning
 
 For expressive multi-speaker dialogue with voice cloning, see [`POST /v1/voice/generations`](/docs/api/voice-generations). That endpoint routes to providers running [Dia](https://github.com/nari-labs/dia) and accepts `[S1]`/`[S2]` speaker-tagged scripts with optional voice samples from your library.

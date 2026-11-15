@@ -133,7 +133,9 @@ spec:
 ```
 
 Several image services can sit behind one agent — `/v1/images/*` requests are
-routed by their `model` field. A model's `features` list is what the
+routed by their `model` field. The same holds for `tts` services:
+`/v1/audio/speech` reaches the service that declares the requested model (see
+[Serving a TTS model](/docs/api/speech#serving-a-tts-model-providers)). A model's `features` list is what the
 playground uses to show the matching controls:
 
 | feature | what it unlocks |
