@@ -123,6 +123,7 @@ class TestAudioSpeech:
 
         def _cap(url, **kw):
             captured["url"] = url
+            captured["params"] = kw.get("params")
             captured["files"] = {k: v[1] for k, v in (kw.get("files") or {}).items()}
             return _FakeAudioResp(_tiny_wav())
 
@@ -133,6 +134,9 @@ class TestAudioSpeech:
                 format="json",
             )
         assert captured["url"].endswith("/audio/synthesize")
+        # The served model id rides along so the agent can pick between tts
+        # services on one host (Magpie vs nano-edge-tts).
+        assert captured["params"] == {"model": "magpie"}
         assert captured["files"]["text"] == "hi"
         assert captured["files"]["voice"] == "Magpie-Multilingual.EN-US.Jason"
         assert captured["files"]["encoding"] == "LINEAR_PCM"

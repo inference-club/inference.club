@@ -1532,6 +1532,15 @@ def _wav_seconds(audio: bytes):
         return None
 
 
+def _tts_model_params(pm) -> dict:
+    """``?model=<served id>`` for the Riva speech paths. The agent routes
+    ``/audio/synthesize`` and ``/audio/list_voices`` by it when a host runs more
+    than one tts service (Magpie on a GPU, nano-edge-tts on a CPU); a Riva NIM
+    ignores the unknown query parameter."""
+    name = getattr(pm, "name", "") or ""
+    return {"model": name} if name else {}
+
+
 def _flatten_voices(data) -> list:
     """Flatten Riva's nested list_voices shape
     ``{"en-US,es-US,...": {"voices": [...]}}`` into a sorted unique list."""
@@ -1651,8 +1660,8 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
         started = time.monotonic()
         try:
             upstream = requests.post(
-                endpoint, files=fields, timeout=UPSTREAM_TIMEOUT_SECONDS,
-                verify=False, proxies=_tailnet_proxies(),
+                endpoint, files=fields, params=_tts_model_params(provider_model),
+                timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
             )
         except requests.RequestException as e:
             ir.status = "REQUESTED"
@@ -2981,7 +2990,8 @@ class AudioVoicesView(_RateLimitHeadersMixin, APIView):
         endpoint = provider_model.provider.tailnet_base_url.rstrip("/") + "/audio/list_voices"
         try:
             upstream = requests.get(
-                endpoint, timeout=30, verify=False, proxies=_tailnet_proxies()
+                endpoint, params=_tts_model_params(provider_model), timeout=30,
+                verify=False, proxies=_tailnet_proxies(),
             )
             upstream.raise_for_status()
             data = upstream.json()
@@ -3916,7 +3926,7 @@ def _rerun_tts(ir, provider_model):
     try:
         upstream = requests.post(
             _retry_endpoint(provider, "/audio/synthesize"), files=fields,
-            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+            params=_tts_model_params(provider_model), timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
         )
     except requests.RequestException as e:
         return _retry_store_exc(ir, started, e)

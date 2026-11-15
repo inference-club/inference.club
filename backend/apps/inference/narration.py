@@ -876,8 +876,11 @@ def generate_take(segment, *, text_override=None, seed=None):
         from .locks import device_lock, provider_device_key
         with device_lock(provider_device_key(pm), ttl=UPSTREAM_TIMEOUT_SECONDS + 60,
                          on_acquire=lambda: _mark_generating(segment)):
+            # Plain TTS carries ?model= so the agent picks the right tts service
+            # when a host runs several; the Dia path needs no hint.
+            params = {"model": pm.name} if endpoint == "/audio/synthesize" and pm.name else None
             up = requests.post(
-                provider.tailnet_base_url.rstrip("/") + endpoint, files=fields,
+                provider.tailnet_base_url.rstrip("/") + endpoint, files=fields, params=params,
                 timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
             )
     except requests.RequestException as e:
