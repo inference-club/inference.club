@@ -2,14 +2,18 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { Images as ImagesIcon, Search, X } from 'lucide-vue-next'
 import { useInferenceRequest } from '@/composables/useInferenceRequest'
+import { useContentSharing } from '@/composables/useContentSharing'
 import { usePagination } from '@/composables/usePagination'
 import PaginationControls from '@/components/PaginationControls.vue'
-import type { InferenceRequest } from '@/types'
+import type { Collection, InferenceRequest } from '@/types'
 
 definePageMeta({ layout: 'app' })
 
 const { listAllInferenceRequests } = useInferenceRequest()
 const { openList } = useImageLightbox()
+const { listCollections } = useContentSharing()
+const route = useRoute()
+const router = useRouter()
 
 const PAGE_SIZE = 24
 const requests = ref<InferenceRequest[]>([])
@@ -19,6 +23,18 @@ const error = ref<string | null>(null)
 
 const search = ref('')
 const activeSearch = ref('')
+
+// ?collection=<slug> narrows the gallery to one of the viewer's collections
+// (issue #16). Mirrored into the URL so a filtered view is linkable.
+const collections = ref<Collection[]>([])
+const collection = ref(typeof route.query.collection === 'string' ? route.query.collection : '')
+const loadCollections = async () => {
+  try {
+    collections.value = await listCollections()
+  } catch {
+    collections.value = [] // anonymous / no collections: just hide the picker
+  }
+}
 
 const pager = usePagination(computed(() => count.value), PAGE_SIZE)
 
@@ -44,6 +60,7 @@ const load = async () => {
     const res = await listAllInferenceRequests(PAGE_SIZE, offset, {
       type: 'IMAGE',
       search: activeSearch.value || undefined,
+      collection: collection.value || undefined,
     })
     requests.value = res.results
     count.value = res.count
@@ -63,8 +80,15 @@ const clearSearch = () => {
   submitSearch()
 }
 
-watch([pager.currentPage, activeSearch], load)
-onMounted(load)
+watch(collection, (slug) => {
+  pager.currentPage.value = 1
+  router.replace({ query: { ...route.query, collection: slug || undefined } })
+})
+watch([pager.currentPage, activeSearch, collection], load)
+onMounted(() => {
+  load()
+  loadCollections()
+})
 </script>
 
 <template>
@@ -80,6 +104,15 @@ onMounted(load)
       </div>
 
       <form class="flex items-center gap-2" @submit.prevent="submitSearch">
+        <select
+          v-if="collections.length"
+          v-model="collection"
+          aria-label="Filter by collection"
+          class="h-9 rounded-md border bg-background px-2 text-sm"
+        >
+          <option value="">All collections</option>
+          <option v-for="c in collections" :key="c.slug" :value="c.slug">{{ c.name }}</option>
+        </select>
         <div class="relative">
           <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <Input
@@ -115,6 +148,7 @@ onMounted(load)
       class="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground"
     >
       <template v-if="activeSearch">No images match "{{ activeSearch }}".</template>
+      <template v-else-if="collection">No images in this collection yet.</template>
       <template v-else>No images have been generated on the network yet.</template>
     </div>
 

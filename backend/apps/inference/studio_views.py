@@ -113,6 +113,20 @@ class EpisodeDetailView(APIView):
         if "voice_model" in request.data:
             ep.voice_model = (request.data.get("voice_model") or "").strip()[:200]
             fields.append("voice_model")
+        if "settings" in request.data:
+            from . import narration
+
+            clean, err = narration.validate_settings(request.data.get("settings"))
+            if err:
+                return Response({"detail": err}, status=400)
+            merged = dict(ep.settings or {})
+            for k, v in clean.items():
+                if v is None:
+                    merged.pop(k, None)
+                else:
+                    merged[k] = v
+            ep.settings = merged
+            fields.append("settings")
         if "voice_sample_id" in request.data:
             vsid = request.data.get("voice_sample_id")
             if vsid in (None, ""):
@@ -182,6 +196,11 @@ class SegmentDetailView(APIView):
                     fields.append("original_text")
                 seg.text = new_text
                 fields.append("text")
+                # The current take no longer says this line: back to pending so
+                # autopilot (produce) re-voices it without needing force.
+                if seg.status in (Segment.STATUS_READY, Segment.STATUS_FLAGGED):
+                    seg.status = Segment.STATUS_PENDING
+                    fields.append("status")
         if "voice_sample_id" in request.data:
             vsid = request.data.get("voice_sample_id")
             if vsid in (None, ""):
@@ -396,3 +415,143 @@ class StudioVoicesView(APIView):
             .select_related("audio").order_by("speaker_name", "label")
         ]
         return Response({"voices": voices, "samples": samples})
+
+
+def _async_ok():
+    from django.conf import settings
+
+    from . import jobs
+    return jobs.async_enabled() and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False)
+
+
+def _int_or_none(v, name, lo, hi):
+    if v in (None, ""):
+        return None, None
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return None, f"`{name}` must be an integer."
+    if not lo <= n <= hi:
+        return None, f"`{name}` must be between {lo} and {hi}."
+    return n, None
+
+
+class EpisodeProduceView(APIView):
+    """POST /v1/episodes/<id>/produce — narration autopilot. For each segment
+    that isn't ``ready`` (all of them with ``force``): generate a take, clean it
+    (StudioVoice), transcribe it (word timestamps), trim dead air, level it, grade
+    the transcript against the line, and retake while the grade is poor — up to
+    ``attempts`` takes, keeping the best. Body (all optional): ``{force,
+    attempts, accept}``; defaults come from the episode's settings."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id):
+        from . import narration
+        from .tasks import produce_episode as produce_task
+
+        ep = get_object_or_404(_episodes_for(request.user), id=id)
+        body = request.data if isinstance(request.data, dict) else {}
+        attempts, err = _int_or_none(body.get("attempts"), "attempts", 1, 8)
+        if err:
+            return Response({"detail": err}, status=400)
+        accept = body.get("accept")
+        try:
+            accept = float(accept) if accept not in (None, "") else None
+        except (TypeError, ValueError):
+            return Response({"detail": "`accept` must be a number."}, status=400)
+        force = bool(body.get("force"))
+        todo = [s.id for s in ep.segments.all() if force or s.status != Segment.STATUS_READY]
+        Segment.objects.filter(id__in=todo).update(status=Segment.STATUS_QUEUED)
+        if _async_ok():
+            produce_task.delay(ep.id, force=force, attempts=attempts, accept=accept)
+        else:
+            narration.produce_episode(ep, force=force, attempts=attempts, accept=accept)
+        ep.refresh_from_db()
+        return Response(EpisodeSerializer(ep, context={"request": request}).data,
+                        status=status.HTTP_202_ACCEPTED)
+
+
+class SegmentTakesView(APIView):
+    """POST /v1/segments/<id>/takes — audition several takes of one line. Body:
+    ``{count}`` (1-8, random seeds) or ``{seeds: [..]}``. Every take is fully
+    processed and scored; the best becomes the selected take. Use it to design a
+    voice: audition seeds, then save the best take as a voice sample."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id):
+        from . import narration
+        from .tasks import produce_segment as produce_task
+
+        seg = get_object_or_404(
+            Segment.objects.filter(episode__user=request.user).select_related("episode"), id=id)
+        body = request.data if isinstance(request.data, dict) else {}
+        seeds = body.get("seeds")
+        if seeds is not None and (
+                not isinstance(seeds, list) or not 1 <= len(seeds) <= 8
+                or not all(isinstance(x, int) and not isinstance(x, bool) for x in seeds)):
+            return Response({"detail": "`seeds` must be a list of 1-8 integers."}, status=400)
+        count, err = _int_or_none(body.get("count"), "count", 1, 8)
+        if err:
+            return Response({"detail": err}, status=400)
+        count = count or 4
+        seg.status = Segment.STATUS_QUEUED
+        seg.save(update_fields=["status", "modified_on"])
+        if _async_ok():
+            produce_task.delay(seg.id, attempts=count, explore=True, seeds=seeds)
+        else:
+            narration.produce_segment(seg, attempts=count, explore=True, seeds=seeds)
+            seg.refresh_from_db()
+        return Response(SegmentSerializer(seg, context={"request": request}).data,
+                        status=status.HTTP_202_ACCEPTED)
+
+
+class VariantSaveVoiceView(APIView):
+    """POST /v1/segments/<id>/variants/<vid>/save-voice — save this take (its
+    cleaned, trimmed audio) to your voice library. Body: ``{speaker_name,
+    [label], [is_default], [use_for_episode]}``. With ``use_for_episode`` the
+    episode clones this voice for every later take."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id, vid):
+        from . import narration
+
+        seg = get_object_or_404(
+            Segment.objects.filter(episode__user=request.user).select_related("episode"), id=id)
+        variant = get_object_or_404(Variant.objects.filter(segment=seg), id=vid)
+        body = request.data if isinstance(request.data, dict) else {}
+        try:
+            sample = narration.save_variant_as_voice_sample(
+                variant, speaker_name=body.get("speaker_name") or "Narrator",
+                label=body.get("label") or "", make_default=bool(body.get("is_default")),
+                use_for_episode=bool(body.get("use_for_episode")))
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=409)
+        return Response({"id": sample.id, "speaker_name": sample.speaker_name,
+                         "label": sample.label, "is_default": sample.is_default,
+                         "transcript": sample.transcript,
+                         "duration_seconds": sample.duration_seconds},
+                        status=status.HTTP_201_CREATED)
+
+
+class EpisodeExportView(APIView):
+    """GET /v1/episodes/<id>/export — a zip of the selected takes in order
+    (``01.wav`` ...) plus ``manifest.json`` (text, spoken form, duration, word
+    timestamps, grade, seed per segment)."""
+
+    permission_classes = [IsFullMember]
+
+    def get(self, request, id):
+        from django.http import HttpResponse
+        from django.utils.text import slugify
+
+        from . import narration
+
+        ep = get_object_or_404(_episodes_for(request.user), id=id)
+        data = narration.export_episode_zip(ep)
+        resp = HttpResponse(data, content_type="application/zip")
+        name = slugify(ep.title)[:60] or f"episode-{ep.id}"
+        resp["Content-Disposition"] = f'attachment; filename="{name}.zip"'
+        return resp

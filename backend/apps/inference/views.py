@@ -110,7 +110,7 @@ def _annotate_viewer_flags(qs, user):
 _INFERENCE_TYPES = {t[0] for t in InferenceRequest.INFERENCE_TYPES}
 
 
-def _apply_request_filters(qs, params):
+def _apply_request_filters(qs, params, user=None):
     """Shared list-filtering for the request endpoints.
 
     ``?type=IMAGE`` narrows to a single modality (powers the image gallery and
@@ -118,7 +118,11 @@ def _apply_request_filters(qs, params):
     model (powers each playground's "recent for this model" strip). ``?search=``
     matches the stored prompt (image/TTS payloads carry it directly) and the
     model name, case-insensitive. ``?sort=popular`` orders by star count
-    (most-starred first). All optional and composable.
+    (most-starred first). ``?collection=<slug or name>`` narrows to the
+    requests filed into one of ``user``'s own collections (slug exact, or name
+    case-insensitive); an unknown collection — or an anonymous caller — yields
+    an empty list rather than silently ignoring the filter. All optional and
+    composable.
     """
     itype = (params.get("type") or "").upper().strip()
     if itype in _INFERENCE_TYPES:
@@ -133,6 +137,17 @@ def _apply_request_filters(qs, params):
         qs = qs.filter(
             Q(payload__prompt__icontains=search)
             | Q(model_name__icontains=search)
+        )
+
+    collection = (params.get("collection") or "").strip()
+    if collection:
+        if user is None or not getattr(user, "is_authenticated", False):
+            return qs.none()
+        cols = Collection.objects.filter(user=user).filter(
+            Q(slug=collection) | Q(name__iexact=collection)
+        )
+        qs = qs.filter(
+            id__in=CollectionItem.objects.filter(collection__in=cols).values("request_id")
         )
 
     if (params.get("sort") or "").lower() in ("popular", "stars"):
@@ -156,7 +171,7 @@ class InferenceRequestView(generics.ListCreateAPIView):
     def get_queryset(self):
         qs = _requests_with_owner().filter(user=self.request.user)
         qs = _annotate_viewer_flags(qs, self.request.user)
-        return _apply_request_filters(qs, self.request.query_params)
+        return _apply_request_filters(qs, self.request.query_params, self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -177,7 +192,7 @@ class AllInferenceRequestView(generics.ListAPIView):
     def get_queryset(self):
         qs = _requests_with_owner().filter(visible_list_q(self.request.user))
         qs = _annotate_viewer_flags(qs, self.request.user)
-        return _apply_request_filters(qs, self.request.query_params)
+        return _apply_request_filters(qs, self.request.query_params, self.request.user)
 
 
 class RetrieveInferenceRequestView(generics.RetrieveUpdateDestroyAPIView):
@@ -560,7 +575,7 @@ class StarredRequestsView(generics.ListAPIView):
             .filter(Q(user=user) | Q(visibility__in=[VISIBILITY_PUBLIC, "UNLISTED", "PRIVATE"]))
         )
         qs = _annotate_viewer_flags(qs, user)
-        return _apply_request_filters(qs, self.request.query_params)
+        return _apply_request_filters(qs, self.request.query_params, self.request.user)
 
 
 class BookmarkedRequestsView(generics.ListAPIView):
@@ -582,7 +597,7 @@ class BookmarkedRequestsView(generics.ListAPIView):
             .filter(Q(user=user) | Q(visibility__in=[VISIBILITY_PUBLIC, "UNLISTED", "PRIVATE"]))
         )
         qs = _annotate_viewer_flags(qs, user)
-        return _apply_request_filters(qs, self.request.query_params)
+        return _apply_request_filters(qs, self.request.query_params, self.request.user)
 
 
 class AgentRegisterView(APIView):
@@ -2903,7 +2918,7 @@ class PublicUserRequestsView(generics.ListAPIView):
 
                 allowed.append(VISIBILITY_UNLISTED)
         qs = qs.filter(visibility__in=allowed)
-        return _apply_request_filters(qs, self.request.query_params)
+        return _apply_request_filters(qs, self.request.query_params, self.request.user)
 
 
 # --- Collections ---------------------------------------------------------

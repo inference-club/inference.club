@@ -98,12 +98,38 @@ def _aselect_filter(intervals) -> str:
     return f"aselect='{between}',asetpts=N/SR/TB"
 
 
-def trim_audio(in_path, out_path, intervals) -> None:
+TRIM_FADE = 0.008  # seconds of fade at every cut, so joins don't click
+
+
+def _trim_filter(intervals, *, fade=TRIM_FADE, loudness=None) -> str:
+    """A filter_complex graph that keeps ``intervals``, fades each piece in and
+    out by ``fade`` seconds (a hard cut in the middle of a waveform clicks), joins
+    them, and optionally loudness-normalises the result to ``loudness`` LUFS
+    (EBU R128, true peak -1.5 dBTP) so every segment of an episode sits at the
+    same level."""
+    parts, labels = [], []
+    for i, (a, b) in enumerate(intervals):
+        length = max(0.0, b - a)
+        f = min(fade, length / 4) if fade else 0
+        chain = f"[0:a]atrim={a}:{b},asetpts=PTS-STARTPTS"
+        if f > 0:
+            chain += f",afade=t=in:d={f:.4f},afade=t=out:st={max(0.0, length - f):.4f}:d={f:.4f}"
+        parts.append(chain + f"[p{i}]")
+        labels.append(f"[p{i}]")
+    graph = ";".join(parts) + ";" + "".join(labels) + f"concat=n={len(labels)}:v=0:a=1"
+    if loudness is not None:
+        graph += f",loudnorm=I={float(loudness)}:TP=-1.5:LRA=11"
+    return graph + "[out]"
+
+
+def trim_audio(in_path, out_path, intervals, *, fade=TRIM_FADE, loudness=None) -> None:
     """Apply the keep-``intervals`` to ``in_path`` → ``out_path`` in one ffmpeg
-    pass via the aselect filter (PCM WAV out)."""
+    pass (PCM WAV out at 48 kHz — loudnorm would otherwise upsample to 192 kHz).
+    Each cut is faded; ``loudness`` (LUFS) normalises the whole clip."""
     proc = subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error", "-i", in_path,
-         "-af", _aselect_filter(intervals), "-c:a", "pcm_s16le", out_path],
+         "-filter_complex", _trim_filter(intervals, fade=fade, loudness=loudness),
+         "-map", "[out]", "-ar", "48000", "-c:a", "pcm_s16le", out_path],
         capture_output=True, text=True, timeout=TRIM_TIMEOUT_SECONDS,
     )
     if proc.returncode != 0:
@@ -123,41 +149,160 @@ def _probe_duration(path) -> float:
 
 
 def remap_words(words, intervals):
-    """Shift word timestamps onto the trimmed timeline. A word fully inside a
-    kept interval moves to its new position (kept-length before it + offset into
-    its interval); words that fell in a removed gap are dropped."""
+    """Shift word timestamps onto the trimmed timeline. A word moves with the
+    kept interval it overlaps most (kept-length before it + offset into its
+    interval), clamped to that interval — streaming ASR often stretches a word's
+    end across the silence after it, and that silence may have been cut. Words
+    with no overlap at all fell in a removed gap and are dropped."""
     spans, cum = [], 0.0
     for a, b in intervals:
         spans.append((a, b, cum))
         cum += (b - a)
     out = []
     for w in words:
+        best, best_ov = None, 0.0
         for a, b, off in spans:
-            if w["start"] >= a - 1e-6 and w["end"] <= b + 1e-6:
-                out.append({"word": w["word"],
-                            "start": round(off + (w["start"] - a), 3),
-                            "end": round(off + (w["end"] - a), 3)})
-                break
+            ov = min(b, w["end"]) - max(a, w["start"])
+            if ov > best_ov + 1e-9:
+                best, best_ov = (a, b, off), ov
+        if best is None:
+            continue
+        a, b, off = best
+        st, en = max(a, w["start"]), min(b, w["end"])
+        out.append({"word": w["word"], "start": round(off + (st - a), 3),
+                    "end": round(off + (en - a), 3)})
     return out
 
 
+SILENCE_DB = -45.0     # below this (dBFS) counts as silence for the energy pass
+SILENCE_MIN = 0.25     # ignore dips shorter than this (seconds)
+
+
+def detect_silences(path, *, noise_db=SILENCE_DB, min_len=SILENCE_MIN):
+    """``[(start, end), …]`` silent stretches of ``path`` (ffmpeg silencedetect).
+    A silence still open at the end of the file runs to its duration."""
+    proc = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-af",
+         f"silencedetect=n={noise_db}dB:d={min_len}", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=TRIM_TIMEOUT_SECONDS,
+    )
+    out, start = [], None
+    for m in re.finditer(r"silence_(start|end): (-?[0-9.]+)", proc.stderr):
+        t = max(0.0, float(m.group(2)))
+        if m.group(1) == "start":
+            start = t
+        elif start is not None:
+            out.append((round(start, 3), round(t, 3)))
+            start = None
+    if start is not None:
+        out.append((round(start, 3), round(_probe_duration(path), 3)))
+    return out
+
+
+def energy_cuts(silences, duration, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHOLD,
+                max_gap=TRIM_MAX_GAP):
+    """Ranges to remove judged by the audio itself, not the transcript: the
+    leading and trailing silence (leaving ``pad``) and every internal silence
+    longer than ``gap_threshold`` (leaving about ``max_gap``). Catches the dead
+    air a word-only trim keeps when the ASR stretches or misses a word."""
+    keep = max(0.0, max_gap / 2.0)
+    cuts = []
+    for a, b in silences:
+        if a <= 0.01:
+            cuts.append((0.0, max(0.0, b - pad)))
+        elif duration and b >= duration - 0.01:
+            cuts.append((min(duration, a + pad), duration))
+        elif b - a > gap_threshold:
+            cuts.append((a + keep, b - keep))
+    return [(round(a, 3), round(b, 3)) for a, b in cuts if b - a > 0.02]
+
+
+def subtract_intervals(keep, cuts):
+    """``keep`` ranges minus ``cuts`` ranges (both lists of (start, end))."""
+    out = []
+    for a, b in keep:
+        pieces = [(a, b)]
+        for c, d in cuts:
+            nxt = []
+            for x, y in pieces:
+                if d <= x or c >= y:
+                    nxt.append((x, y))
+                    continue
+                if c > x:
+                    nxt.append((x, c))
+                if d < y:
+                    nxt.append((d, y))
+            pieces = nxt
+        out.extend(pieces)
+    return [(round(a, 3), round(b, 3)) for a, b in out if b - a > 0.01]
+
+
+HEAD_PAD = 0.15        # keep this much silence before the first sound
+TAIL_PAD = 0.2         # ...and after the last
+
+
+def align_words_to_onset(words, silences):
+    """Streaming ASR reports word times late (Nemotron: ~0.6 s). Shift every
+    word so the first one starts at the audio's real speech onset (the end of
+    the leading silence). Words are only ever moved earlier, never later."""
+    if not words or not silences or silences[0][0] > 0.01:
+        return words
+    onset = silences[0][1]
+    lag = words[0]["start"] - onset
+    if lag <= 0.05:
+        return words
+    return [{"word": w["word"], "start": round(max(0.0, w["start"] - lag), 3),
+             "end": round(max(0.05, w["end"] - lag), 3)} for w in words]
+
+
+def plan_energy_trim(silences, duration, *, gap_threshold=TRIM_GAP_THRESHOLD,
+                     max_gap=TRIM_MAX_GAP, head_pad=HEAD_PAD, tail_pad=TAIL_PAD):
+    """Keep-ranges that remove ONLY silence measured in the waveform: the lead-in
+    (leaving ``head_pad``), the tail (leaving ``tail_pad``) and internal pauses
+    longer than ``gap_threshold`` (leaving about ``max_gap``). Audible audio is
+    never cut, whatever the ASR timestamps say."""
+    keep = max(0.0, max_gap / 2.0)
+    cuts = []
+    for a, b in silences:
+        if a <= 0.01:
+            cuts.append((0.0, max(0.0, b - head_pad)))
+        elif duration and b >= duration - 0.01:
+            cuts.append((min(duration, a + tail_pad), duration))
+        elif b - a > gap_threshold:
+            cuts.append((a + keep, b - keep))
+    cuts = [(round(a, 3), round(b, 3)) for a, b in cuts if b - a > 0.02]
+    return subtract_intervals([(0.0, round(float(duration), 3))], cuts)
+
+
 def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHOLD,
-               max_gap=TRIM_MAX_GAP, inference_request=None):
-    """Trim silence/pauses from ``src`` (a MediaAsset) using ``words``; store the
-    result as a new OUTPUT_AUDIO (original untouched) and return
-    ``(asset, remapped_words, src_duration, out_duration, keep_intervals)``. If
-    there are no words to trim on, returns the source unchanged with a single
-    full-length keep interval."""
+               max_gap=TRIM_MAX_GAP, inference_request=None, loudness=None):
+    """Trim dead air from ``src`` (a MediaAsset); store the result as a new
+    OUTPUT_AUDIO (original untouched) and return ``(asset, remapped_words,
+    src_duration, out_duration, keep_intervals)``.
+
+    Cuts come from the waveform only (ffmpeg silencedetect): the lead-in, the
+    tail and long pauses. ASR word timings are NOT used to decide cuts: streaming
+    ASR reports words late, and cutting at its first word clipped the real first
+    word of every take. Words are aligned to the speech onset and remapped onto
+    the trimmed timeline. ``pad`` is kept for API compatibility (the head and
+    tail pads are HEAD_PAD / TAIL_PAD). With no measurable silence the source
+    is returned unchanged."""
     words = normalize_words(words)
     with tempfile.TemporaryDirectory() as td:
         in_path = _download_asset(src, td)
         src_dur = _probe_duration(in_path)
-        intervals = plan_trim_intervals(words, src_dur, pad=pad,
-                                        gap_threshold=gap_threshold, max_gap=max_gap)
-        if not intervals:
-            return src, words, src_dur, src_dur, [[0.0, round(src_dur, 3)]]
+        silences = detect_silences(in_path)
+        words = align_words_to_onset(words, silences)
+        intervals = plan_energy_trim(silences, src_dur, gap_threshold=gap_threshold,
+                                     max_gap=max_gap)
+        full = [(0.0, round(src_dur, 3))]
+        if not intervals or intervals == full:
+            if loudness is None:
+                return src, words, src_dur, src_dur, [[0.0, round(src_dur, 3)]]
+            intervals = full
         asset, out_dur = _cut_asset(user, src, in_path, td, intervals,
-                                    inference_request=inference_request)
+                                    inference_request=inference_request,
+                                    loudness=loudness)
     return asset, remap_words(words, intervals), src_dur, out_dur, intervals
 
 
@@ -171,7 +316,7 @@ def _download_asset(src, td) -> str:
     return in_path
 
 
-def _cut_asset(user, src, in_path, td, intervals, *, inference_request=None):
+def _cut_asset(user, src, in_path, td, intervals, *, inference_request=None, loudness=None):
     """Run the keep-``intervals`` cut over ``in_path`` and store the result as a
     new OUTPUT_AUDIO derived from ``src``. Returns ``(asset, out_duration)``."""
     from django.core.files.base import ContentFile
@@ -180,14 +325,15 @@ def _cut_asset(user, src, in_path, td, intervals, *, inference_request=None):
 
     src_dur = _probe_duration(in_path)
     out_path = os.path.join(td, "trimmed.wav")
-    trim_audio(in_path, out_path, [tuple(i) for i in intervals])
+    trim_audio(in_path, out_path, [tuple(i) for i in intervals], loudness=loudness)
     out_dur = _probe_duration(out_path)
     with open(out_path, "rb") as fh:
         audio = fh.read()
     asset = MediaAsset(
         user=user, inference_request=inference_request, kind=MediaAsset.OUTPUT_AUDIO,
         content_type="audio/wav", size_bytes=len(audio), duration_seconds=out_dur,
-        metadata={"trimmed_from": src.id, "saved_seconds": round(src_dur - out_dur, 3)},
+        metadata={"trimmed_from": src.id, "saved_seconds": round(src_dur - out_dur, 3),
+                  "loudness_lufs": loudness},
     )
     asset.file.save("trimmed.wav", ContentFile(audio), save=False)
     asset.save()
@@ -526,8 +672,11 @@ def process_segment(segment):
     #    Studio editor can show the trim diff and re-cut from manual regions.
     enhanced_words = words
     enhanced_dur = cleaned.duration_seconds or 0.0
+    cfg = episode_settings(segment.episode)
     try:
-        final, words_out, _src_dur, out_dur, intervals = trim_asset(user, cleaned, words)
+        final, words_out, _src_dur, out_dur, intervals = trim_asset(
+            user, cleaned, words, pad=cfg["trim_pad"], gap_threshold=cfg["trim_gap_threshold"],
+            max_gap=cfg["trim_max_gap"], loudness=cfg["loudness_lufs"])
     except Exception:
         logger.exception("process_segment: trim failed for segment %s", segment.id)
         final, words_out, out_dur = cleaned, words, enhanced_dur
@@ -543,7 +692,15 @@ def process_segment(segment):
 
     # 4) Grade the transcript against the intended text.
     grade = grade_transcription(user, strip_speaker_tags(variant.text or segment.text), text)
+    # Re-processing keeps the autopilot's bookkeeping (attempt, seed) and re-scores
+    # the take with the fresh grade, pace and duration.
+    prior = variant.grade or {}
+    grade = {**{k: prior[k] for k in ("attempt", "seed") if k in prior}, **grade}
     variant.grade = grade
+    variant.duration_seconds = out_dur
+    variant.words = words_out
+    variant.grade = {**grade, **take_score(variant, cfg)}
+    grade = variant.grade
     variant.save(update_fields=[
         "cleaned_audio", "enhanced_audio", "enhanced_words", "trim_intervals",
         "words", "duration_seconds", "transcript", "grade",
@@ -607,7 +764,8 @@ def retrim_variant(variant, remove_ranges):
         keep = _complement_intervals(remove_ranges, total)
         if not keep:
             return {"ok": False, "error": "That would remove the entire clip."}
-        asset, out_dur = _cut_asset(user, base, in_path, td, keep)
+        asset, out_dur = _cut_asset(user, base, in_path, td, keep,
+                                    loudness=episode_settings(segment.episode)["loudness_lufs"])
 
     variant.cleaned_audio = asset
     variant.trim_intervals = [[round(a, 3), round(b, 3)] for a, b in keep]
@@ -645,9 +803,11 @@ def generate_take(segment, *, text_override=None, seed=None):
 
     episode = segment.episode
     user = episode.user
+    cfg = episode_settings(episode)
     raw = (text_override if text_override is not None else segment.text or "").strip()
     if not raw:
         return None
+    raw = apply_lexicon(raw, cfg["lexicon"])
     text, _spk, err = _normalize_script(raw)
     if err or not text:
         text = _append_dia_end_tag("[S1] " + raw)
@@ -688,9 +848,11 @@ def generate_take(segment, *, text_override=None, seed=None):
         if cloning:
             fields = {
                 "text": (None, text), "max_new_tokens": (None, "3072"),
-                "cfg_scale": (None, "3.0"), "temperature": (None, "1.8"),
-                "top_p": (None, "0.95"), "cfg_filter_top_k": (None, "45"),
-                "speed_factor": (None, "1.0"), "seed": (None, str(seed)),
+                "cfg_scale": (None, str(cfg["cfg_scale"])),
+                "temperature": (None, str(cfg["temperature"])),
+                "top_p": (None, str(cfg["top_p"])),
+                "cfg_filter_top_k": (None, str(cfg["cfg_filter_top_k"])),
+                "speed_factor": (None, str(cfg["speed_factor"])), "seed": (None, str(seed)),
             }
             if audio_prompt is not None:
                 fields["audio_prompt_text"] = (None, prompt_text)
@@ -714,8 +876,11 @@ def generate_take(segment, *, text_override=None, seed=None):
         from .locks import device_lock, provider_device_key
         with device_lock(provider_device_key(pm), ttl=UPSTREAM_TIMEOUT_SECONDS + 60,
                          on_acquire=lambda: _mark_generating(segment)):
+            # Plain TTS carries ?model= so the agent picks the right tts service
+            # when a host runs several; the Dia path needs no hint.
+            params = {"model": pm.name} if endpoint == "/audio/synthesize" and pm.name else None
             up = requests.post(
-                provider.tailnet_base_url.rstrip("/") + endpoint, files=fields,
+                provider.tailnet_base_url.rstrip("/") + endpoint, files=fields, params=params,
                 timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
             )
     except requests.RequestException as e:
@@ -844,3 +1009,268 @@ def split_into_segments(text: str, target_words: int = CHUNK_TARGET_WORDS) -> li
         groups.append(" ".join(sentences[i:j]))
         i = j
     return groups
+
+
+# --- episode settings, lexicon, autopilot, voice samples, export ------------
+
+DEFAULT_EPISODE_SETTINGS = {
+    # Written form -> spoken form, applied (whole words, case-insensitive) to the
+    # text Dia speaks. Grading compares the ASR against the SPOKEN form.
+    "lexicon": {},
+    # Dia sampling. 1.3 is the model card's default; the old hard-coded 1.8
+    # drifted voice and pace between takes.
+    "temperature": 1.3,
+    "cfg_scale": 3.0,
+    "top_p": 0.95,
+    "cfg_filter_top_k": 35,
+    "speed_factor": 1.0,
+    # Retake policy for autopilot: up to `max_attempts` takes per segment, stop
+    # at the first whose take score reaches `accept_score` (0-10).
+    "max_attempts": 3,
+    "accept_score": 8.5,
+    # Pace sanity band (spoken words per second); outside it the take score drops.
+    "min_wps": 1.8,
+    "max_wps": 3.6,
+    # Trim + level.
+    "trim_pad": TRIM_PAD,
+    "trim_gap_threshold": TRIM_GAP_THRESHOLD,
+    "trim_max_gap": TRIM_MAX_GAP,
+    "loudness_lufs": -16.0,
+}
+
+_FLOAT_SETTINGS = {
+    "temperature": (0.1, 2.0), "cfg_scale": (1.0, 5.0), "top_p": (0.1, 1.0),
+    "speed_factor": (0.5, 2.0), "accept_score": (0.0, 10.0), "min_wps": (0.5, 6.0),
+    "max_wps": (0.5, 8.0), "trim_pad": (0.0, 1.0), "trim_gap_threshold": (0.1, 5.0),
+    "trim_max_gap": (0.0, 3.0), "loudness_lufs": (-36.0, -8.0),
+}
+_INT_SETTINGS = {"cfg_filter_top_k": (1, 100), "max_attempts": (1, 8)}
+
+
+def episode_settings(episode) -> dict:
+    """The episode's settings merged over ``DEFAULT_EPISODE_SETTINGS``."""
+    merged = dict(DEFAULT_EPISODE_SETTINGS)
+    stored = getattr(episode, "settings", None) or {}
+    if isinstance(stored, dict):
+        merged.update({k: v for k, v in stored.items() if k in DEFAULT_EPISODE_SETTINGS})
+    if merged.get("loudness_lufs") in ("", "off"):
+        merged["loudness_lufs"] = None
+    return merged
+
+
+def validate_settings(patch) -> tuple[dict, str | None]:
+    """Validate a settings PATCH. Returns ``(clean, error)``; unknown keys are
+    an error so typos don't silently do nothing. ``None`` resets a key."""
+    if not isinstance(patch, dict):
+        return {}, "`settings` must be an object."
+    clean = {}
+    for k, v in patch.items():
+        if k not in DEFAULT_EPISODE_SETTINGS:
+            return {}, f"Unknown setting `{k}`."
+        if v is None:
+            clean[k] = None
+            continue
+        if k == "lexicon":
+            if not isinstance(v, dict) or not all(
+                    isinstance(a, str) and isinstance(b, str) for a, b in v.items()):
+                return {}, "`lexicon` must map written text to spoken text (strings)."
+            clean[k] = {a.strip(): b.strip() for a, b in v.items() if a.strip()}
+            continue
+        if k == "loudness_lufs" and v in ("", "off", False):
+            clean[k] = "off"
+            continue
+        bounds = _FLOAT_SETTINGS.get(k) or _INT_SETTINGS.get(k)
+        try:
+            num = int(v) if k in _INT_SETTINGS else float(v)
+        except (TypeError, ValueError):
+            return {}, f"`{k}` must be a number."
+        lo, hi = bounds
+        if not lo <= num <= hi:
+            return {}, f"`{k}` must be between {lo} and {hi}."
+        clean[k] = num
+    return clean, None
+
+
+def apply_lexicon(text: str, lexicon) -> str:
+    """Replace each written form with its spoken form (whole words, case-
+    insensitive, longest entries first so "Hermes OTel" wins over "OTel")."""
+    if not text or not isinstance(lexicon, dict) or not lexicon:
+        return text
+    for written in sorted(lexicon, key=len, reverse=True):
+        spoken = lexicon[written]
+        if not written:
+            continue
+        text = re.sub(rf"(?<![\w]){re.escape(written)}(?![\w])", spoken, text, flags=re.IGNORECASE)
+    return text
+
+
+def take_score(variant, cfg) -> dict:
+    """Score a processed take 0-10: the transcript grade, minus a pace penalty
+    when the spoken words-per-second falls outside ``[min_wps, max_wps]`` (Dia
+    sometimes drawls, rushes, or pads a line with mumbling the ASR drops)."""
+    grade = variant.grade or {}
+    score = float(grade.get("score") or 0.0)
+    words = variant.words or []
+    dur = float(variant.duration_seconds or 0.0)
+    wps = (len(words) / dur) if dur > 0 and words else 0.0
+    penalty = 0.0
+    if wps:
+        if wps < cfg["min_wps"]:
+            penalty = min(4.0, (cfg["min_wps"] - wps) * 4.0)
+        elif wps > cfg["max_wps"]:
+            penalty = min(4.0, (wps - cfg["max_wps"]) * 4.0)
+    else:
+        penalty = 5.0
+    total = max(0.0, round(score - penalty, 2))
+    return {"take_score": total, "grade_score": score, "wps": round(wps, 2),
+            "pace_penalty": round(penalty, 2),
+            "accepted": total >= cfg["accept_score"] and not grade.get("should_regenerate")}
+
+
+def _seed_of(variant):
+    ir = variant.inference_request
+    return (ir.payload or {}).get("seed") if ir else None
+
+
+def produce_segment(segment, *, attempts=None, accept=None, explore=False, seeds=None):
+    """Autopilot for one segment: generate a take, run clean -> ASR -> trim ->
+    grade, score it, and retake until one is accepted or ``attempts`` run out;
+    the best-scoring take becomes the selected one. ``explore`` makes every
+    attempt (no early stop) — used to audition several seeds of one line.
+    ``seeds`` pins the seed of each attempt. Returns a summary dict."""
+    from .models import Segment, Variant
+
+    cfg = episode_settings(segment.episode)
+    attempts = int(attempts or cfg["max_attempts"])
+    if seeds:
+        attempts = len(seeds)
+    if accept is not None:
+        cfg = {**cfg, "accept_score": float(accept)}
+    tried = []
+    for i in range(attempts):
+        seed = seeds[i] if seeds else None
+        variant = generate_take(segment, seed=seed)
+        if variant is None:
+            break
+        process_segment(segment)
+        variant.refresh_from_db()
+        sc = take_score(variant, cfg)
+        variant.grade = {**(variant.grade or {}), **sc, "attempt": i + 1, "seed": _seed_of(variant)}
+        variant.save(update_fields=["grade", "modified_on"])
+        tried.append((sc["take_score"], variant.id, sc["accepted"]))
+        if sc["accepted"] and not explore:
+            break
+    if not tried:
+        segment.status = Segment.STATUS_ERROR
+        segment.save(update_fields=["status", "modified_on"])
+        return {"ok": False, "error": "Could not generate a take (no voice provider?)."}
+    best_score, best_id, best_ok = max(tried)
+    segment.selected_variant = Variant.objects.get(id=best_id)
+    segment.status = Segment.STATUS_READY if best_ok else Segment.STATUS_FLAGGED
+    segment.save(update_fields=["selected_variant", "status", "modified_on"])
+    return {"ok": True, "attempts": len(tried), "best_variant_id": best_id,
+            "best_score": best_score, "accepted": best_ok, "status": segment.status}
+
+
+def produce_episode(episode, *, force=False, attempts=None, accept=None):
+    """Autopilot for a whole episode, segment by segment (the voice device is
+    serial anyway). Skips segments that are already ``ready`` unless ``force``."""
+    from .models import Segment
+
+    results = []
+    for seg in episode.segments.order_by("position", "id"):
+        if seg.status == Segment.STATUS_READY and not force:
+            continue
+        try:
+            results.append({"segment_id": seg.id,
+                            **produce_segment(seg, attempts=attempts, accept=accept)})
+        except Exception as e:  # one bad segment must not stop the rest
+            logger.exception("produce_episode: segment %s failed", seg.id)
+            seg.status = Segment.STATUS_ERROR
+            seg.save(update_fields=["status", "modified_on"])
+            results.append({"segment_id": seg.id, "ok": False, "error": str(e)[:200]})
+    return results
+
+
+def save_variant_as_voice_sample(variant, *, speaker_name, label="", make_default=False,
+                                 use_for_episode=False):
+    """Save a take's cleaned (StudioVoice + trimmed) audio as a voice sample, so
+    every later take can clone it — the way to lock one consistent voice for an
+    episode. The transcript is the line as spoken when the take graded well,
+    else the ASR transcript (Dia clones best when the transcript is exact)."""
+    from django.core.files.base import ContentFile
+    from django.db import transaction
+
+    from .models import MediaAsset, VoiceSample
+
+    segment = variant.segment
+    episode = segment.episode
+    user = episode.user
+    src = variant.cleaned_audio or variant.audio
+    if src is None or not src.file:
+        raise ValueError("This take has no audio yet.")
+    with src.file.open("rb") as f:
+        data = f.read()
+    asset = MediaAsset(user=user, kind=MediaAsset.INPUT_AUDIO,
+                       content_type=src.content_type or "audio/wav", size_bytes=len(data),
+                       duration_seconds=variant.duration_seconds or src.duration_seconds,
+                       metadata={"from_variant": variant.id})
+    asset.file.save("voice-sample.wav", ContentFile(data), save=False)
+    asset.save()
+    asset.record_derivation([src])
+
+    grade = variant.grade or {}
+    spoken = strip_speaker_tags(variant.text or segment.text)
+    good = float(grade.get("take_score", grade.get("score") or 0)) >= 9.0
+    transcript = spoken if good or not (variant.transcript or "").strip() else variant.transcript
+    source = VoiceSample.SOURCE_MANUAL if transcript == spoken else VoiceSample.SOURCE_STT
+    speaker_name = (speaker_name or "Narrator").strip()[:120]
+    with transaction.atomic():
+        existing = VoiceSample.objects.filter(user=user, speaker_name=speaker_name)
+        if make_default or not existing.exists():
+            make_default = True
+            existing.filter(is_default=True).update(is_default=False)
+        sample = VoiceSample.objects.create(
+            user=user, speaker_name=speaker_name, label=(label or "").strip()[:120],
+            is_default=make_default, audio=asset, transcript=transcript,
+            transcript_source=source, language="en", duration_seconds=asset.duration_seconds,
+            metadata={"from_variant": variant.id, "seed": _seed_of(variant),
+                      "episode_id": episode.id, "grade": grade},
+        )
+        if use_for_episode:
+            episode.voice_sample = sample
+            episode.save(update_fields=["voice_sample", "modified_on"])
+    return sample
+
+
+def export_episode_zip(episode) -> bytes:
+    """A zip of the episode's selected takes — ``NN.wav`` (cleaned, trimmed,
+    level-matched) in order — plus ``manifest.json`` with each segment's text,
+    spoken form, duration, word timestamps, grade and seed. This is what a video
+    editor (or a HyperFrames build) consumes."""
+    import io
+    import zipfile
+
+    cfg = episode_settings(episode)
+    manifest = {"episode": {"id": episode.id, "title": episode.title},
+                "voice": {"model": episode.voice_model or "auto",
+                          "sample_id": episode.voice_sample_id},
+                "settings": cfg, "segments": []}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for n, seg in enumerate(episode.segments.order_by("position", "id"), start=1):
+            v = seg.selected_variant
+            entry = {"index": n, "segment_id": seg.id, "text": seg.text, "status": seg.status}
+            asset = (v.cleaned_audio or v.audio) if v else None
+            if v is not None and asset is not None and asset.file:
+                name = f"{n:02d}.wav"
+                with asset.file.open("rb") as f:
+                    zf.writestr(name, f.read())
+                entry.update({"file": name, "variant_id": v.id,
+                              "spoken": strip_speaker_tags(v.text or seg.text),
+                              "duration": v.duration_seconds, "words": v.words or [],
+                              "transcript": v.transcript, "grade": v.grade or {},
+                              "seed": _seed_of(v)})
+            manifest["segments"].append(entry)
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+    return buf.getvalue()

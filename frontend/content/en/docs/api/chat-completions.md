@@ -9,10 +9,10 @@ order: 3
 
 ::api-endpoint{method="POST" path="/v1/chat/completions" async="true"}
 
-The main inference endpoint. Same request and response shape as OpenAI; inference.club proxies the request to one of your online providers and streams the response back.
+The main inference endpoint. Same request and response shape as OpenAI; inference.club proxies the request to an online provider you can reach (your own nodes, or services other members share with you) and streams the response back.
 
 ::callout{type="tip"}
-This endpoint can also be run asynchronously — add `"async": true` to queue it as a job instead of blocking. See [Direct vs async](/docs/services/direct-vs-async).
+This endpoint can also be run asynchronously — add `"async": true` (always queue) or `"async": "auto"` to get a job back instead of blocking; the finished job's `output_text` holds the full response. See [Async jobs](/docs/api/jobs). Direct chat calls aren't capacity-gated — LLM servers batch concurrent requests themselves.
 ::
 
 ## Request
@@ -33,7 +33,7 @@ curl https://api.inference.club/v1/chat/completions \
 
 The body is forwarded to the provider's LLM server unchanged, so any OpenAI-compatible field your local server understands (`temperature`, `top_p`, `max_tokens`, `tools`, `response_format`, …) just works.
 
-`model` is required and must match a model name advertised by one of your online providers. Lookup is exact-match.
+`model` is required and must be an `id` from [`GET /v1/models`](/docs/api/models). Requests are bounded: at most 200 messages and 100,000 input characters (`413 request_too_large` beyond that), and an explicit `max_tokens` above 8,192 is clamped.
 
 ## Buffered response
 
@@ -74,7 +74,9 @@ inference.club passes the upstream stream through with no buffering, so chunks a
 | HTTP | Meaning |
 |---|---|
 | `401` | Missing or invalid Bearer token. |
-| `404` | No online provider on your account serves the requested model. |
+| `404` | No online provider you can reach serves the requested model (`no_provider`). |
+| `413` | Too many messages or input characters (`request_too_large`). |
+| `429` | Your account's rate limit (`{"detail": …}` body, honor `Retry-After`). |
 | `502` | The provider was reachable but its local LLM server errored or timed out. |
 
 The 404 response uses inference.club's error envelope:

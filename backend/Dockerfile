@@ -82,7 +82,8 @@ CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS_ON_START:-1}\" = \"1\" ]; then python 
 # bind-mounted source; the web container uses runserver's own reloader. ----
 FROM runtime AS dev
 USER root
-RUN pip install "watchdog[watchmedo]==6.0.0"
+# pytest so `docker compose exec backend python -m pytest` works (dev only).
+RUN pip install "watchdog[watchmedo]==6.0.0" "pytest>=8.3,<9" "pytest-django>=4.8"
 USER app
 
 

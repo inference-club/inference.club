@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .catalog import CatalogView
 from .file_views import FileContentView, FileDetailView, FilesView
 from .job_views import (
     BatchDetailView,
@@ -31,6 +32,10 @@ from .studio_views import (
     SegmentRegenerateView,
     SegmentReorderView,
     SegmentRetrimView,
+    EpisodeProduceView,
+    EpisodeExportView,
+    SegmentTakesView,
+    VariantSaveVoiceView,
     StudioVoicesView,
     VariantSelectView,
 )
@@ -40,6 +45,7 @@ from .openai_views import (
     AudioSpeechView,
     AudioTranscriptionsView,
     AudioVoicesView,
+    CapacityView,
     ChatCompletionsView,
     CompletionsView,
     ComposeView,
@@ -58,6 +64,11 @@ app_name = "openai"
 urlpatterns = [
     path("models", ModelsView.as_view(), name="models"),
     path("models/", ModelsView.as_view()),
+    path("catalog", CatalogView.as_view(), name="catalog"),
+    path("catalog/", CatalogView.as_view()),
+    # Live device load (sync + async share one per-device budget; capacity.py).
+    path("capacity", CapacityView.as_view(), name="capacity"),
+    path("capacity/", CapacityView.as_view()),
     path("chat/completions", ChatCompletionsView.as_view(), name="chat-completions"),
     path("chat/completions/", ChatCompletionsView.as_view()),
     path("completions", CompletionsView.as_view(), name="completions"),
@@ -127,6 +138,15 @@ urlpatterns = [
     path("segments/<int:id>/process/", SegmentProcessView.as_view()),
     path("segments/<int:id>/regenerate", SegmentRegenerateView.as_view(), name="segment-regenerate"),
     path("segments/<int:id>/regenerate/", SegmentRegenerateView.as_view()),
+    path("episodes/<int:id>/produce", EpisodeProduceView.as_view(), name="episode-produce"),
+    path("episodes/<int:id>/produce/", EpisodeProduceView.as_view()),
+    path("episodes/<int:id>/export", EpisodeExportView.as_view(), name="episode-export"),
+    path("episodes/<int:id>/export/", EpisodeExportView.as_view()),
+    path("segments/<int:id>/takes", SegmentTakesView.as_view(), name="segment-takes"),
+    path("segments/<int:id>/takes/", SegmentTakesView.as_view()),
+    path("segments/<int:id>/variants/<int:vid>/save-voice", VariantSaveVoiceView.as_view(),
+         name="variant-save-voice"),
+    path("segments/<int:id>/variants/<int:vid>/save-voice/", VariantSaveVoiceView.as_view()),
     path("segments/<int:id>/retrim", SegmentRetrimView.as_view(), name="segment-retrim"),
     path("segments/<int:id>/retrim/", SegmentRetrimView.as_view()),
     # --- async jobs / batches / workflows (PRD 10) ---

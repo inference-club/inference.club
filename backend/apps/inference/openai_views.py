@@ -46,13 +46,93 @@ def _pop_async(request) -> bool:
     so it never reaches the upstream server. Returns whether the caller wants
     the queued path. Only meaningful for JSON bodies (the async-submittable
     modalities are all JSON); multipart uploads stay synchronous."""
+    from .capacity import MODE_ASYNC, parse_mode
+
     body = request.data
     if not isinstance(body, dict):
         return False
-    v = body.pop("async", None)
-    if isinstance(v, bool):
-        return v
-    return v is not None and str(v).strip().lower() in {"1", "true", "yes", "on"}
+    mode = parse_mode(body.pop("async", None))
+    # ``"auto"`` (run now if a GPU slot is free, else queue) is resolved later by
+    # capacity.admit / capacity.offline_placeholder, which read the mode here.
+    request._ic_async_mode = mode
+    # ``delivery`` ("bytes" | "url") is an inference.club extension too — never
+    # forwarded upstream.
+    request._ic_delivery = str(body.pop("delivery", "") or "").strip().lower()
+    return mode == MODE_ASYNC
+
+
+def _delivery(request) -> str:
+    """``bytes`` (default: raw media body) or ``url`` (JSON with asset URLs)."""
+    d = getattr(request, "_ic_delivery", None)
+    if d is None:
+        try:
+            d = str(request.data.get("delivery") or "").strip().lower()
+        except Exception:
+            d = ""
+    return "url" if d == "url" else "bytes"
+
+
+_ASSET_KIND = {
+    "OUTPUT_IMAGE": "image", "OUTPUT_AUDIO": "audio", "OUTPUT_VIDEO": "video",
+    "OUTPUT_MODEL": "model", "OUTPUT_DOC": "document",
+}
+
+
+def media_items(ir, request) -> list:
+    """The request's output assets as agent-friendly ``MediaItem`` dicts."""
+    from .serializers import asset_url
+
+    out = []
+    for a in ir.assets.all().order_by("id"):
+        kind = _ASSET_KIND.get(a.kind)
+        if not kind:
+            continue
+        out.append({
+            "id": a.id,
+            "kind": kind,
+            "url": asset_url(a, request),
+            "content_type": a.content_type or None,
+            "duration_seconds": a.duration_seconds,
+        })
+    return out
+
+
+def media_response(request, ir, asset, payload_bytes, content_type, filename):
+    """Finish a binary-output endpoint. ``delivery: "url"`` → JSON
+    ``inference.result`` with asset URLs (what agents want: no bytes to pipe
+    anywhere); default → the raw bytes, plus headers naming the stored asset
+    and request so byte-mode callers can link to it too."""
+    from django.http import HttpResponse
+
+    if _delivery(request) == "url":
+        return Response({
+            "object": "inference.result",
+            "id": str(ir.id),
+            "public_id": str(getattr(ir, "public_id", "") or "") or None,
+            "inference_type": ir.inference_type,
+            "model": ir.model_name,
+            "status": ir.status,
+            "created": int(ir.created_on.timestamp()),
+            "data": media_items(ir, request),
+        }, status=status.HTTP_200_OK)
+    resp = HttpResponse(payload_bytes, content_type=content_type)
+    resp["Content-Disposition"] = f'inline; filename="{filename}"'
+    resp["X-Inference-Request-Id"] = str(ir.id)
+    if asset is not None:
+        resp["X-Asset-Id"] = str(asset.id)
+        resp["X-Asset-Url"] = _asset_url(request, asset)
+    return resp
+
+
+def _admit_sync(request, provider_model, stored_payload=None, collection_name=None,
+                on_queued=None, **create):
+    """Create a synchronous request's InferenceRequest *through the capacity
+    gate* (see capacity.admit): returns ``(ir, None)`` or ``(None, response)``
+    when the device is full (429 at_capacity, or a 202 job for async:"auto")."""
+    from .capacity import admit
+
+    return admit(request, provider_model, create=create, stored_payload=stored_payload,
+                 collection_name=collection_name, on_queued=on_queued)
 
 
 def _enqueue_async(request, inference_type, payload, visibility, collection_name, model_name=""):
@@ -276,6 +356,23 @@ class _RateLimitHeadersMixin:
     # keep rendering JSON exactly as before; the passthrough only kicks in for
     # concrete binary ``Accept`` headers that would otherwise 406.
     renderer_classes = [JSONRenderer, BinaryPassthroughRenderer]
+
+    def dispatch(self, request, *args, **kwargs):
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        finally:
+            # A capacity slot taken by capacity.admit must never outlive the
+            # view — even if it raised (DRF re-raises before finalize_response).
+            drf_req = getattr(self, "request", None)
+            claimed = getattr(drf_req, "_ic_capacity_ir_id", None)
+            if claimed:
+                try:
+                    from .capacity import end_lease, release_if_abandoned
+
+                    end_lease(drf_req)
+                    release_if_abandoned(claimed)
+                except Exception:
+                    logger.warning("capacity: release check failed", exc_info=True)
 
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
@@ -784,6 +881,12 @@ class _ChatOrCompletionsProxy(_RateLimitHeadersMixin, APIView):
             )
 
         provider_model = _find_provider_for_model(request.user, model_name)
+        if provider_model is None and go_async is False:
+            # async:"auto" + known model whose provider is offline → queue it.
+            from .capacity import offline_placeholder
+
+            provider_model = offline_placeholder(request, model_name, None)
+            go_async = provider_model is not None
         if provider_model is None:
             message = (
                 f"No online provider serving model '{model_name}' for this user."
@@ -1125,7 +1228,8 @@ class AudioTranscriptionsView(_RateLimitHeadersMixin, APIView):
         # persist them. Bounded by STT_MAX_UPLOAD_BYTES checked above.
         audio_bytes = upload.read()
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model,
             user=request.user,
             provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
@@ -1143,6 +1247,8 @@ class AudioTranscriptionsView(_RateLimitHeadersMixin, APIView):
             status="PROCESSING",
             visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
 
         asset = None
@@ -1458,6 +1564,15 @@ def _wav_seconds(audio: bytes):
         return None
 
 
+def _tts_model_params(pm) -> dict:
+    """``?model=<served id>`` for the Riva speech paths. The agent routes
+    ``/audio/synthesize`` and ``/audio/list_voices`` by it when a host runs more
+    than one tts service (Magpie on a GPU, nano-edge-tts on a CPU); a Riva NIM
+    ignores the unknown query parameter."""
+    name = getattr(pm, "name", "") or ""
+    return {"model": name} if name else {}
+
+
 def _flatten_voices(data) -> list:
     """Flatten Riva's nested list_voices shape
     ``{"en-US,es-US,...": {"voices": [...]}}`` into a sorted unique list."""
@@ -1507,6 +1622,12 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
         provider_model = _find_provider_for_model(
             request.user, model_name, service_type="tts"
         )
+        if provider_model is None and go_async is False:
+            # async:"auto" + known model whose provider is offline → queue it.
+            from .capacity import offline_placeholder
+
+            provider_model = offline_placeholder(request, model_name, "tts")
+            go_async = provider_model is not None
         if provider_model is None:
             return Response(
                 {
@@ -1543,7 +1664,8 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
                 visibility, collection_name, model_name=canonical or model_name or "",
             )
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model, stored_payload=stored_payload, collection_name=collection_name,
             user=request.user,
             provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
@@ -1553,6 +1675,8 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
             status="PROCESSING",
             visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
 
         # Adapt to Riva's multipart /audio/synthesize. Sent as multipart form
@@ -1568,8 +1692,8 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
         started = time.monotonic()
         try:
             upstream = requests.post(
-                endpoint, files=fields, timeout=UPSTREAM_TIMEOUT_SECONDS,
-                verify=False, proxies=_tailnet_proxies(),
+                endpoint, files=fields, params=_tts_model_params(provider_model),
+                timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
             )
         except requests.RequestException as e:
             ir.status = "REQUESTED"
@@ -1627,17 +1751,9 @@ class AudioSpeechView(_RateLimitHeadersMixin, APIView):
         )
         Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
 
-        from django.http import HttpResponse
-
-        resp = HttpResponse(audio, content_type=out_ct)
-        resp["Content-Disposition"] = f'inline; filename="speech.{ext}"'
-        # Expose the stored OUTPUT_AUDIO handle so callers (Voice Agent) can
-        # persist + replay this reply. The body is bytes, so it rides on headers;
-        # these are added to CORS_EXPOSE_HEADERS for cross-origin (dev) reads.
-        if asset is not None:
-            resp["X-Asset-Id"] = str(asset.id)
-            resp["X-Asset-Url"] = _asset_url(request, asset)
-        return resp
+        # Bytes carry X-Asset-Id/X-Asset-Url so callers (Voice Agent) can persist +
+        # replay this reply; delivery:"url" returns JSON instead.
+        return media_response(request, ir, asset, audio, out_ct, f"speech.{ext}")
 
 
 class AudioEnhanceView(_RateLimitHeadersMixin, APIView):
@@ -1717,7 +1833,8 @@ class AudioEnhanceView(_RateLimitHeadersMixin, APIView):
         # Bounded by STT_MAX_UPLOAD_BYTES checked above.
         audio_bytes = upload.read()
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model,
             user=request.user,
             provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
@@ -1733,6 +1850,8 @@ class AudioEnhanceView(_RateLimitHeadersMixin, APIView):
             status="PROCESSING",
             visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
 
         in_asset = None
@@ -1827,11 +1946,7 @@ class AudioEnhanceView(_RateLimitHeadersMixin, APIView):
         )
         Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
 
-        from django.http import HttpResponse
-
-        resp = HttpResponse(audio, content_type=out_ct)
-        resp["Content-Disposition"] = f'inline; filename="enhanced.{ext}"'
-        return resp
+        return media_response(request, ir, out_asset, audio, out_ct, f"enhanced.{ext}")
 
 
 # --- Voice cloning (Dia) — see docs/prd/09-voice-cloning.md ------------------
@@ -2219,7 +2334,8 @@ class VoiceGenerationsView(_RateLimitHeadersMixin, APIView):
                     prompt_transcript = lines[0]
                     prompt_note = "multi_voice_clone_unavailable"
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model,
             user=request.user,
             provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
@@ -2240,6 +2356,8 @@ class VoiceGenerationsView(_RateLimitHeadersMixin, APIView):
             status="PROCESSING",
             visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
 
         fields = {
@@ -2326,10 +2444,7 @@ class VoiceGenerationsView(_RateLimitHeadersMixin, APIView):
         )
         Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
 
-        from django.http import HttpResponse
-
-        resp = HttpResponse(audio, content_type=out_ct)
-        resp["Content-Disposition"] = 'inline; filename="voice.wav"'
+        resp = media_response(request, ir, asset, audio, out_ct, "voice.wav")
         if used_seed:
             resp["x-seed"] = used_seed
         return resp
@@ -2386,6 +2501,12 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
         provider_model = _find_provider_for_model(
             request.user, model_name, service_type="music"
         )
+        if provider_model is None and go_async is False:
+            # async:"auto" + known model whose provider is offline → queue it.
+            from .capacity import offline_placeholder
+
+            provider_model = offline_placeholder(request, model_name, "music")
+            go_async = provider_model is not None
         if provider_model is None:
             return Response(
                 {
@@ -2467,7 +2588,8 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
                 visibility, collection_name, model_name=canonical or model_name or "",
             )
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model, stored_payload=stored_payload, collection_name=collection_name,
             user=request.user,
             provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
@@ -2477,6 +2599,8 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
             status="PROCESSING",
             visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
 
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
@@ -2545,11 +2669,7 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
         )
         Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
 
-        from django.http import HttpResponse
-
-        resp = HttpResponse(audio, content_type=out_ct)
-        resp["Content-Disposition"] = f'inline; filename="song.{ext}"'
-        return resp
+        return media_response(request, ir, asset, audio, out_ct, f"song.{ext}")
 
 
 def _decode_image_input(image):
@@ -2874,6 +2994,12 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
         provider_model = _find_provider_for_model(
             request.user, model_name, service_type="video"
         )
+        if provider_model is None and go_async is False:
+            # async:"auto" + known model whose provider is offline → queue it.
+            from .capacity import offline_placeholder
+
+            provider_model = offline_placeholder(request, model_name, "video")
+            go_async = provider_model is not None
         if provider_model is None:
             return Response(
                 {
@@ -3032,6 +3158,11 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
             except Exception as e:
                 logger.warning("video input-image store failed: %s", e)
 
+        def _store_queued(target):
+            """A sync call that overflowed into the queue keeps all its inputs."""
+            _store_first_frame(target)
+            _store_inputs(target)
+
         if go_async:
             from . import jobs as _jobs
             from .job_views import accepted
@@ -3050,9 +3181,10 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
             )
             _store_first_frame(job)  # so image-to-video can run from the queue
             _store_inputs(job)
-            return accepted(job)
+            return accepted(job, getattr(request, "_ic_queued_reason", None) or "requested")
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model, stored_payload=stored_payload, collection_name=collection_name, on_queued=_store_queued,
             user=request.user,
             provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
@@ -3062,6 +3194,8 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
             status="PROCESSING",
             visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
         _store_first_frame(ir)
         input_assets = _store_inputs(ir)
@@ -3127,13 +3261,8 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
         )
         Provider.objects.filter(id=provider.id).update(last_seen_at=timezone.now())
 
-        from django.http import HttpResponse
-
-        resp = HttpResponse(video, content_type=out_ct)
         fname = "audio.wav" if out_ct.startswith("audio/") else "video.mp4"
-        resp["Content-Disposition"] = f'inline; filename="{fname}"'
-        resp["X-Request-Id"] = str(ir.id)
-        return resp
+        return media_response(request, ir, asset, video, out_ct, fname)
 
 
 class AudioVoicesView(_RateLimitHeadersMixin, APIView):
@@ -3161,7 +3290,8 @@ class AudioVoicesView(_RateLimitHeadersMixin, APIView):
         endpoint = provider_model.provider.tailnet_base_url.rstrip("/") + "/audio/list_voices"
         try:
             upstream = requests.get(
-                endpoint, timeout=30, verify=False, proxies=_tailnet_proxies()
+                endpoint, params=_tts_model_params(provider_model), timeout=30,
+                verify=False, proxies=_tailnet_proxies(),
             )
             upstream.raise_for_status()
             data = upstream.json()
@@ -3205,6 +3335,12 @@ class ImageGenerationsView(_ImageProxyBase):
         provider_model = _find_provider_for_model(
             request.user, model_name, service_type="image"
         )
+        if provider_model is None and go_async is False:
+            # async:"auto" + known model whose provider is offline → queue it.
+            from .capacity import offline_placeholder
+
+            provider_model = offline_placeholder(request, model_name, "image")
+            go_async = provider_model is not None
         if provider_model is None:
             return self._no_provider(model_name)
 
@@ -3243,7 +3379,8 @@ class ImageGenerationsView(_ImageProxyBase):
         if n_in is not None:
             forward["n"] = n_in
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model, stored_payload=stored_payload, collection_name=collection_name,
             user=request.user,
             provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
@@ -3253,6 +3390,8 @@ class ImageGenerationsView(_ImageProxyBase):
             status="PROCESSING",
             visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
 
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
@@ -3344,7 +3483,8 @@ class ImageEditsView(_ImageProxyBase):
         mask = request.FILES.get("mask")
         mask_bytes = mask.read() if mask is not None else None
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model,
             user=request.user,
             provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
@@ -3363,6 +3503,8 @@ class ImageEditsView(_ImageProxyBase):
             status="PROCESSING",
             visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
 
         # Store every source image (public, like outputs) so the edit — including
@@ -3460,6 +3602,12 @@ class ScrapeView(_RateLimitHeadersMixin, APIView):
         provider_model = _find_provider_for_model(
             request.user, model_name, service_type="scrape"
         )
+        if provider_model is None and go_async is False:
+            # async:"auto" + known model whose provider is offline → queue it.
+            from .capacity import offline_placeholder
+
+            provider_model = offline_placeholder(request, model_name, "scrape")
+            go_async = provider_model is not None
         if provider_model is None:
             return Response(
                 {"error": {"message": (
@@ -3478,13 +3626,16 @@ class ScrapeView(_RateLimitHeadersMixin, APIView):
                 visibility, collection_name, model_name=canonical or model_name or "",
             )
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model, stored_payload=stored_payload, collection_name=collection_name,
             user=request.user, provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
             model_name=canonical or model_name or "",
             inference_type="SCRAPE", payload=stored_payload,
             status="PROCESSING", visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
 
         ok, err = _run_scrape(ir, provider, url, time.monotonic())
@@ -3686,7 +3837,8 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
         canonical = _model_slug(provider_model)
         image_bytes = upload.read()
 
-        ir = InferenceRequest.objects.create(
+        ir, _overflow = _admit_sync(
+            request, provider_model,
             user=request.user,
             provider=provider,
             dispatch_meta=_dispatch_meta(provider_model),
@@ -3700,6 +3852,8 @@ class Mesh3DGenerationsView(_RateLimitHeadersMixin, APIView):
             status="PROCESSING",
             visibility=visibility or "",
         )
+        if _overflow is not None:
+            return _overflow
         file_into_collection(request.user, ir, collection_name)
 
         from django.core.files.base import ContentFile
@@ -4072,7 +4226,7 @@ def _rerun_tts(ir, provider_model):
     try:
         upstream = requests.post(
             _retry_endpoint(provider, "/audio/synthesize"), files=fields,
-            timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
+            params=_tts_model_params(provider_model), timeout=UPSTREAM_TIMEOUT_SECONDS, verify=False, proxies=_tailnet_proxies(),
         )
     except requests.RequestException as e:
         return _retry_store_exc(ir, started, e)
@@ -4486,6 +4640,9 @@ _RETRY_RUNNERS = {
 }
 
 
+AT_CAPACITY = "at_capacity"  # sentinel error from rerun_inference_request
+
+
 def rerun_inference_request(ir):
     """Re-run a failed InferenceRequest in place. Resolves a current provider,
     resets the row to PROCESSING (dropping any stale OUTPUT_* assets but keeping
@@ -4504,6 +4661,23 @@ def rerun_inference_request(ir):
         return _retry_simple_fail(
             ir, f"No online provider is serving '{model_name}' right now."
         )
+
+    # Take a slot on the device first (shared budget with sync + async), so a
+    # burst of retries can't overload a single-slot GPU.
+    from .capacity import claim_existing
+
+    if not claim_existing(ir, provider_model):
+        return False, AT_CAPACITY
+    from .capacity import end_lease
+
+    try:
+        return _rerun_claimed(ir, itype, provider_model)
+    finally:
+        end_lease(ir)
+
+
+def _rerun_claimed(ir, itype, provider_model):
+    from .models import MediaAsset  # noqa: F811
 
     # Clear stale outputs; keep stored inputs (needed to re-run STT/MESH).
     ir.assets.filter(kind__in=[
@@ -4560,6 +4734,10 @@ class RetryInferenceRequestView(_RateLimitHeadersMixin, APIView):
             )
 
         ok, err = rerun_inference_request(ir)
+        if not ok and err == AT_CAPACITY:
+            from .capacity import at_capacity_response
+
+            return at_capacity_response(ir.model_name or "")
         if not ok:
             return Response(
                 {"error": {"message": err or "Retry failed.", "type": "upstream_error"},
@@ -4567,3 +4745,24 @@ class RetryInferenceRequestView(_RateLimitHeadersMixin, APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response({"id": ir.id, "status": ir.status}, status=status.HTTP_200_OK)
+
+
+class CapacityView(_RateLimitHeadersMixin, APIView):
+    """``GET /v1/capacity`` — live per-service load for everything the caller
+    can route to: in-flight requests vs ``max_concurrent`` (and the shared GPU
+    resource group, if any), plus queued jobs. Lets an agent decide whether to
+    fire now, queue (``async: "auto"``) or wait — instead of discovering a busy
+    GPU by hitting it."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AccountTypeScopedRateThrottle]
+    throttle_scope = "models"
+
+    def get(self, request):
+        from .capacity import snapshot_for_user
+
+        rows = snapshot_for_user(request.user)
+        st = request.query_params.get("service_type")
+        if st:
+            rows = [r for r in rows if r["service_type"] == st]
+        return Response({"object": "list", "data": rows})

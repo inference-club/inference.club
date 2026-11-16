@@ -16,6 +16,7 @@ class VariantSerializer(serializers.ModelSerializer):
     cleaned_audio_url = serializers.SerializerMethodField()
     enhanced_audio_url = serializers.SerializerMethodField()
     enhanced_duration = serializers.SerializerMethodField()
+    seed = serializers.SerializerMethodField()
 
     class Meta:
         model = Variant
@@ -24,9 +25,13 @@ class VariantSerializer(serializers.ModelSerializer):
             "audio_url", "cleaned_audio_url", "clean_status",
             "enhanced_audio_url", "enhanced_duration", "enhanced_words",
             "trim_intervals",
-            "transcript", "grade",
+            "transcript", "grade", "seed",
             "inference_request_id", "created_on",
         ]
+
+    def get_seed(self, obj):
+        ir = obj.inference_request
+        return (ir.payload or {}).get("seed") if ir else None
 
     def get_audio_url(self, obj):
         return asset_url(obj.audio, self.context.get("request")) if obj.audio_id else None
@@ -85,8 +90,14 @@ class EpisodeSerializer(EpisodeListSerializer):
 
     class Meta(EpisodeListSerializer.Meta):
         fields = EpisodeListSerializer.Meta.fields + [
-            "voice_model", "voice_sample_id", "voice_sample_name", "segments",
+            "voice_model", "voice_sample_id", "voice_sample_name", "settings", "segments",
         ]
+
+    settings = serializers.SerializerMethodField()
+
+    def get_settings(self, obj):
+        from .narration import episode_settings
+        return episode_settings(obj)
 
     def get_voice_sample_name(self, obj):
         return obj.voice_sample.speaker_name if obj.voice_sample_id else None
