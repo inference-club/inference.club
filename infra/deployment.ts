@@ -75,6 +75,18 @@ export function deploy(
             "done; echo 'cloud-init did not finish in time' >&2; exit 1",
     });
 
+    // ---- host hardening ---------------------------------------------------
+    // Key-only sshd, fail2ban and a ufw host firewall. cloud-init userData
+    // can't carry this: changing it would replace the server. The script is
+    // idempotent and re-runs whenever its contents change.
+    const hardenScript = loadTemplate("harden.sh");
+    new command.remote.Command("harden-host", {
+        connection: conn,
+        create:
+            `printf '%s' '${Buffer.from(hardenScript, "utf8").toString("base64")}' | base64 -d | bash`,
+        triggers: [hardenScript],
+    }, { dependsOn: [cloudInitWait] });
+
     // ---- render config files ----------------------------------------------
 
     const composeYaml = render(loadTemplate("docker-compose.yml.tpl"), {
