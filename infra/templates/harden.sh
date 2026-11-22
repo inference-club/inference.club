@@ -68,8 +68,7 @@ systemctl enable fail2ban >/dev/null 2>&1
 systemctl restart fail2ban
 
 # ---- 3. ufw ----------------------------------------------------------------
-# Only INPUT matters here: Docker-published ports (Caddy 80/443) are routed
-# through Docker's own FORWARD chains and are unaffected by ufw.
+# 80/443 are served by the Traefik that k3s bundles.
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow 22/tcp comment 'ssh' >/dev/null
