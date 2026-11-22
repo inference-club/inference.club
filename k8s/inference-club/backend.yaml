@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels: { app: inference-club, component: backend }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: inference-club, component: backend }
+  template:
+    metadata:
+      labels: { app: inference-club, component: backend }
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      # Apply database migrations before the new version starts serving.
+      initContainers:
+        - name: migrate
+          image: ghcr.io/inference-club/inference-club-backend
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          envFrom: &env
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+      containers:
+        - name: backend
+          image: ghcr.io/inference-club/inference-club-backend
+          envFrom: *env
+          ports:
+            - { name: http, containerPort: 8001 }
+          # Probes arrive with the pod IP as Host, which Django rejects
+          # (ALLOWED_HOSTS), so send a real host name.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+              httpHeaders:
+                - { name: Host, value: api.inference.club }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+              httpHeaders:
+                - { name: Host, value: api.inference.club }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1536Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels: { app: inference-club, component: backend }
+spec:
+  selector: { app: inference-club, component: backend }
+  ports:
+    - { name: http, port: 8001, targetPort: http }

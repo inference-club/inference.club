@@ -1,0 +1,7 @@
+# Argo CD, stock non-HA install. Bump the version in the URL to upgrade
+# (and keep ARGOCD_VERSION in infra/templates/k3s.sh in step).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.6.2/manifests/install.yaml

@@ -1,0 +1,11 @@
+# The "root" Argo CD Application points here (app-of-apps). Each file is one
+# Argo CD Application; adding a file here is how something gets deployed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - argocd.yaml
+  - sealed-secrets.yaml
+  - cert-manager.yaml
+  - cert-manager-issuers.yaml
+  - inference-club.yaml

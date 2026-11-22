@@ -4,8 +4,8 @@
 #
 #   1. sshd: key-only auth (no passwords, no keyboard-interactive)
 #   2. fail2ban: ban IPs that brute-force sshd
-#   3. ufw: host firewall allowing only 22/80/443 (defence in depth behind the
-#      Hetzner cloud firewall in server.ts)
+#   3. ufw: host firewall allowing only 22/80/443 plus k3s-internal traffic
+#      (defence in depth behind the Hetzner cloud firewall in server.ts)
 #
 # Package updates are left to unattended-upgrades. Note that it installs new
 # kernels but does not reboot into them; that still needs a manual reboot.
@@ -75,6 +75,10 @@ ufw default allow outgoing >/dev/null
 ufw allow 22/tcp comment 'ssh' >/dev/null
 ufw allow 80/tcp comment 'http' >/dev/null
 ufw allow 443/tcp comment 'https' >/dev/null
+# k3s: pods and services must reach the node (kubelet, API server, DNS).
+# These ranges only exist inside the node, so this opens nothing publicly.
+ufw allow from 10.42.0.0/16 comment 'k3s pods' >/dev/null
+ufw allow from 10.43.0.0/16 comment 'k3s services' >/dev/null
 ufw --force enable >/dev/null
 
 echo "harden: ok"

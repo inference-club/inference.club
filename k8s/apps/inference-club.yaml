@@ -1,0 +1,18 @@
+# The inference.club application itself.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: inference-club
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/inference-club/inference.club.git
+    targetRevision: main
+    path: k8s/inference-club
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: inference-club
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

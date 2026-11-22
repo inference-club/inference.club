@@ -1,0 +1,57 @@
+# Userspace Tailscale node `club-web`. Exposes a SOCKS5 proxy on :1055 that
+# the backend, workers and prober use to reach provider agents on the tailnet
+# (TAILNET_PROXY_URL=socks5h://tailscale:1055).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale
+  labels: { app: inference-club, component: tailscale }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }  # one node identity: never two at once
+  selector:
+    matchLabels: { app: inference-club, component: tailscale }
+  template:
+    metadata:
+      labels: { app: inference-club, component: tailscale }
+    spec:
+      containers:
+        - name: tailscale
+          image: tailscale/tailscale:v1.104.7
+          env:
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef: { name: tailscale-auth, key: TS_AUTHKEY }
+            - { name: TS_HOSTNAME, value: club-web }
+            - { name: TS_USERSPACE, value: "true" }
+            - { name: TS_STATE_DIR, value: /var/lib/tailscale }
+            # Keep state in the directory below, not in a Kubernetes Secret.
+            - { name: TS_KUBE_SECRET, value: "" }
+            - { name: TS_EXTRA_ARGS, value: "--advertise-tags=tag:club-web" }
+            - { name: TS_SOCKS5_SERVER, value: ":1055" }
+          ports:
+            - { name: socks5, containerPort: 1055 }
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: state, mountPath: /var/lib/tailscale }
+      volumes:
+        # The node's existing identity, carried over from the docker compose
+        # stack. Keeping it means the tailnet IP, name and ACL tag stay the
+        # same and no fresh auth key is needed. Single-node cluster, so a
+        # hostPath is fine.
+        - name: state
+          hostPath:
+            path: /srv/inference-club/tailscale-state
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tailscale
+  labels: { app: inference-club, component: tailscale }
+spec:
+  selector: { app: inference-club, component: tailscale }
+  ports:
+    - { name: socks5, port: 1055, targetPort: socks5 }

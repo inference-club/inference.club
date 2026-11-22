@@ -1,0 +1,6 @@
+# Sealed Secrets controller (installs into kube-system as
+# sealed-secrets-controller, which is where `kubeseal` looks by default).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.41.2/controller.yaml

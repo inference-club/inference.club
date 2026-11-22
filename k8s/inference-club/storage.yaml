@@ -1,0 +1,9 @@
+# Same local-path provisioner k3s ships, but volumes are kept on disk if the
+# claim is ever deleted. Used for Postgres so a mistake cannot erase the data.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path-retain
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer

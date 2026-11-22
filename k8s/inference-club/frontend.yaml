@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels: { app: inference-club, component: frontend }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: inference-club, component: frontend }
+  template:
+    metadata:
+      labels: { app: inference-club, component: frontend }
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: frontend
+          image: ghcr.io/inference-club/inference-club-frontend
+          env:
+            - { name: NUXT_PUBLIC_API_BASE, value: "https://api.inference.club" }
+            - { name: NUXT_HOST, value: "0.0.0.0" }
+            - { name: NUXT_PORT, value: "3000" }
+          ports:
+            - { name: http, containerPort: 3000 }
+          # TCP probes: the server binding the port means ready. Avoids tying
+          # readiness to a server-side render that needs the backend.
+          readinessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 768Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels: { app: inference-club, component: frontend }
+spec:
+  selector: { app: inference-club, component: frontend }
+  ports:
+    - { name: http, port: 3000, targetPort: http }

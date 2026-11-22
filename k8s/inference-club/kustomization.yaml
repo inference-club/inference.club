@@ -1,0 +1,35 @@
+# The inference.club production app. Argo CD deploys whatever is on main.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inference-club
+
+resources:
+  - namespace.yaml
+  - storage.yaml
+  - secrets/backend-secrets.yaml
+  - secrets/postgres-credentials.yaml
+  - secrets/tailscale-auth.yaml
+  - secrets/ghcr-pull.yaml
+  - postgres.yaml
+  - redis.yaml
+  - tailscale.yaml
+  - backend.yaml
+  - workers.yaml
+  - frontend.yaml
+  - ingress.yaml
+
+# Non-secret backend settings. kustomize appends a content hash to the
+# ConfigMap name, so editing config.env rolls the pods that use it.
+configMapGenerator:
+  - name: backend-config
+    envs:
+      - config.env
+
+# CI rewrites these two tags after every successful image build
+# (.github/workflows/build-and-push.yml). To roll back, set them to an older
+# sha-<commit> tag and push.
+images:
+  - name: ghcr.io/inference-club/inference-club-backend
+    newTag: sha-44a05ba
+  - name: ghcr.io/inference-club/inference-club-frontend
+    newTag: sha-44a05ba

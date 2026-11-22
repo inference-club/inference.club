@@ -1,0 +1,87 @@
+# Background processes. All three run the backend image with a different
+# command, so a backend deploy updates them too.
+
+# Runs queued async jobs, reaching agents over the tailnet like the backend.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  labels: { app: inference-club, component: celery-worker }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: inference-club, component: celery-worker }
+  template:
+    metadata:
+      labels: { app: inference-club, component: celery-worker }
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: celery-worker
+          image: ghcr.io/inference-club/inference-club-backend
+          command: ["celery", "-A", "backend", "worker", "-l", "info", "--concurrency=4"]
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1536Mi }
+---
+# Fires the job dispatcher tick.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+  labels: { app: inference-club, component: celery-beat }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }  # single scheduler: never two beats at once
+  selector:
+    matchLabels: { app: inference-club, component: celery-beat }
+  template:
+    metadata:
+      labels: { app: inference-club, component: celery-beat }
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: celery-beat
+          image: ghcr.io/inference-club/inference-club-backend
+          # -s writes the schedule DB to /tmp; the app user can't write the cwd.
+          command: ["celery", "-A", "backend", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+          resources:
+            requests: { cpu: 25m, memory: 128Mi }
+            limits: { memory: 512Mi }
+---
+# Probes each provider's /healthz over the tailnet every 30s so idle providers
+# don't show as offline.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prober
+  labels: { app: inference-club, component: prober }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: inference-club, component: prober }
+  template:
+    metadata:
+      labels: { app: inference-club, component: prober }
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: prober
+          image: ghcr.io/inference-club/inference-club-backend
+          command: ["python", "manage.py", "probe_providers"]
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+          resources:
+            requests: { cpu: 25m, memory: 128Mi }
+            limits: { memory: 512Mi }
