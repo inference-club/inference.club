@@ -2,27 +2,15 @@ import * as hcloud from "@pulumi/hcloud";
 import * as pulumi from "@pulumi/pulumi";
 import { stackConfig } from "./config";
 
-// cloud-init script that runs once when the VPS first boots. Installs Docker
-// + the compose plugin and pre-creates /srv/inference-club so the deployment
-// step can scp files into it as root.
+// cloud-init script that runs once when a server first boots. Only brings
+// packages up to date; k3s and the firewall are installed afterwards by the
+// scripts in deployment.ts, which can be re-run (cloud-init cannot).
 const cloudInit = `#cloud-config
 package_update: true
 package_upgrade: true
 packages:
   - ca-certificates
   - curl
-  - gnupg
-runcmd:
-  - install -m 0755 -d /etc/apt/keyrings
-  - curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-  - chmod a+r /etc/apt/keyrings/docker.asc
-  - |
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
-  - apt-get update
-  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  - install -d -m 0755 /srv/inference-club
-  - install -d -m 0755 /srv/inference-club/caddy-data
-  - install -d -m 0755 /srv/inference-club/caddy-config
 `;
 
 export interface Server {
@@ -45,7 +33,8 @@ export function provisionServer(): Server {
     );
 
     // Allow SSH (auth via the keypair above), HTTP, and HTTPS. Everything
-    // else is dropped at the cloud edge.
+    // else is dropped at the cloud edge, including the Kubernetes API (6443):
+    // reach that over an SSH tunnel.
     const firewall = new hcloud.Firewall("inference-club", {
         name: "inference-club",
         rules: [
@@ -63,6 +52,19 @@ export function provisionServer(): Server {
         sshKeys: [sshKey.id],
         firewallIds: [firewall.id.apply((id) => parseInt(id, 10))],
         userData: cloudInit,
+        // Resizes change CPU and RAM only. Leaving the disk alone keeps the
+        // option of sizing back down.
+        keepDisk: true,
+        // Hetzner refuses to delete or rebuild the server while these are
+        // on. The server holds the database, and its server type can be out
+        // of stock, so a replacement might not be obtainable.
+        deleteProtection: true,
+        rebuildProtection: true,
+    }, {
+        // Changing userData would replace (destroy and recreate) the server.
+        // cloud-init only matters for a brand-new server anyway.
+        ignoreChanges: ["userData"],
+        protect: true,
     });
 
     return {

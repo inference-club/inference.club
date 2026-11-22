@@ -1,33 +1,27 @@
 name: infra-deploy
 
-# Provisions (or reconciles) the Hetzner VPS and rolls out the latest images
-# via Pulumi. Two triggers:
-#   - workflow_dispatch        : the "deploy now" button. First run is the
-#                                infra-up; later runs reconcile config/image
-#                                changes.
-#   - workflow_run (build-push) : auto-deploy app updates after CI builds new
-#                                 images on push to main.
+# Reconciles the node-level infrastructure with Pulumi: the Hetzner server and
+# firewall, the GCS media buckets, host hardening, and k3s + the Argo CD
+# bootstrap (infra/). Run it by hand after changing anything under infra/.
+#
+# Application deploys do NOT go through this workflow. build-and-push commits
+# the new image tag to k8s/inference-club/kustomization.yaml and Argo CD, in
+# the cluster, rolls it out.
 #
 # Required GitHub repo secrets:
-#   HCLOUD_TOKEN          - Hetzner Cloud API token (Read & Write)
-#   GHCR_TOKEN            - GitHub PAT (classic, scope: read:packages) so the
-#                           VPS can pull private images from GHCR
-#   PULUMI_ACCESS_TOKEN   - https://app.pulumi.com/account/tokens
-#
-# Optional repo secrets (skip until you want OAuth login working in prod):
-#   GH_OAUTH_CLIENT_ID
-#   GH_OAUTH_CLIENT_SECRET
+#   HCLOUD_TOKEN            - Hetzner Cloud API token (Read & Write)
+#   PULUMI_ACCESS_TOKEN     - https://app.pulumi.com/account/tokens
+#   DEPLOY_SSH_PUBLIC_KEY   - public key registered with Hetzner
+#   DEPLOY_SSH_PRIVATE_KEY  - matching private key, base64-encoded
+#   GOOGLE_CREDENTIALS      - service-account key JSON for the media buckets
 on:
   workflow_dispatch:
     inputs:
-      image_sha:
-        description: "Image tag to deploy (e.g. sha-abc1234). Blank = :latest."
+      preview_only:
+        description: "Only show what would change; apply nothing."
+        type: boolean
         required: false
-        default: ""
-  workflow_run:
-    workflows: ["build-and-push"]
-    types: [completed]
-    branches: [main]
+        default: false
 
 permissions:
   contents: read
@@ -39,7 +33,6 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     environment: production
     defaults:
@@ -47,18 +40,6 @@ jobs:
         working-directory: infra
     steps:
       - uses: actions/checkout@v4
-
-      - name: Resolve image tag
-        id: tag
-        run: |
-          if [ -n "${{ inputs.image_sha }}" ]; then
-            echo "tag=${{ inputs.image_sha }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
-            short=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
-            echo "tag=sha-$short" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -70,25 +51,17 @@ jobs:
 
       - uses: pulumi/actions@v6
         with:
-          command: up
+          command: ${{ inputs.preview_only && 'preview' || 'up' }}
           stack-name: prod
           # Create the stack on first run; no-op afterwards.
           upsert: true
           work-dir: infra
-          # Single-line secrets only — the SSH private key (multi-line) is
-          # passed via the env block below where it survives newlines cleanly.
+          # Read the real state of the server first, so a change made outside
+          # Pulumi (a manual resize, say) is seen instead of being re-applied.
+          refresh: true
+          diff: true
           config-map: |
-            inference-club-infra:ghcrToken: { value: "${{ secrets.GHCR_TOKEN }}", secret: true }
             inference-club-infra:sshPublicKey: { value: "${{ secrets.DEPLOY_SSH_PUBLIC_KEY }}", secret: true }
-            inference-club-infra:githubOauthClientId: { value: "${{ secrets.GH_OAUTH_CLIENT_ID }}", secret: true }
-            inference-club-infra:githubOauthClientSecret: { value: "${{ secrets.GH_OAUTH_CLIENT_SECRET }}", secret: true }
-            inference-club-infra:tailscaleTailnet: { value: "${{ secrets.TAILSCALE_TAILNET }}" }
-            inference-club-infra:tailscaleStaticAuthkey: { value: "${{ secrets.TAILSCALE_STATIC_AUTHKEY }}", secret: true }
-            inference-club-infra:tailscaleOauthClientId: { value: "${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}", secret: true }
-            inference-club-infra:tailscaleOauthClientSecret: { value: "${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}", secret: true }
-            inference-club-infra:tailscaleWebAuthkey: { value: "${{ secrets.TAILSCALE_WEB_AUTHKEY }}", secret: true }
-            inference-club-infra:backendImage: { value: "ghcr.io/inference-club/inference-club-backend:${{ steps.tag.outputs.tag }}" }
-            inference-club-infra:frontendImage: { value: "ghcr.io/inference-club/inference-club-frontend:${{ steps.tag.outputs.tag }}" }
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
           # The hcloud Pulumi provider reads HCLOUD_TOKEN from the env, not

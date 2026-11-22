@@ -1,0 +1,81 @@
+# Nightly Postgres backup to the private GCS bucket (backups/postgres/),
+# keeping 30 days. Off the server on purpose: a dump stored on the same disk
+# as the database is not a backup.
+#
+# Run one now:    kubectl -n inference-club create job --from=cronjob/postgres-backup backup-manual
+# Restore a dump: download it, then
+#   kubectl -n inference-club exec -i postgres-0 -- pg_restore -U inference -d <empty database> < file.dump
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  labels: { app: inference-club, component: postgres-backup }
+spec:
+  schedule: "17 3 * * *"  # 03:17 UTC daily
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels: { app: inference-club, component: postgres-backup }
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: ghcr-pull
+          volumes:
+            - name: backup
+              emptyDir: {}
+          initContainers:
+            - name: dump
+              image: postgres:16-alpine
+              command: ["sh", "-c", "pg_dump -h postgres -U inference -d inference -Fc -f /backup/db.dump && ls -l /backup/db.dump"]
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: postgres-credentials, key: POSTGRES_PASSWORD }
+              volumeMounts:
+                - { name: backup, mountPath: /backup }
+          containers:
+            # The backend image already has the GCS client library and the
+            # media service account can write to this bucket.
+            - name: upload
+              image: ghcr.io/inference-club/inference-club-backend
+              env:
+                - { name: KEEP_DAYS, value: "30" }
+                - name: GCS_PRIVATE_BUCKET
+                  valueFrom:
+                    secretKeyRef: { name: backend-secrets, key: GCS_PRIVATE_BUCKET }
+                - name: GCS_CREDENTIALS_B64
+                  valueFrom:
+                    secretKeyRef: { name: backend-secrets, key: GCS_CREDENTIALS_B64 }
+              volumeMounts:
+                - { name: backup, mountPath: /backup }
+              command:
+                - python
+                - -c
+                - |
+                  import base64, datetime, json, os
+                  from google.cloud import storage
+                  from google.oauth2 import service_account
+
+                  info = json.loads(base64.b64decode(os.environ["GCS_CREDENTIALS_B64"]))
+                  creds = service_account.Credentials.from_service_account_info(info)
+                  client = storage.Client(credentials=creds, project=info["project_id"])
+                  bucket = client.bucket(os.environ["GCS_PRIVATE_BUCKET"])
+
+                  now = datetime.datetime.now(datetime.timezone.utc)
+                  name = f"backups/postgres/inference-{now:%Y%m%dT%H%M%SZ}.dump"
+                  size = os.path.getsize("/backup/db.dump")
+                  if size < 1_000_000:
+                      raise SystemExit(f"dump is suspiciously small ({size} bytes); not uploading")
+                  bucket.blob(name).upload_from_filename("/backup/db.dump")
+                  print(f"uploaded {name} ({size} bytes)")
+
+                  cutoff = now - datetime.timedelta(days=int(os.environ["KEEP_DAYS"]))
+                  for blob in client.list_blobs(bucket, prefix="backups/postgres/"):
+                      if blob.time_created < cutoff:
+                          blob.delete()
+                          print(f"pruned {blob.name}")

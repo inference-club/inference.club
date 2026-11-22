@@ -1,16 +1,16 @@
-// Pulumi entry point. Provisions the Hetzner VPS and deploys the app stack.
-// `pulumi up` from a clean slate brings up the whole thing; subsequent runs
-// reconcile config / image SHA changes.
+// Pulumi entry point. Provisions the Hetzner VPS, hardens it and installs
+// k3s + Argo CD. The application itself is deployed by Argo CD from k8s/.
+import { stackConfig } from "./config";
 import { provisionServer } from "./server";
 import { provisionMediaStorage } from "./gcs";
 import { deploy } from "./deployment";
 
 const server = provisionServer();
 const media = provisionMediaStorage();
-const app = deploy(server, media);
+deploy(server);
 
 export const serverIp = server.ipv4;
 export const serverName = server.name;
-export const siteUrl = app.siteUrl;
+export const siteUrl = `https://${stackConfig.domain}`;
 export const mediaPublicBucket = media.publicBucket;
 export const mediaPrivateBucket = media.privateBucket;

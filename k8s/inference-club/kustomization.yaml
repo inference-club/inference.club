@@ -11,6 +11,7 @@ resources:
   - secrets/tailscale-auth.yaml
   - secrets/ghcr-pull.yaml
   - postgres.yaml
+  - backup.yaml
   - redis.yaml
   - tailscale.yaml
   - backend.yaml
