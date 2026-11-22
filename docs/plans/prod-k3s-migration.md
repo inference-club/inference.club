@@ -1,6 +1,20 @@
 # Moving inference.club production from docker compose to k3s
 
-Report, 2026-11-21. Status: proposal, nothing implemented.
+Report, 2026-11-21. **Status: done on 2026-11-22**, with three deviations from
+the plan below. Day-to-day docs are in `k8s/README.md` and `infra/README.md`.
+
+- **In place, not a new server.** The cheap server types were out of stock for
+  new orders, but an in-place resize of the existing server to `cx33` was
+  accepted. k3s was installed next to the running compose stack, the app was
+  staged on side ports against a restored database copy, then cut over
+  (about a minute of downtime).
+- **Plain Postgres StatefulSet, not CloudNativePG.** Same `postgres:16` image
+  on a retained local volume, plus a nightly `pg_dump` CronJob to the private
+  GCS bucket. CloudNativePG remains a good follow-up.
+- **Manifests live in this repo** under `k8s/`, not a separate deploy repo.
+
+Not done: system-upgrade-controller, automatic reboots for kernel updates.
+The stopped compose stack and its data are still on the server as a rollback.
 
 ## Verdict
 
