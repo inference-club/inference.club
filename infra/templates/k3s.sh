@@ -3,13 +3,15 @@
 # every deploy. Shipped and executed by infra/deployment.ts ("k3s").
 #
 # This script owns only the node-level layer:
-#   1. k3s itself, pinned to K3S_VERSION
+#   1. k3s itself (first install only, at K3S_VERSION; later upgrades are
+#      automatic, see k8s/platform/system-upgrade)
 #   2. the config for the Traefik that k3s bundles (a HelmChartConfig file)
 #   3. the one-time Argo CD bootstrap
 # Everything else (cert-manager, Sealed Secrets, the app) is installed by
 # Argo CD from the k8s/ directory of this repo.
 set -euo pipefail
 
+# Version for a first install only.
 K3S_VERSION="${K3S_VERSION:-v1.37.2+k3s1}"
 ARGOCD_VERSION="${ARGOCD_VERSION:-v3.6.2}"
 REPO_URL="${REPO_URL:-https://github.com/inference-club/inference.club.git}"
@@ -66,8 +68,10 @@ spec:
       enabled: true
 EOF
 
-current="$(k3s --version 2>/dev/null | awk 'NR==1{print $3}' || true)"
-if [ "$current" != "$K3S_VERSION" ]; then
+# Install only if k3s is missing. After that, upgrades are done in-cluster by
+# system-upgrade-controller (k8s/platform/system-upgrade), so this script must
+# never reinstall K3S_VERSION over a newer running version.
+if ! command -v k3s >/dev/null 2>&1; then
     curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" sh -
 else
     systemctl is-active --quiet k3s || systemctl start k3s

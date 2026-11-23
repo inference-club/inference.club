@@ -38,7 +38,7 @@ export function deploy(server: Server): void {
     // Key-only sshd, fail2ban and the ufw host firewall.
     const harden = runScript("harden-host", loadScript("harden.sh"), conn);
 
-    // Pinned k3s, Traefik config, one-time Argo CD bootstrap. Runs after the
+    // k3s (first install), Traefik config, one-time Argo CD bootstrap. Runs after the
     // firewall rules that let pods reach the node are in place.
     runScript("k3s", loadScript("k3s.sh"), conn, [harden]);
 }

@@ -85,8 +85,13 @@ A new hostname needs a DNS record pointing at the server first.
 
 ## Upgrades
 
-- **k3s:** bump `K3S_VERSION` in `infra/templates/k3s.sh`, run the
-  `infra-deploy` workflow.
+- **k3s:** automatic. system-upgrade-controller follows the k3s `stable`
+  channel (`platform/system-upgrade/k3s-plan.yaml`) and upgrades between
+  04:00 and 05:00 UTC. Pods keep running during an upgrade. Check with
+  `kubectl -n system-upgrade get plans,jobs`. To hold a version, set
+  `version:` instead of `channel:` in the plan.
+- **system-upgrade-controller:** bump the version in
+  `platform/system-upgrade/kustomization.yaml`.
 - **Argo CD:** bump the version in `platform/argocd/kustomization.yaml`.
 - **cert-manager:** bump `targetRevision` in `apps/cert-manager.yaml`.
 - **Sealed Secrets:** bump the version in `platform/sealed-secrets/kustomization.yaml`.

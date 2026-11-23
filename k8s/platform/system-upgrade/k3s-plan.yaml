@@ -1,0 +1,32 @@
+# Keeps k3s on the latest release of the "stable" channel.
+#
+# The controller polls the channel every 15 minutes. When it points at a newer
+# release, a Job swaps the k3s binary on the node and restarts the k3s
+# service. Running pods are not restarted, so the site stays up; the kube API
+# is unavailable for a few seconds.
+#
+# To hold at a version: replace `channel` with `version: v1.37.2+k3s1`.
+# To follow patch releases only: use the channel URL ending in /v1.37.
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: k3s-server
+  namespace: system-upgrade
+spec:
+  channel: https://update.k3s.io/v1-release/channels/stable
+  concurrency: 1
+  # Single node: cordoning or draining would only take the site down.
+  cordon: false
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+  serviceAccountName: system-upgrade
+  upgrade:
+    image: rancher/k3s-upgrade
+  # Only start upgrades at night, after the 03:17 UTC database backup.
+  window:
+    days: [mon, tue, wed, thu, fri, sat, sun]
+    startTime: "04:00"
+    endTime: "05:00"
+    timeZone: UTC

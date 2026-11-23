@@ -1,0 +1,29 @@
+# Upgrades k3s itself, following the plan in k8s/platform/system-upgrade.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: system-upgrade
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/inference-club/inference.club.git
+    targetRevision: main
+    path: k8s/platform/system-upgrade
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: system-upgrade
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # The Plan and its CRD arrive in the same sync.
+      - SkipDryRunOnMissingResource=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

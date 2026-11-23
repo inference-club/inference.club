@@ -19,7 +19,7 @@ infra/
 ├── config.ts           # typed access to Pulumi config / secrets
 └── templates/
     ├── harden.sh       # key-only sshd, fail2ban, ufw
-    └── k3s.sh          # pinned k3s, Traefik config, Argo CD bootstrap
+    └── k3s.sh          # k3s install, Traefik config, Argo CD bootstrap
 ```
 
 Both scripts are idempotent and re-run whenever their contents change.

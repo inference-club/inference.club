@@ -13,7 +13,8 @@ the plan below. Day-to-day docs are in `k8s/README.md` and `infra/README.md`.
   GCS bucket. CloudNativePG remains a good follow-up.
 - **Manifests live in this repo** under `k8s/`, not a separate deploy repo.
 
-Not done: system-upgrade-controller, automatic reboots for kernel updates.
+system-upgrade-controller was added on 2026-11-22 (automatic k3s upgrades
+from the `stable` channel). Not done: automatic reboots for kernel updates.
 The compose stack, its old Postgres data directory and Docker itself were
 removed from the server on 2026-11-22. The compose setup remains in git
 history (last present in `84b57fe`, under `infra/templates/`).

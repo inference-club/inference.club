@@ -1,0 +1,8 @@
+# system-upgrade-controller (creates the system-upgrade namespace) plus the
+# plan that tells it how to upgrade k3s.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/rancher/system-upgrade-controller/releases/download/v0.21.1/crd.yaml
+  - https://github.com/rancher/system-upgrade-controller/releases/download/v0.21.1/system-upgrade-controller.yaml
+  - k3s-plan.yaml
