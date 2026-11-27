@@ -6,9 +6,9 @@ import { test as setup, expect, request } from '@playwright/test'
 // so the browser at :3001 sends them to the API at :8001 exactly like the
 // real app's credentialed fetches.
 //
-// Prereq: `cd backend && poetry run python manage.py seed_design_data`
+// Prereq: `docker compose exec backend python manage.py seed_design_data`
 
-const API = process.env.PW_API_URL || 'http://localhost:8001'
+const API = process.env.PW_API_URL || 'http://localhost:8101'
 export const DESIGN_USER = {
   email: 'designbot@inference.club',
   password: 'designbot-pass-1',

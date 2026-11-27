@@ -5,6 +5,12 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineNuxtConfig({
   compatibilityDate: '2024-11-01',
   devtools: { enabled: true },
+  // The Playwright suite lives in e2e/ and writes screenshots, traces and
+  // audit JSON there while it runs. Without this the dev server sees each
+  // write, full-reloads every open page (including the ones under test) and
+  // regenerates its type templates, which turned a 5-minute sweep into
+  // timeouts.
+  ignore: ['e2e/**', 'playwright.config.ts'],
   // The compose frontend bind-mounts this directory (/app) and runs its own
   // `nuxt dev`, so a bare-metal `yarn dev` on the host shares .nuxt with the
   // container — each writes absolute paths the other can't resolve and they
@@ -47,6 +53,7 @@ export default defineNuxtConfig({
       tailwindcss(),
     ],
     server: {
+      watch: { ignored: ['**/e2e/**', '**/playwright.config.ts'] },
       // In the compose dev container Nuxt listens on :3000 but the browser
       // loads the app from the host-published :3100. By default Vite tells the
       // HMR client to connect on the *server's* port (3000), which isn't

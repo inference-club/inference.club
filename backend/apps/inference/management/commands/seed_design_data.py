@@ -265,7 +265,7 @@ class Command(BaseCommand):
                 provider=provider,
                 name=svc_name,
                 defaults={
-                    "host_id": "design-host",
+                    "manifest_host_id": "design-host",
                     "engine": engine,
                     "service_type": svc_type,
                     "is_active": True,

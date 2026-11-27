@@ -28,6 +28,7 @@ logs
 e2e/.auth/
 e2e/screenshots/
 e2e/test-results/
+e2e/audit/
 e2e/report/
 e2e/screenshots-before/
 e2e/review.html

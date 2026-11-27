@@ -1,14 +1,18 @@
 import { defineConfig, devices } from '@playwright/test'
 
 // Design-quality suite (docs/prd/05-design-quality-and-visual-testing.md).
-// Runs against a locally running stack: backend on PW_API_URL (default
-// bare-metal :8001, seeded via `manage.py seed_design_data`) and frontend on
-// PW_BASE_URL (default bare-metal :3001).
+// Runs against a locally running stack. Defaults are the docker compose dev
+// stack: backend on :8101 (seeded via `docker compose exec backend python
+// manage.py seed_design_data`), frontend on :3101. Bare-metal: set
+// PW_API_URL=http://localhost:8001 PW_BASE_URL=http://localhost:3001.
 //
-//   npm run test:design   - overflow guards + curated pixel baselines
-//   npm run shots         - full-page screenshot sweep of every route
+//   yarn test:design   - overflow guards + curated pixel baselines
+//   yarn shots         - full-page screenshot sweep of every route
+//   yarn audit         - non-failing sweep: overflow, console errors, failed
+//                        requests, clipped text, small tap targets, written
+//                        to e2e/audit/ and summarised by `yarn audit:report`
 //
-// Both viewports are Chromium so a single browser install covers the suite;
+// All viewports are Chromium so a single browser install covers the suite;
 // the mobile project uses a Pixel 7 profile (412px, touch, mobile UA) since
 // viewport width — not engine — is what layout bugs key on.
 export default defineConfig({
@@ -27,7 +31,7 @@ export default defineConfig({
   },
   snapshotPathTemplate: '{testDir}/__screenshots__/{projectName}/{arg}{ext}',
   use: {
-    baseURL: process.env.PW_BASE_URL || 'http://localhost:3001',
+    baseURL: process.env.PW_BASE_URL || 'http://localhost:3101',
     trace: 'retain-on-failure',
   },
   projects: [
@@ -49,6 +53,19 @@ export default defineConfig({
         // 412 let real-device overflow through. 375 = the strictest common
         // width (iPhone SE/mini); pass here and every phone passes.
         viewport: { width: 375, height: 812 },
+        storageState: 'e2e/.auth/designbot.json',
+      },
+      dependencies: ['setup'],
+    },
+    {
+      // iPad portrait. The width where the sidebar, two-column playgrounds
+      // and card grids change shape — neither phone nor desktop rules apply
+      // cleanly, so it gets its own pass.
+      name: 'tablet',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 768, height: 1024 },
+        hasTouch: true,
         storageState: 'e2e/.auth/designbot.json',
       },
       dependencies: ['setup'],
