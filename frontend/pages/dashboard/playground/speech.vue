@@ -8,6 +8,7 @@ import type { ModelInfo } from '@/composables/usePlayground'
 definePageMeta({ layout: 'app', requireAuth: true, gateTitleKey: 'dashboard.items.textToSpeech' })
 
 const { listTtsModels, listVoices, synthesize } = useTextToSpeech()
+const { locale } = useI18n()
 
 const models = ref<ModelInfo[]>([])
 const model = ref('')
@@ -34,8 +35,17 @@ const loadVoices = async () => {
   loadingVoices.value = true
   try {
     voices.value = await listVoices(model.value)
-    // Keep current selection if still valid, else default to the first voice.
-    if (!voices.value.includes(voice.value)) voice.value = voices.value[0] || ''
+    // Keep the current selection if still valid. Otherwise prefer a voice in
+    // the reader's language: voice lists are alphabetical, and "first" for
+    // Magpie was an Arabic voice reading English text.
+    if (!voices.value.includes(voice.value)) {
+      const lang = (locale.value || 'en').slice(0, 2).toLowerCase()
+      const speaks = (v: string) => {
+        const id = v.toLowerCase()
+        return id.includes(`.${lang}-`) || id.includes(`${lang}-us`) || id.includes(`_${lang}_`)
+      }
+      voice.value = voices.value.find(speaks) || voices.value[0] || ''
+    }
   } finally {
     loadingVoices.value = false
   }
@@ -152,6 +162,20 @@ onMounted(async () => {
             placeholder="Type something to say aloud…"
             class="resize-none text-sm"
           />
+          <!-- The voice is the one choice every clip needs, so it sits with the
+               text rather than in the options column, which on a phone is
+               below the fold. -->
+          <div v-if="loadingVoices || voices.length" class="flex items-center gap-2">
+            <Label for="tts-voice" class="shrink-0 text-xs text-muted-foreground">Voice</Label>
+            <Select v-model="voice" :disabled="loadingVoices">
+              <SelectTrigger id="tts-voice" class="h-9 min-w-0 flex-1 text-sm sm:max-w-xs">
+                <SelectValue :placeholder="loadingVoices ? 'Loading…' : 'Select a voice'" />
+              </SelectTrigger>
+              <SelectContent class="max-h-72">
+                <SelectItem v-for="v in voices" :key="v" :value="v" class="text-sm">{{ v }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
             <span class="text-xs text-muted-foreground">{{ text.length }} characters</span>
             <ElapsedTimer :running="running" class="text-xs text-muted-foreground" />
@@ -182,18 +206,6 @@ onMounted(async () => {
       <Card class="p-4 space-y-4">
         <div>
           <Label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Options</Label>
-        </div>
-        <div>
-          <Label class="text-xs text-muted-foreground">Voice</Label>
-          <Select v-model="voice" :disabled="loadingVoices || !voices.length">
-            <SelectTrigger class="mt-1 h-8 text-sm">
-              <SelectValue :placeholder="loadingVoices ? 'Loading…' : (voices.length ? 'Select a voice' : 'No voices')" />
-            </SelectTrigger>
-            <SelectContent class="max-h-72">
-              <SelectItem v-for="v in voices" :key="v" :value="v" class="text-xs">{{ v }}</SelectItem>
-            </SelectContent>
-          </Select>
-          <p class="mt-1 text-[11px] text-muted-foreground">{{ voices.length }} voices available.</p>
         </div>
         <div>
           <Label class="text-xs text-muted-foreground">Format</Label>

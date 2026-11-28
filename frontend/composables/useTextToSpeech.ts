@@ -43,7 +43,15 @@ export function useTextToSpeech() {
         context_length: m.context_length ?? null,
         service_type: m.service_type ?? 'llm',
       }))
-      .filter((m: ModelInfo) => m.service_type === 'tts')
+      // Voice cloners (Dia) are `tts` services too, but they have no preset
+      // voices and are served by /v1/voice/generations, not /v1/audio/speech.
+      // They live on the Voice cloning page; listing them here made the first
+      // model on the Text to speech page one that could not synthesize.
+      .filter(
+        (m: ModelInfo) =>
+          m.service_type === 'tts' &&
+          !(m.supported_features ?? []).includes('voice-cloning'),
+      )
   }
 
   const listVoices = async (model: string): Promise<string[]> => {
