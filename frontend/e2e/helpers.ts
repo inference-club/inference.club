@@ -36,12 +36,16 @@ export async function resolveRoutes(
   let requestId: string | null = null
   let videoRequestId: string | null = null
   let collectionSlug: string | null = null
+  let shareToken: string | null = null
+  let collectionToken: string | null = null
 
   try {
     const res = await api.get(`${API}/api/inference/requests/?page=1`)
     if (res.ok()) {
       const body = await res.json()
       requestId = body?.results?.[0]?.id != null ? String(body.results[0].id) : null
+      // Owner rows carry the share token behind /s/<token>.
+      shareToken = body?.results?.find((r: { share_token?: string }) => r.share_token)?.share_token ?? null
     }
   } catch {
     /* leave null */
@@ -62,6 +66,7 @@ export async function resolveRoutes(
       const body = await res.json()
       const first = Array.isArray(body) ? body[0] : body?.results?.[0]
       collectionSlug = first?.slug ?? null
+      collectionToken = first?.share_token ?? null
     }
   } catch {
     /* leave null */
@@ -85,6 +90,8 @@ export async function resolveRoutes(
     ':workflowId': await firstId('/v1/workflows'),
     ':runId': await firstId('/v1/workflows/runs'),
     ':episodeId': await firstId('/v1/episodes'),
+    ':shareToken': shareToken,
+    ':collectionToken': collectionToken,
   }
 
   return ROUTES.map((r) => {

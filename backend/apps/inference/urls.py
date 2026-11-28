@@ -24,6 +24,8 @@ from .views import (
     CollectionItemView,
     CollectionListCreateView,
     CollectionOrderView,
+    CollectionShareView,
+    SharedCollectionView,
     FeaturedContentView,
     MissingCoversView,
     RequestCoverView,
@@ -141,6 +143,16 @@ urlpatterns = [
         "collections/<slug:slug>/",
         CollectionDetailView.as_view(),
         name="collection-detail",
+    ),
+    path(
+        "shared-collections/<str:share_token>/",
+        SharedCollectionView.as_view(),
+        name="collection-shared",
+    ),
+    path(
+        "collections/<slug:slug>/share/",
+        CollectionShareView.as_view(),
+        name="collection-share",
     ),
     path(
         "collections/<slug:slug>/items/order/",

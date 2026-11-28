@@ -1291,6 +1291,8 @@ class CollectionSerializer(serializers.ModelSerializer):
     owner = serializers.SerializerMethodField()
     github_login = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
+    share_token = serializers.SerializerMethodField()
+    unshareable_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Collection
@@ -1309,6 +1311,8 @@ class CollectionSerializer(serializers.ModelSerializer):
             "owner",
             "github_login",
             "is_owner",
+            "share_token",
+            "unshareable_count",
             "created_on",
             "modified_on",
         ]
@@ -1324,9 +1328,22 @@ class CollectionSerializer(serializers.ModelSerializer):
             "owner",
             "github_login",
             "is_owner",
+            "share_token",
+            "unshareable_count",
             "created_on",
             "modified_on",
         ]
+
+    def get_share_token(self, obj):
+        # Owner-only, like a request's: the link is theirs to hand out.
+        return obj.share_token if self.get_is_owner(obj) else None
+
+    def get_unshareable_count(self, obj):
+        """How many items a link holder would not see (owner-only; null for
+        everyone else)."""
+        if not self.get_is_owner(obj):
+            return None
+        return obj.unshareable_items().count()
 
     def get_item_count(self, obj) -> int:
         if hasattr(obj, "item_count"):

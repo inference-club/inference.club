@@ -30,6 +30,8 @@ export const ROUTES: RouteSpec[] = [
   { name: 'profile', path: '/designbot' },
   { name: 'profile-collection', path: '/designbot/collections/:slug', dynamic: true },
   { name: 'profile-cluster', path: '/designbot/cluster' },
+  { name: 'shared-request', path: '/s/:shareToken', dynamic: true },
+  { name: 'shared-collection', path: '/c/:collectionToken', dynamic: true },
   { name: 'register', path: '/register' },
   { name: 'confirm', path: '/confirm' },
   { name: 'blog-post', path: '/blog/introducing-inference-club' },

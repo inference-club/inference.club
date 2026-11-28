@@ -199,6 +199,10 @@ export interface Collection {
   owner?: string
   github_login?: string | null
   is_owner?: boolean
+  // Owner-only: the token behind the /c/<token> link, and how many items a
+  // link holder would not see (anything not PUBLIC or UNLISTED).
+  share_token?: string | null
+  unshareable_count?: number | null
   created_on: string
   modified_on: string
   // Populated by the collection-detail endpoint.

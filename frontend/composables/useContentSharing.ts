@@ -173,6 +173,33 @@ export function useContentSharing() {
   const getSharedRequest = (token: string) =>
     withState(() => api<InferenceRequest>(`/shared/${encodeURIComponent(token)}/`))
 
+  // --- collections by link -------------------------------------------------
+
+  const getSharedCollection = (token: string) =>
+    withState(() =>
+      api<Collection>(`/shared-collections/${encodeURIComponent(token)}/`),
+    )
+
+  /** Make a collection shareable. `includeItems` raises the owner's private
+   * items to UNLISTED; without it the server answers 409 when any exist. */
+  const shareCollection = (
+    slug: string,
+    opts: { visibility?: 'UNLISTED' | 'PUBLIC'; includeItems?: boolean } = {},
+  ) =>
+    api<Collection & { items_raised: number }>(`/collections/${slug}/share/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        visibility: opts.visibility ?? 'UNLISTED',
+        include_items: !!opts.includeItems,
+      }),
+    })
+
+  const collectionShareUrl = (token?: string | null): string => {
+    if (!token) return ''
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    return `${origin}/c/${token}`
+  }
+
   const shareUrl = (token?: string | null): string => {
     if (!token) return ''
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -323,6 +350,9 @@ export function useContentSharing() {
     reportRequest,
     getSharedRequest,
     shareUrl,
+    getSharedCollection,
+    shareCollection,
+    collectionShareUrl,
     listCollections,
     getCollection,
     createCollection,
