@@ -7,6 +7,7 @@ import {
 import { useAuth } from '@/composables/useAuth'
 import { useProviders } from '@/composables/useProviders'
 import CodeTabs from '@/components/CodeTabs.vue'
+import SceneStage from '@/components/scenes/SceneStage.vue'
 import { prettyGpuModel } from '@/composables/useMachineForm'
 import showcase from '~/public/showcase/index.json'
 
@@ -40,13 +41,23 @@ const { data: posts } = await useAsyncData(
 
 // Hero wall: real generations (static files, see scripts/showcase). Two rows
 // drifting in opposite directions; the gallery further down has the details.
-type Piece = { id: string; kind: string; title: string; thumb?: string; gpu?: string | null }
+type Piece = { id: string; kind: string; title: string; thumb?: string; size?: string; gpu?: string | null }
 const pictures = (showcase.items as Piece[]).filter((p) => p.kind === 'image' && p.thumb)
 const half = Math.ceil(pictures.length / 2)
 const rows = [pictures.slice(0, half), pictures.slice(half)]
 const heroGpu = prettyGpuModel(pictures[0]?.gpu || 'RTX 4090')
-// Pictures the 3D scene hangs in its gallery.
-const sceneArt = pictures.slice(0, 3).map((p) => `/showcase/${p.thumb}`)
+// The scenes (see frontend/lib/scenes/README.md). Each is loaded on demand.
+const loadSignals = () => import('@/lib/scenes/scenes/signals')
+const loadExchange = () => import('@/lib/scenes/scenes/exchange')
+const loadNetwork = () => import('@/lib/scenes/scenes/network')
+// Real pictures for the mosaic and film strip. A constant, so the scene is
+// not rebuilt on every render.
+const signalsOptions = { art: pictures.slice(0, 7).map((p) => `/showcase/${p.thumb}`) }
+const lanes = ['text', 'image', 'speech', 'music', 'video', 'shape']
+const households = ref(1)
+const onNetworkState = (name: string, value: unknown) => {
+  if (name === 'count') households.value = Number(value)
+}
 
 const apiSnippets = [
   {
@@ -177,7 +188,7 @@ const status = computed(() => [
               <ArrowRight class="ml-2 size-4" />
             </Button>
           </NuxtLink>
-          <a href="#how-it-works">
+          <a href="#signals">
             <Button size="lg" variant="outline" class="h-12 w-full px-6 text-base sm:w-auto">
               {{ t('landing.hero.secondary') }} <ArrowDown class="ml-2 size-4" />
             </Button>
@@ -219,6 +230,8 @@ const status = computed(() => [
               :aria-hidden="pass === 2 ? 'true' : undefined"
               :loading="r === 0 && pass === 1 ? 'eager' : 'lazy'"
               decoding="async"
+              :width="Number((p.size || '1x1').split('x')[0])"
+              :height="Number((p.size || '1x1').split('x')[1])"
               class="h-36 w-auto rounded-xl border object-cover shadow-sm sm:h-52 lg:h-60"
             />
           </template>
@@ -235,10 +248,64 @@ const status = computed(() => [
     <!-- Picked by staff: renders nothing when nothing is featured. -->
     <FeaturedShowcase />
 
-    <!-- How it works: the 3D scroll story -->
-    <div id="how-it-works" class="scroll-mt-14">
-      <HomeHowItWorks :art="sceneArt" />
-    </div>
+    <!-- Every kind of signal -->
+    <HomeSceneSection
+      id="signals"
+      :eyebrow="t('landing.scenes.signals.eyebrow')"
+      :title="t('landing.scenes.signals.title')"
+      :body="t('landing.scenes.signals.body')"
+    >
+      <SceneStage
+        :load="loadSignals"
+        :options="signalsOptions"
+        :label="t('landing.scenes.signals.label')"
+        class="h-[34rem] rounded-3xl border sm:h-[36rem]"
+      >
+        <template #overlay>
+          <!-- Lane names sit in HTML so they stay sharp and translatable. Six
+               equal rows match the scene's six evenly spaced lanes. -->
+          <ul class="absolute inset-y-0 left-0 grid grid-rows-6 pl-4 sm:pl-6">
+            <li v-for="lane in lanes" :key="lane" class="flex items-start pt-2">
+              <span class="rounded-full bg-[var(--scene-ground)]/70 px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider backdrop-blur-sm">
+                {{ t(`landing.kinds.${lane}`) }}
+              </span>
+            </li>
+          </ul>
+          <div class="absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-[var(--scene-ground)] to-transparent sm:w-20" />
+          <div class="absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[var(--scene-ground)] to-transparent sm:w-20" />
+        </template>
+      </SceneStage>
+    </HomeSceneSection>
+
+    <!-- Watch a model choose its words -->
+    <HomeSceneSection
+      :eyebrow="t('landing.scenes.thinking.eyebrow')"
+      :title="t('landing.scenes.thinking.title')"
+      :body="t('landing.scenes.thinking.body')"
+    >
+      <HomeTokenProbabilities />
+    </HomeSceneSection>
+
+    <!-- People and agents ask; machines answer -->
+    <HomeSceneSection
+      :eyebrow="t('landing.scenes.exchange.eyebrow')"
+      :title="t('landing.scenes.exchange.title')"
+      :body="t('landing.scenes.exchange.body')"
+    >
+      <SceneStage
+        :load="loadExchange"
+        :label="t('landing.scenes.exchange.label')"
+        class="aspect-square max-h-[40rem] w-full rounded-3xl border sm:aspect-[16/10]"
+      />
+      <template #notes>
+        <ul class="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
+          <li class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-foreground" /> {{ t('landing.scenes.exchange.person') }}</li>
+          <li class="inline-flex items-center gap-2"><span class="size-2.5 rotate-45 bg-[#ff7a66]" /> {{ t('landing.scenes.exchange.agent') }}</li>
+          <li class="inline-flex items-center gap-2"><span class="size-3 rounded-[2px] border-2 border-[#ffb44a]" /> {{ t('landing.scenes.exchange.machine') }}</li>
+          <li class="inline-flex items-center gap-2"><span class="size-3.5 rounded-full border-2 border-dashed border-[#a99bff]" /> {{ t('landing.scenes.exchange.private') }}</li>
+        </ul>
+      </template>
+    </HomeSceneSection>
 
     <!-- Three ways in -->
     <section class="px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
@@ -271,6 +338,28 @@ const status = computed(() => [
         </div>
       </div>
     </section>
+
+    <!-- A network that grows -->
+    <HomeSceneSection
+      :eyebrow="t('landing.scenes.network.eyebrow')"
+      :title="t('landing.scenes.network.title')"
+      :body="t('landing.scenes.network.body')"
+    >
+      <SceneStage
+        :load="loadNetwork"
+        :label="t('landing.scenes.network.label')"
+        class="h-[26rem] rounded-3xl border sm:h-[34rem]"
+        @state="onNetworkState"
+      >
+        <template #overlay>
+          <p class="absolute left-4 top-4 sm:left-6 sm:top-6">
+            <span class="block text-4xl font-bold tabular-nums sm:text-6xl" data-testid="network-count">{{ households }}</span>
+            <span class="font-mono text-[11px] uppercase tracking-wider opacity-70">{{ t('landing.scenes.network.count', households) }}</span>
+          </p>
+          <p class="absolute bottom-3 right-4 text-[11px] opacity-60 sm:right-6">{{ t('landing.scenes.network.note') }}</p>
+        </template>
+      </SceneStage>
+    </HomeSceneSection>
 
     <!-- Bring a GPU -->
     <section class="border-y bg-muted/20 px-4 py-16 sm:px-6 sm:py-24 lg:px-8">

@@ -3,188 +3,206 @@
   "name": "Showcase",
   "description": "Made on the club's own GPUs. Every piece records its model, prompt and seed, so it can be made again exactly."
  },
+ "theme": {
+  "name": "Porch lights",
+  "note": "Every picture is a night scene lit by small warm lights, in one print style and one palette (indigo, amber, coral, cream). The 3D scenes on the homepage use the same palette.",
+  "style": "gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+ },
  "items": [
   {
    "id": "neighbourhood",
    "kind": "image",
    "title": "The neighbourhood",
    "model": "flux-3-image-klein-fp8",
-   "prompt": "Isometric miniature diorama of a quiet neighbourhood at dusk, five small houses each with one softly glowing window, thin threads of warm light running between the rooftops like a constellation, tilt-shift photograph of a handmade paper and balsa model, deep indigo background, cosy and precise",
+   "prompt": "A quiet hillside neighbourhood at night seen from above, a dozen small houses each with one lit window, thin threads of light strung between the rooftops like a constellation, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
    "seed": 41201,
    "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 8.4,
+   "seconds": 8.1,
    "length": null,
-   "sha256": "de1862bfee79058ad3b9794e25e9cac9df0a9fd9dc1e2eba3c2a9508e00d9f83",
+   "sha256": "13c4db079862a6d040e54c212f23d238ba60af9170ae32926ead8a0686e7c262",
    "src": "neighbourhood.webp",
-   "thumb": "neighbourhood-sm.webp"
+   "thumb": "neighbourhood-sm.webp",
+   "size": "1344x768"
   },
   {
-   "id": "brass-automaton",
+   "id": "desk-by-the-window",
    "kind": "image",
-   "title": "Brass automaton",
+   "title": "The machine by the window",
    "model": "flux-3-image-klein-fp8",
-   "prompt": "macro photograph of a small brass wind-up automaton figure standing on a dark green circuit board, shallow depth of field, warm rim light, dust motes",
-   "seed": 20261128,
-   "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 8.3,
-   "length": null,
-   "sha256": "742f355c5f8919f25139df24619dbee626b8f12c6faa1805c98a3f94c21059dc",
-   "src": "brass-automaton.webp",
-   "thumb": "brass-automaton-sm.webp"
-  },
-  {
-   "id": "garage-riso",
-   "kind": "image",
-   "title": "Garage rig",
-   "model": "flux-3-image-klein-fp8",
-   "prompt": "Risograph print, two-colour fluorescent pink and deep blue, a home garage workbench with a glowing desktop computer tower among bicycles and paint cans, visible grain and slight misregistration, flat shapes, generous paper margin",
+   "prompt": "A desk by a bedroom window at night, a desktop computer tower glowing softly beside a sleeping cat, the town's lit windows visible outside, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
    "seed": 77310,
    "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 8.0,
-   "length": null,
-   "sha256": "e1d26f02402ed5b1173a44c9eaf2d9160a6780810a23af705f5d1e16d37f7787",
-   "src": "garage-riso.webp",
-   "thumb": "garage-riso-sm.webp"
-  },
-  {
-   "id": "great-wave",
-   "kind": "image",
-   "title": "Great wave",
-   "model": "flux-3-image-klein-fp8",
-   "prompt": "Japanese ukiyo-e woodblock print of a great curling wave with tiny fishing boats beneath it, a small mountain on the horizon, muted indigo and cream ink, visible washi paper texture",
-   "seed": 18310,
-   "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 7.9,
-   "length": null,
-   "sha256": "a26a04a19f03484ed52542e52537089b89175beac587286922b5b2fdeb74c846",
-   "src": "great-wave.webp",
-   "thumb": "great-wave-sm.webp"
-  },
-  {
-   "id": "gpu-botanical",
-   "kind": "image",
-   "title": "Graphics card, in bloom",
-   "model": "flux-3-image-klein-fp8",
-   "prompt": "Vintage botanical illustration plate of a graphics card drawn as if it were a flowering plant, copper heat pipes as stems, fan blades as petals, delicate roots of gold traces, watercolour and fine ink on aged cream paper, scientific and tender",
-   "seed": 5512,
-   "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 5.8,
-   "length": null,
-   "sha256": "c3899f967c9c102da886a85640a9e1a02494cd4198f50baf5d43eec9ea1e5306",
-   "src": "gpu-botanical.webp",
-   "thumb": "gpu-botanical-sm.webp"
-  },
-  {
-   "id": "stained-glass",
-   "kind": "image",
-   "title": "Cathedral of compute",
-   "model": "flux-3-image-klein-fp8",
-   "prompt": "A tall gothic stained glass window depicting a server rack as a saintly figure, rays of coloured light falling across a stone floor, deep cobalt, ruby and amber glass with thick lead lines, photographed from inside a dim chapel",
-   "seed": 90417,
-   "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 5.7,
-   "length": null,
-   "sha256": "83e6a5b681f44e0ba5f5044496f0a69ed3c034d0068f72bbf38b8b0cc2c6d708",
-   "src": "stained-glass.webp",
-   "thumb": "stained-glass-sm.webp"
-  },
-  {
-   "id": "clay-couriers",
-   "kind": "image",
-   "title": "Couriers",
-   "model": "flux-3-image-klein-fp8",
-   "prompt": "Stop-motion claymation still, three small round clay robots carrying glowing parcels along a miniature street between cardboard houses, visible fingerprints in the clay, soft studio lighting, shallow depth of field, cheerful",
-   "seed": 3344,
-   "gpu": "NVIDIA-GeForce-RTX-4090",
    "seconds": 8.4,
    "length": null,
-   "sha256": "17eef5599d1c27f6f813bfd9d7dd8adef8dfbb7757f8b716131eff3d9f6081c7",
-   "src": "clay-couriers.webp",
-   "thumb": "clay-couriers-sm.webp"
+   "sha256": "0786e88f85662b4f75ca28c428670664b8365a8c244a60bee5ffc5b96042f6ce",
+   "src": "desk-by-the-window.webp",
+   "thumb": "desk-by-the-window-sm.webp",
+   "size": "1024x1024"
   },
   {
-   "id": "sun-in-a-jar",
-   "kind": "image",
-   "title": "Sun in a jar",
-   "model": "flux-3-image-klein-fp8",
-   "prompt": "1970s science fiction gouache painting, a living room at night where a small bright sun floats inside a glass jar on a coffee table, long shadows across shag carpet, a cat watching from the sofa, airbrushed gradients, muted teal and orange, painterly, no text, no letters, no title",
-   "seed": 61078,
-   "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 5.4,
-   "length": null,
-   "sha256": "c6014c4d665b164d30ddaeb5af624506f9a54aec25b21fc093933ef5e1608585",
-   "src": "sun-in-a-jar.webp",
-   "thumb": "sun-in-a-jar-sm.webp"
-  },
-  {
-   "id": "lighthouse-oil",
+   "id": "keepers-light",
    "kind": "image",
    "title": "Keeper's light",
    "model": "flux-3-image-klein-fp8",
-   "prompt": "Thick impasto oil painting of a lighthouse on a storm-dark headland, its beam cutting through rain, heavy palette-knife strokes in violet, slate and bone white, sea spray, dramatic and quiet at once",
+   "prompt": "A lighthouse on a dark headland sweeping one beam of warm light across the sea, a small boat far out answering with its own lamp, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
    "seed": 27015,
    "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 8.4,
+   "seconds": 8.1,
    "length": null,
-   "sha256": "173f617d4e4412ed6fed5b9e0a89c5418248941b36612b85d09f7e124d390679",
-   "src": "lighthouse-oil.webp",
-   "thumb": "lighthouse-oil-sm.webp"
+   "sha256": "276019e215536a05dd3f18fa5e31159a669eb70c8c6513adb011f1f553dc416a",
+   "src": "keepers-light.webp",
+   "thumb": "keepers-light-sm.webp",
+   "size": "1344x768"
   },
   {
    "id": "night-market",
    "kind": "image",
    "title": "Night market",
    "model": "flux-3-image-klein-fp8",
-   "prompt": "Cinematic photograph of a rainy night market alley, paper lanterns reflected in puddles, a food stall with rising steam, one person under a transparent umbrella seen from behind, 35mm film, shallow depth of field, teal and amber",
+   "prompt": "A narrow night market alley hung with paper lanterns, steam rising from a food stall, one person under an umbrella seen from behind, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
    "seed": 8842,
    "gpu": "NVIDIA-GeForce-RTX-4090",
    "seconds": 8.0,
    "length": null,
-   "sha256": "59e7cc6aad107d07712afcaa00b83e6f3f75f2abab2dd39d4e97687fd84951e0",
+   "sha256": "ea86c3a8ff88848281d2b421fe19e09943442448d3f973134ca0b42ba2530c02",
    "src": "night-market.webp",
-   "thumb": "night-market-sm.webp"
+   "thumb": "night-market-sm.webp",
+   "size": "1344x768"
+  },
+  {
+   "id": "fireflies",
+   "kind": "image",
+   "title": "Fireflies",
+   "model": "flux-3-image-klein-fp8",
+   "prompt": "A glass jar of fireflies left on a wooden porch step, its lid off, the fireflies drifting up and out toward the dark garden, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
+   "seed": 61078,
+   "gpu": "NVIDIA-GeForce-RTX-4090",
+   "seconds": 6.0,
+   "length": null,
+   "sha256": "5604765c6e40241d12a1e0f4ebca5652c0a3f0934f1405c19925a0d76d1bdf77",
+   "src": "fireflies.webp",
+   "thumb": "fireflies-sm.webp",
+   "size": "768x1024"
+  },
+  {
+   "id": "star-chart",
+   "kind": "image",
+   "title": "Star chart",
+   "model": "flux-3-image-klein-fp8",
+   "prompt": "A star chart drawn over a sleeping town, the constellations connecting chimneys and rooftops to the stars with fine dotted lines, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
+   "seed": 18310,
+   "gpu": "NVIDIA-GeForce-RTX-4090",
+   "seconds": 8.2,
+   "length": null,
+   "sha256": "bf0379a658a75612fa5d0c334657c28607497710cd74c691bdd9e3087a4c5c0a",
+   "src": "star-chart.webp",
+   "thumb": "star-chart-sm.webp",
+   "size": "1024x1024"
+  },
+  {
+   "id": "radio-hill",
+   "kind": "image",
+   "title": "Radio hill",
+   "model": "flux-3-image-klein-fp8",
+   "prompt": "A small radio mast on a hill at night sending out soft concentric rings of light over fields and scattered farmhouses, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
+   "seed": 5512,
+   "gpu": "NVIDIA-GeForce-RTX-4090",
+   "seconds": 5.5,
+   "length": null,
+   "sha256": "06fc2ef0d71587be21d09e8fa1270130b8c6a96aff42b241848adebedf7b119b",
+   "src": "radio-hill.webp",
+   "thumb": "radio-hill-sm.webp",
+   "size": "768x1024"
+  },
+  {
+   "id": "greenhouse",
+   "kind": "image",
+   "title": "Greenhouse",
+   "model": "flux-3-image-klein-fp8",
+   "prompt": "A greenhouse glowing from inside in a snowy field at night, silhouettes of plants against the glass, footprints leading to its door, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
+   "seed": 90417,
+   "gpu": "NVIDIA-GeForce-RTX-4090",
+   "seconds": 8.2,
+   "length": null,
+   "sha256": "acea2565a39f5d29cc39a7f799a9e1acbe50616b645290e7e0c8042eda06ef7b",
+   "src": "greenhouse.webp",
+   "thumb": "greenhouse-sm.webp",
+   "size": "1024x1024"
+  },
+  {
+   "id": "night-train",
+   "kind": "image",
+   "title": "Night train",
+   "model": "flux-3-image-klein-fp8",
+   "prompt": "A night train crossing a tall stone viaduct, every carriage window lit, its reflection in the river below, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
+   "seed": 3344,
+   "gpu": "NVIDIA-GeForce-RTX-4090",
+   "seconds": 7.9,
+   "length": null,
+   "sha256": "b6fcb9c960559400e80ec84e5c2ce91cdf51e3c17253a5fb67b730d49e894466",
+   "src": "night-train.webp",
+   "thumb": "night-train-sm.webp",
+   "size": "1344x768"
+  },
+  {
+   "id": "harbour-lamps",
+   "kind": "image",
+   "title": "Harbour lamps",
+   "model": "flux-3-image-klein-fp8",
+   "prompt": "A small harbour at night, each fishing boat with a single lamp, the lamps reflected as long wavering lines on the water, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
+   "seed": 20261,
+   "gpu": "NVIDIA-GeForce-RTX-4090",
+   "seconds": 8.1,
+   "length": null,
+   "sha256": "d0425b5a59f5519cbdc98a0fcea9b5b5bb45be06d6244bc782740f31d18a67eb",
+   "src": "harbour-lamps.webp",
+   "thumb": "harbour-lamps-sm.webp",
+   "size": "1344x768"
   },
   {
    "id": "cover-first-light",
    "kind": "image",
    "title": "First Light (cover)",
    "model": "flux-3-image-klein-fp8",
-   "prompt": "Square album cover, minimal geometric poster design, a pale sun rising behind layered paper-cut hills in peach, sand and soft blue, grainy print texture, no text, no letters",
+   "prompt": "Square album cover, a pale sun just rising behind layered hills, one lit window in a tiny house in the foreground, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
    "seed": 12021,
    "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 8.3,
+   "seconds": 8.1,
    "length": null,
-   "sha256": "4da03107542e1ffb99bf760f54b406f6676dd76ffc6a685dea9b4d1eeace5b42",
+   "sha256": "ca376f478d02b5b61b516ba24951c894bc7f27e362826c7f2d966ff9d49198cf",
    "src": "cover-first-light.webp",
-   "thumb": "cover-first-light-sm.webp"
+   "thumb": "cover-first-light-sm.webp",
+   "size": "1024x1024"
   },
   {
    "id": "cover-tailnet",
    "kind": "image",
    "title": "Tailnet Drive (cover)",
    "model": "flux-3-image-klein-fp8",
-   "prompt": "Square album cover, retro synthwave illustration, an empty coastal highway at night seen from the driver's seat, neon magenta horizon line, palm silhouettes, stars, chrome reflections, no text, no letters",
+   "prompt": "Square album cover, an empty coastal road at night seen through a windscreen, tail lights of one car far ahead, stars, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
    "seed": 12022,
    "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 8.6,
+   "seconds": 7.8,
    "length": null,
-   "sha256": "aef8b46045b4915e47403be06fa34c918e704f0dea828354a065a0bf8f00e2de",
+   "sha256": "5bfc654685ac06369b5cde2a29988b1d327728a1295a7eac688d1f9198310879",
    "src": "cover-tailnet.webp",
-   "thumb": "cover-tailnet-sm.webp"
+   "thumb": "cover-tailnet-sm.webp",
+   "size": "1024x1024"
   },
   {
    "id": "cover-porch",
    "kind": "image",
    "title": "Porch Light (cover)",
    "model": "flux-3-image-klein-fp8",
-   "prompt": "Square album cover, warm watercolour painting of a wooden porch at dusk with one hanging lamp lit, moths around it, an acoustic guitar leaning on a chair, fields beyond, soft paper bleed, no text, no letters",
+   "prompt": "Square album cover, a wooden porch at dusk with one hanging lamp lit, moths around it, a guitar leaning on a chair, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters",
    "seed": 12023,
    "gpu": "NVIDIA-GeForce-RTX-4090",
-   "seconds": 8.8,
+   "seconds": 8.1,
    "length": null,
-   "sha256": "754cab34b78dd88f48c08a22cd1cb191984fd1217c0b6816a23a5faee5e39b6f",
+   "sha256": "dd40b74772ae76e1c26161ede149c9b2ebabb9cd0b6f87883505d221d3efb9b2",
    "src": "cover-porch.webp",
-   "thumb": "cover-porch-sm.webp"
+   "thumb": "cover-porch-sm.webp",
+   "size": "1024x1024"
   },
   {
    "id": "song-first-light",
@@ -254,6 +272,463 @@
    "length": null,
    "sha256": "189b349b462d099b7cc129076551e4ef6c937190463ba2163cf3a9b02613068f",
    "text": "A steady glow against the night,\nA quiet watch from wood and paint.\nIt signals safety, soft and bright,\nFor neighbours walking home late."
+  },
+  {
+   "id": "probabilities",
+   "kind": "logprobs",
+   "title": "What a porch light is for",
+   "model": "nvidia/nvidia-nemotron-3.5-lightning-30b-a3b-nvfp4",
+   "prompt": "In one short sentence, say what a porch light is for.",
+   "seed": 11,
+   "gpu": "NVIDIA-GB10",
+   "seconds": 0.4,
+   "length": null,
+   "sha256": "d639f7d8edecb27fd89a789f76c98b8f53739c290857f97ef27d26b005a4effa",
+   "tokens": [
+    {
+     "t": "A",
+     "p": 0.7819,
+     "alts": [
+      {
+       "t": "A",
+       "p": 0.7819
+      },
+      {
+       "t": "Por",
+       "p": 0.0824
+      },
+      {
+       "t": "To",
+       "p": 0.0566
+      },
+      {
+       "t": "The",
+       "p": 0.0441
+      },
+      {
+       "t": "It",
+       "p": 0.0236
+      }
+     ]
+    },
+    {
+     "t": " porch",
+     "p": 0.9998,
+     "alts": [
+      {
+       "t": " porch",
+       "p": 0.9998
+      },
+      {
+       "t": " por",
+       "p": 0.0
+      },
+      {
+       "t": " primary",
+       "p": 0.0
+      },
+      {
+       "t": " front",
+       "p": 0.0
+      },
+      {
+       "t": " house",
+       "p": 0.0
+      }
+     ]
+    },
+    {
+     "t": " light",
+     "p": 0.9999,
+     "alts": [
+      {
+       "t": " light",
+       "p": 0.9999
+      },
+      {
+       "t": "light",
+       "p": 0.0
+      },
+      {
+       "t": " lights",
+       "p": 0.0
+      },
+      {
+       "t": " lamp",
+       "p": 0.0
+      },
+      {
+       "t": " primarily",
+       "p": 0.0
+      }
+     ]
+    },
+    {
+     "t": " is",
+     "p": 0.5802,
+     "alts": [
+      {
+       "t": " is",
+       "p": 0.5802
+      },
+      {
+       "t": " illumin",
+       "p": 0.1467
+      },
+      {
+       "t": " provides",
+       "p": 0.1467
+      },
+      {
+       "t": " serves",
+       "p": 0.0693
+      },
+      {
+       "t": " primarily",
+       "p": 0.0289
+      }
+     ]
+    },
+    {
+     "t": " for",
+     "p": 0.361,
+     "alts": [
+      {
+       "t": " for",
+       "p": 0.361
+      },
+      {
+       "t": " primarily",
+       "p": 0.2812
+      },
+      {
+       "t": " used",
+       "p": 0.219
+      },
+      {
+       "t": " typically",
+       "p": 0.0431
+      },
+      {
+       "t": " designed",
+       "p": 0.0381
+      }
+     ]
+    },
+    {
+     "t": " illuminating",
+     "p": 0.4978,
+     "alts": [
+      {
+       "t": " illuminating",
+       "p": 0.4978
+      },
+      {
+       "t": " providing",
+       "p": 0.3019
+      },
+      {
+       "t": " welcoming",
+       "p": 0.0763
+      },
+      {
+       "t": " illumination",
+       "p": 0.0409
+      },
+      {
+       "t": " safety",
+       "p": 0.015
+      }
+     ]
+    },
+    {
+     "t": " the",
+     "p": 0.9199,
+     "alts": [
+      {
+       "t": " the",
+       "p": 0.9199
+      },
+      {
+       "t": " entry",
+       "p": 0.0278
+      },
+      {
+       "t": " an",
+       "p": 0.0191
+      },
+      {
+       "t": " and",
+       "p": 0.0116
+      },
+      {
+       "t": " a",
+       "p": 0.008
+      }
+     ]
+    },
+    {
+     "t": " entry",
+     "p": 0.2419,
+     "alts": [
+      {
+       "t": " entry",
+       "p": 0.2419
+      },
+      {
+       "t": " entrance",
+       "p": 0.6576
+      },
+      {
+       "t": " area",
+       "p": 0.042
+      },
+      {
+       "t": " front",
+       "p": 0.0255
+      },
+      {
+       "t": " doorway",
+       "p": 0.0155
+      }
+     ]
+    },
+    {
+     "t": "way",
+     "p": 0.9807,
+     "alts": [
+      {
+       "t": "way",
+       "p": 0.9807
+      },
+      {
+       "t": " area",
+       "p": 0.018
+      },
+      {
+       "t": " of",
+       "p": 0.0003
+      },
+      {
+       "t": "ways",
+       "p": 0.0002
+      },
+      {
+       "t": " to",
+       "p": 0.0002
+      }
+     ]
+    },
+    {
+     "t": " to",
+     "p": 0.8121,
+     "alts": [
+      {
+       "t": " to",
+       "p": 0.8121
+      },
+      {
+       "t": " and",
+       "p": 0.0755
+      },
+      {
+       "t": " of",
+       "p": 0.0588
+      },
+      {
+       "t": " for",
+       "p": 0.0216
+      },
+      {
+       "t": ",",
+       "p": 0.0191
+      }
+     ]
+    },
+    {
+     "t": " guide",
+     "p": 0.0611,
+     "alts": [
+      {
+       "t": " guide",
+       "p": 0.0611
+      },
+      {
+       "t": " welcome",
+       "p": 0.5118
+      },
+      {
+       "t": " provide",
+       "p": 0.2133
+      },
+      {
+       "t": " enhance",
+       "p": 0.0889
+      },
+      {
+       "t": " a",
+       "p": 0.0476
+      }
+     ]
+    },
+    {
+     "t": " visitors",
+     "p": 0.1941,
+     "alts": [
+      {
+       "t": " visitors",
+       "p": 0.1941
+      },
+      {
+       "t": " guests",
+       "p": 0.6774
+      },
+      {
+       "t": " residents",
+       "p": 0.0556
+      },
+      {
+       "t": " and",
+       "p": 0.0337
+      },
+      {
+       "t": " people",
+       "p": 0.0298
+      }
+     ]
+    },
+    {
+     "t": " and",
+     "p": 0.9401,
+     "alts": [
+      {
+       "t": " and",
+       "p": 0.9401
+      },
+      {
+       "t": ",",
+       "p": 0.0251
+      },
+      {
+       "t": " safely",
+       "p": 0.0221
+      },
+      {
+       "t": " or",
+       "p": 0.0092
+      },
+      {
+       "t": ".",
+       "p": 0.0011
+      }
+     ]
+    },
+    {
+     "t": " enhance",
+     "p": 0.6031,
+     "alts": [
+      {
+       "t": " enhance",
+       "p": 0.6031
+      },
+      {
+       "t": " provide",
+       "p": 0.1958
+      },
+      {
+       "t": " deter",
+       "p": 0.1188
+      },
+      {
+       "t": " improve",
+       "p": 0.034
+      },
+      {
+       "t": " increase",
+       "p": 0.0161
+      }
+     ]
+    },
+    {
+     "t": " security",
+     "p": 0.2051,
+     "alts": [
+      {
+       "t": " security",
+       "p": 0.2051
+      },
+      {
+       "t": " home",
+       "p": 0.6318
+      },
+      {
+       "t": " safety",
+       "p": 0.1598
+      },
+      {
+       "t": " the",
+       "p": 0.0009
+      },
+      {
+       "t": " visibility",
+       "p": 0.0007
+      }
+     ]
+    },
+    {
+     "t": ".",
+     "p": 0.9445,
+     "alts": [
+      {
+       "t": ".",
+       "p": 0.9445
+      },
+      {
+       "t": " at",
+       "p": 0.0222
+      },
+      {
+       "t": " and",
+       "p": 0.0173
+      },
+      {
+       "t": " after",
+       "p": 0.0072
+      },
+      {
+       "t": " during",
+       "p": 0.0027
+      }
+     ]
+    },
+    {
+     "t": "<|im_end|>",
+     "p": 1.0,
+     "alts": [
+      {
+       "t": "<|im_end|>",
+       "p": 1.0
+      },
+      {
+       "t": "</think>",
+       "p": 0.0
+      },
+      {
+       "t": " (",
+       "p": 0.0
+      },
+      {
+       "t": "",
+       "p": 0.0
+      },
+      {
+       "t": " ",
+       "p": 0.0
+      }
+     ]
+    }
+   ],
+   "text": "A porch light is for illuminating the entryway to guide visitors and enhance security.<|im_end|>"
   }
  ]
 }

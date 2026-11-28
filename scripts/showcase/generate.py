@@ -111,6 +111,23 @@ def generate(club, item):
         text = r["choices"][0]["message"]["content"].strip()
         newest = club.call("GET", "/api/inference/requests/?limit=1&type=LLM")["results"][0]
         return str(newest["id"]), None, text
+    if kind == "logprobs":
+        # A short answer with the model's own probability for every token and
+        # the alternatives it weighed; the homepage animates this.
+        r = club.call("POST", "/v1/chat/completions", {
+            "model": item["model"], "seed": item["seed"], "temperature": 0.8,
+            "max_tokens": 40, "logprobs": True, "top_logprobs": 5,
+            "messages": [{"role": "user", "content": item["prompt"]}],
+            "chat_template_kwargs": {"enable_thinking": False}, **share})
+        import math
+        tokens = [
+            {"t": t["token"], "p": round(math.exp(t["logprob"]), 4),
+             "alts": [{"t": x["token"], "p": round(math.exp(x["logprob"]), 4)}
+                      for x in t.get("top_logprobs", [])[:5]]}
+            for t in (r["choices"][0].get("logprobs") or {}).get("content") or []
+        ]
+        newest = club.call("GET", "/api/inference/requests/?limit=1&type=LLM")["results"][0]
+        return str(newest["id"]), None, json.dumps(tokens, ensure_ascii=False)
     raise ValueError(kind)
 
 
@@ -209,9 +226,15 @@ def main():
             "length": d.get("audio_seconds") or (d.get("video") or {}).get("seconds"),
             "sha256": sha,
         }
+        if item["kind"] == "image":
+            # Lets the page reserve the picture's space before it loads.
+            entry["size"] = item.get("size", "1024x1024")
         if item.get("lyrics") and item["lyrics"] != "[instrumental]":
             entry["lyrics"] = item["lyrics"]
-        if text:
+        if text and item["kind"] == "logprobs":
+            entry["tokens"] = json.loads(text)
+            entry["text"] = "".join(t["t"] for t in entry["tokens"]).strip()
+        elif text:
             entry["text"] = text
         if cover:
             entry["cover"] = f"{cover}.webp"
@@ -228,8 +251,13 @@ def main():
 
     if a.static:
         order = [i["id"] for i in manifest["items"]]
+        for name in os.listdir(STATIC):
+            stem = name.split(".")[0].removesuffix("-sm").removesuffix("-poster")
+            if name != "index.json" and stem not in order:
+                os.remove(os.path.join(STATIC, name))
         index = {
             "collection": col,
+            "theme": manifest.get("theme"),
             "items": [by_id[i] for i in order if i in by_id],
         }
         json.dump(index, open(INDEX, "w"), indent=1, ensure_ascii=False)

@@ -560,7 +560,9 @@
       "music": "Music",
       "video": "Video",
       "speech": "Speech",
-      "listen": "Transcription"
+      "listen": "Transcription",
+      "text": "Text",
+      "shape": "3D"
     },
     "hero": {
       "badge": "Running on home GPUs right now",
@@ -569,7 +571,7 @@
       "subtitle": "inference.club is a network of graphics cards in people's homes. Members share open models for chat, images, music, video and voice behind one address, for people and for agents.",
       "primary": "Start making things",
       "primaryMember": "Open the dashboard",
-      "secondary": "See how it works",
+      "secondary": "See what it does",
       "madeOn": "Made on {gpu}",
       "points": [
         "Works with the OpenAI SDK",
@@ -595,48 +597,6 @@
       "eyebrow": "Picked by the club",
       "title": "Featured generations",
       "subtitle": "Real requests from members, chosen by hand."
-    },
-    "how": {
-      "eyebrow": "How it works",
-      "title": "A neighbourhood of GPUs, one address",
-      "subtitle": "Scroll to follow a request from the person who asks to the machine that answers.",
-      "steps": [
-        {
-          "title": "Households bring the hardware",
-          "body": "A gaming PC in a garage, a workstation in a studio, a laptop in a flat. Each member runs a small agent next to the models they already have. Nothing is opened to the internet."
-        },
-        {
-          "title": "Each machine serves what it is good at",
-          "body": "One runs an image model, another music, another speech. The agent tells the club which models are loaded and how busy the machine is."
-        },
-        {
-          "title": "One address finds the right machine",
-          "body": "You send a request to inference.club. It checks who you are, picks a machine that has the model and is free, and passes the result back. If a machine is busy, the request waits in a queue."
-        },
-        {
-          "title": "Private or shared, your call",
-          "body": "A member can keep a machine for members only, or for themselves. Everything you make starts with the visibility you choose: secret, members, by link, or public in the gallery."
-        },
-        {
-          "title": "For people, apps and agents",
-          "body": "Use the site, call the API from your code, or connect an agent over MCP. The same address and the same key work for all three."
-        }
-      ],
-      "scene": {
-        "gallery": "Public gallery",
-        "membersOnly": "Members only",
-        "households": [
-          "The garage",
-          "The studio",
-          "The flat",
-          "The lab"
-        ],
-        "requesters": [
-          "You",
-          "Your app",
-          "Your agent"
-        ]
-      }
     },
     "ways": {
       "eyebrow": "Three ways in",
@@ -699,6 +659,41 @@
       "body": "Sign in, pick a model, and the first result is usually back in seconds.",
       "primary": "Get started",
       "secondary": "Read the docs"
+    },
+    "scenes": {
+      "signals": {
+        "eyebrow": "What it makes",
+        "title": "Every kind of signal",
+        "body": "Words, pictures, voices, songs, video and 3D shapes all travel the same way: a request goes out, a machine in someone's home answers.",
+        "label": "Six moving lanes: words, a picture assembling from tiles, a voice waveform, music bars, a strip of video frames and turning 3D shapes."
+      },
+      "thinking": {
+        "eyebrow": "Look inside",
+        "title": "Watch a model choose its words",
+        "body": "Every word a model writes is picked from alternatives. The club's API returns those odds, so you can see where it was sure and where it was guessing. This is a real answer from a member's machine.",
+        "asked": "Asked",
+        "considered": "What it weighed",
+        "hint": "Tap a word to see what else it considered.",
+        "replay": "Replay"
+      },
+      "exchange": {
+        "eyebrow": "Who uses it",
+        "title": "People and agents ask. Members' machines answer.",
+        "body": "Every request passes through the club, which checks who is asking and finds a machine that is free. The answer comes back the same way.",
+        "label": "A ring of people and agents sending small lights through a central ring to machines, and larger lights coming back.",
+        "person": "A person",
+        "agent": "An agent",
+        "machine": "A member's machine",
+        "private": "Kept for its owner"
+      },
+      "network": {
+        "eyebrow": "Where it goes",
+        "title": "One lit window, then a street, then a town",
+        "body": "Today the club is a handful of households. Each member who adds a machine makes it more useful for everyone else.",
+        "label": "Lights appearing one by one and linking to their neighbours until they form a large network.",
+        "count": "household | households",
+        "note": "An illustration of growth, not a live count."
+      }
     }
   }
 }
