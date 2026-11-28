@@ -1,98 +1,116 @@
 {
   "collection": {
     "name": "Showcase",
-    "description": "Made on the club's own GPUs. Every piece records its model, prompt and seed, so it can be made again exactly."
+    "description": "Made on the club's own GPUs, in as many styles as we could think of. Every piece records its model, prompt and seed, so it can be made again exactly."
   },
   "items": [
     {
-      "id": "neighbourhood",
+      "id": "cathedral-of-compute",
       "kind": "image",
-      "title": "The neighbourhood",
-      "model": "flux-3-image-klein-fp8",
-      "seed": 41201,
-      "size": "1344x768",
-      "prompt": "A quiet hillside neighbourhood at night seen from above, a dozen small houses each with one lit window, thin threads of light strung between the rooftops like a constellation, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
-    },
-    {
-      "id": "desk-by-the-window",
-      "kind": "image",
-      "title": "The machine by the window",
-      "model": "flux-3-image-klein-fp8",
-      "seed": 77310,
-      "size": "1024x1024",
-      "prompt": "A desk by a bedroom window at night, a desktop computer tower glowing softly beside a sleeping cat, the town's lit windows visible outside, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
-    },
-    {
-      "id": "keepers-light",
-      "kind": "image",
-      "title": "Keeper's light",
+      "title": "Cathedral of compute",
       "model": "flux-3-image-klein-fp8",
       "seed": 27015,
-      "size": "1344x768",
-      "prompt": "A lighthouse on a dark headland sweeping one beam of warm light across the sea, a small boat far out answering with its own lamp, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "size": "768x1024",
+      "prompt": "A tall gothic stained glass window depicting a server rack as a saintly figure, rays of coloured light falling across a stone floor, deep cobalt, ruby and amber glass with thick lead lines, photographed from inside a dim chapel"
     },
     {
-      "id": "night-market",
+      "id": "couriers",
       "kind": "image",
-      "title": "Night market",
+      "title": "Couriers",
       "model": "flux-3-image-klein-fp8",
       "seed": 8842,
       "size": "1344x768",
-      "prompt": "A narrow night market alley hung with paper lanterns, steam rising from a food stall, one person under an umbrella seen from behind, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "prompt": "Stop-motion claymation still, three small round clay robots carrying glowing parcels along a miniature street between cardboard houses, visible fingerprints in the clay, soft studio lighting, shallow depth of field, cheerful"
     },
     {
-      "id": "fireflies",
+      "id": "board-walkers",
       "kind": "image",
-      "title": "Fireflies",
+      "title": "Rush hour on the motherboard",
+      "model": "flux-3-image-klein-fp8",
+      "seed": 41201,
+      "size": "1344x768",
+      "prompt": "Extreme macro photograph of tiny toy robots the size of ants walking in a line along the copper traces of a green circuit board, towering capacitors and a chip like a city block behind them, one robot waving, tilt-shift blur, warm rim light, crisp detail, no text, no lettering"
+    },
+    {
+      "id": "koi-crossing",
+      "kind": "image",
+      "title": "Koi crossing",
       "model": "flux-3-image-klein-fp8",
       "seed": 61078,
-      "size": "768x1024",
-      "prompt": "A glass jar of fireflies left on a wooden porch step, its lid off, the fireflies drifting up and out toward the dark garden, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "size": "1344x768",
+      "prompt": "Japanese ukiyo-e woodblock print, a giant orange and white koi leaping out of a river over an arched wooden bridge where a small round robot stands holding a paper umbrella, falling cherry blossom petals, stylised curling water, flat areas of indigo, vermilion, pale green and cream, visible wood grain and paper texture, no text, no calligraphy, no seals, no signature"
     },
     {
-      "id": "star-chart",
+      "id": "garage-rig",
       "kind": "image",
-      "title": "Star chart",
+      "title": "The rig in the garage",
       "model": "flux-3-image-klein-fp8",
       "seed": 18310,
       "size": "1024x1024",
-      "prompt": "A star chart drawn over a sleeping town, the constellations connecting chimneys and rooftops to the stars with fine dotted lines, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "prompt": "Isometric miniature diorama of a suburban garage with one wall cut away, inside a tiny glowing computer rig on a workbench next to a bicycle, a washing machine and a sleeping dog, pastel mint, peach and lilac, soft clay-render look, plain pale background, tilt-shift, no text"
     },
     {
-      "id": "radio-hill",
+      "id": "still-life-with-gpu",
       "kind": "image",
-      "title": "Radio hill",
+      "title": "Still life with graphics card",
+      "model": "flux-3-image-klein-fp8",
+      "seed": 77310,
+      "size": "1024x1024",
+      "prompt": "Thick impasto oil painting, a still life of a graphics card propped against a blue ceramic jug with three lemons and a draped ochre cloth, heavy palette-knife strokes and ridges of paint catching the light, post-impressionist colour, cobalt, lemon yellow and viridian, no text"
+    },
+    {
+      "id": "rooftop-8bit",
+      "kind": "image",
+      "title": "Rooftop, 16 bits",
       "model": "flux-3-image-klein-fp8",
       "seed": 5512,
-      "size": "768x1024",
-      "prompt": "A small radio mast on a hill at night sending out soft concentric rings of light over fields and scattered farmhouses, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "size": "1344x768",
+      "prompt": "16-bit pixel art scene, a city rooftop at dusk with a water tank, a satellite dish, potted plants and a black cat watching a meteor shower, magenta and cyan vaporwave sky with a huge pixel sun, crisp square pixels, limited palette, dithering, retro console game background, no text, no HUD"
     },
     {
-      "id": "greenhouse",
+      "id": "stitched-fox",
       "kind": "image",
-      "title": "Greenhouse",
+      "title": "Stitched fox",
       "model": "flux-3-image-klein-fp8",
       "seed": 90417,
       "size": "1024x1024",
-      "prompt": "A greenhouse glowing from inside in a snowy field at night, silhouettes of plants against the glass, footprints leading to its door, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "prompt": "Hand embroidery on natural linen stretched in a wooden hoop, a leaping fox whose fur is stitched as circuit traces and tiny solder dots, satin stitch and french knots in tangerine, teal, magenta and gold thread, loose thread ends, photographed from above on a wooden table, no text"
     },
     {
-      "id": "night-train",
+      "id": "teapot-automaton",
       "kind": "image",
-      "title": "Night train",
+      "title": "Plans for a teapot automaton",
       "model": "flux-3-image-klein-fp8",
       "seed": 3344,
-      "size": "1344x768",
-      "prompt": "A night train crossing a tall stone viaduct, every carriage window lit, its reflection in the river below, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "size": "768x1024",
+      "prompt": "Cyanotype blueprint, a technical exploded-view drawing of a friendly teapot-shaped robot with tiny legs, gears, springs and a windup key, fine white lines on deep prussian blue paper, construction circles and dashed centre lines, creases in the paper, no text, no labels, no numbers, no writing"
     },
     {
-      "id": "harbour-lamps",
+      "id": "neon-jellyfish",
       "kind": "image",
-      "title": "Harbour lamps",
+      "title": "Neon jellyfish",
       "model": "flux-3-image-klein-fp8",
       "seed": 20261,
+      "size": "768x1024",
+      "prompt": "A glowing neon tube sign in the shape of a jellyfish mounted on a wet brick wall in a narrow alley at night, hot pink, electric blue and lime tubes, visible glass bends and wiring, reflections in a puddle below, light rain, cinematic photograph, no text, no letters, no words"
+    },
+    {
+      "id": "paper-forest",
+      "kind": "image",
+      "title": "Paper forest",
+      "model": "flux-3-image-klein-fp8",
+      "seed": 12031,
       "size": "1344x768",
-      "prompt": "A small harbour at night, each fishing boat with a single lamp, the lamps reflected as long wavering lines on the water, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "prompt": "Layered paper-cut shadow box, a forest of cut paper trees in a dozen receding layers with a stag on a ridge and a huge backlit moon, each layer casting a soft shadow, emerald, teal, burnt orange and ivory paper, visible paper edges and fibres, no text"
+    },
+    {
+      "id": "infrared-orchard",
+      "kind": "image",
+      "title": "Infrared orchard",
+      "model": "flux-3-image-klein-fp8",
+      "seed": 64007,
+      "size": "1344x768",
+      "prompt": "Colour infrared photograph of an orchard in summer, foliage and grass rendered candy pink and white, near-black sky with bright white clouds, a weathered satellite dish standing between the rows of trees, a gravel path, sharp surreal light, medium format film grain, no text"
     },
     {
       "id": "cover-first-light",
@@ -196,10 +214,5 @@
       "seed": 11,
       "prompt": "In one short sentence, say what a porch light is for."
     }
-  ],
-  "theme": {
-    "name": "Porch lights",
-    "note": "Every picture is a night scene lit by small warm lights, in one print style and one palette (indigo, amber, coral, cream). The 3D scenes on the homepage use the same palette.",
-    "style": "gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
-  }
+  ]
 }
