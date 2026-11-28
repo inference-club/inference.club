@@ -40,9 +40,12 @@ const allowlistModel = computed({
 <template>
   <div class="space-y-2">
     <div class="flex flex-wrap items-center gap-2">
-      <label v-if="label" class="text-xs font-medium text-muted-foreground w-28 shrink-0">{{ label }}</label>
+      <label v-if="label" class="w-full shrink-0 text-xs font-medium text-muted-foreground sm:w-28">{{ label }}</label>
+      <!-- Phones: the select shares its row with Save. A full-width select
+           pushed Save onto a line of its own, twice the height for every one
+           of a dozen rows. -->
       <Select v-model="policyModel">
-        <SelectTrigger class="h-8 text-sm w-full sm:w-64">
+        <SelectTrigger class="h-8 min-w-0 flex-1 text-sm sm:w-64 sm:flex-none">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -60,7 +63,7 @@ const allowlistModel = computed({
       <Button
         size="sm"
         :variant="saveVariant || 'default'"
-        class="h-8 ml-auto"
+        class="ml-auto h-8 shrink-0"
         :disabled="saving"
         @click="emit('save')"
       >
