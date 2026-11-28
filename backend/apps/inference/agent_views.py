@@ -22,6 +22,7 @@ from rest_framework.views import APIView
 from apps.core.permissions import IsFullMember
 
 from . import agent as agent_loop
+from . import assistant
 from .agent_skills import describe_skills
 from .agent_tools import get_registry
 from .openai_views import _RateLimitHeadersMixin
@@ -49,6 +50,13 @@ class AgentChatView(_RateLimitHeadersMixin, APIView):
         body = request.data if isinstance(request.data, dict) else {}
         model = body.get("model")
         messages = body.get("messages")
+        skill = body.get("skill") if isinstance(body.get("skill"), str) else None
+        assistant_mode = skill == assistant.SKILL
+        if assistant_mode and not model:
+            # The assistant works without the caller choosing a model.
+            from .jobs import auto_model_for
+
+            model = auto_model_for(request.user, "llm")
         if not model or not isinstance(model, str):
             return Response(
                 {"error": {"message": "`model` is required.", "type": "invalid_request"}},
@@ -68,7 +76,25 @@ class AgentChatView(_RateLimitHeadersMixin, APIView):
         tools = body.get("tools")
         if tools is not None and not isinstance(tools, list):
             tools = None
-        skill = body.get("skill") if isinstance(body.get("skill"), str) else None
+
+        if assistant_mode:
+            # Same loop, the full account toolset (shared with the MCP server).
+            messages = assistant.system_messages(request.user, body.get("context")) + [
+                m for m in messages if isinstance(m, dict) and m.get("role") != "system"
+            ]
+            events = agent_loop.run_agent(
+                user=request.user,
+                request=request,
+                model=model,
+                messages=messages,
+                tools=tools,
+                registry=assistant.get_assistant_registry(),
+                max_iterations=settings.ASSISTANT_MAX_ITERATIONS,
+                wall_clock_seconds=settings.ASSISTANT_WALL_CLOCK_SECONDS,
+            )
+            if body.get("stream") is False:
+                return self._collect(events)
+            return self._stream(events)
 
         events = agent_loop.run_agent(
             user=request.user,
@@ -113,9 +139,15 @@ class AgentChatView(_RateLimitHeadersMixin, APIView):
                 {"error": {"message": error, "type": "agent_error"}},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        actions = [
+            (ev.get("data") or {}).get("summary") or ev.get("summary") or ""
+            for ev in tool_events if ev.get("type") == "tool_result"
+        ]
         return Response(
             {
                 "content": "".join(content),
+                # One sentence per tool that ran: what was actually done.
+                "actions": [a for a in actions if a],
                 "tool_events": tool_events,
                 "messages": messages,
                 "usage": usage,

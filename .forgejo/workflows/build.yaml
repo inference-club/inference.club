@@ -5,6 +5,10 @@ name: build-and-deploy
 on:
   push:
     branches: [main]
+  # Lets a build be started by hand. Needed when the newest commit pushed to
+  # the mirror is the hosted CI's "deploy: … [skip ci]" commit, which Forgejo
+  # skips too.
+  workflow_dispatch:
 
 jobs:
   build:

@@ -389,6 +389,13 @@ AGENT_TOOL_CAPACITY_WAIT_SECONDS = float(
 # before returning the job id for the agent to poll.
 MCP_TOOL_WAIT_SECONDS = float(os.environ.get("MCP_TOOL_WAIT_SECONDS", "45"))
 
+# The assistant (POST /v1/agent with skill "assistant"): the agent loop over the
+# MCP toolset. It waits only briefly on a generation so a spoken turn stays
+# snappy; longer work comes back as a job the UI follows.
+ASSISTANT_MAX_ITERATIONS = int(os.environ.get("ASSISTANT_MAX_ITERATIONS", "10"))
+ASSISTANT_WALL_CLOCK_SECONDS = int(os.environ.get("ASSISTANT_WALL_CLOCK_SECONDS", "240"))
+ASSISTANT_TOOL_WAIT_SECONDS = float(os.environ.get("ASSISTANT_TOOL_WAIT_SECONDS", "20"))
+
 CELERY_BEAT_SCHEDULE = {}
 if ASYNC_ENABLED:
     CELERY_BEAT_SCHEDULE["dispatch-queued-jobs"] = {

@@ -11,6 +11,10 @@ Auth / config (environment):
   INFERENCE_CLUB_API_KEY   required — Dashboard → Settings → Token
   INFERENCE_CLUB_BASE_URL  default https://api.inference.club (with or without /v1)
 
+Several deployments (hosted, a home lab, local dev) can be saved by name in
+~/.config/inference-club/instances.json and picked with --instance NAME or
+INFERENCE_CLUB_INSTANCE; see `ic.py instance --help`.
+
 Examples:
   ic.py models --type image
   ic.py image "a watercolor fox" -o fox.png
@@ -19,6 +23,9 @@ Examples:
   ic.py speech "Hello there" -o hello.wav
   ic.py chat "Summarize the plot of Hamlet in 2 sentences"
   ic.py job 123 --wait -o out/
+  ic.py do "make my newest song public and add it to the Favourites collection"
+  ic.py tool search_library kind=song query=rain
+  ic.py api GET /api/inference/usage/
 """
 import argparse
 import base64
@@ -32,7 +39,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 TERMINAL = ("PROCESSED", "FAILED", "CANCELED")
 
 
@@ -52,15 +59,59 @@ def fail(message, **extra):
     out({"ok": False, "error": message, **extra}, code=1)
 
 
+# --- which deployment ---------------------------------------------------------
+
+INSTANCES_FILE = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+    "inference-club", "instances.json")
+_SELECTED = None  # set from --instance
+
+
+def load_instances():
+    try:
+        with open(INSTANCES_FILE) as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return {"default": None, "instances": {}}
+    d.setdefault("instances", {})
+    d.setdefault("default", None)
+    return d
+
+
+def instance():
+    """The saved deployment in effect, or None to use the environment.
+    --instance beats INFERENCE_CLUB_INSTANCE; the environment's key/URL beat the
+    saved default, so existing setups keep working unchanged."""
+    cfg = load_instances()
+    name = _SELECTED or os.environ.get("INFERENCE_CLUB_INSTANCE")
+    if not name:
+        if os.environ.get("INFERENCE_CLUB_API_KEY") or os.environ.get("INFERENCE_CLUB_TOKEN"):
+            return None
+        name = cfg.get("default")
+    if not name:
+        return None
+    inst = cfg["instances"].get(name)
+    if inst is None:
+        fail(f"No saved instance called '{name}'. Saved: "
+             f"{', '.join(sorted(cfg['instances'])) or 'none'}. Add one with "
+             "`ic.py instance add NAME --base-url URL`.")
+    return {"name": name, **inst}
+
+
 def base_url():
-    b = (os.environ.get("INFERENCE_CLUB_BASE_URL") or "https://api.inference.club").rstrip("/")
+    inst = instance()
+    b = (inst or {}).get("base_url") or os.environ.get("INFERENCE_CLUB_BASE_URL") \
+        or "https://api.inference.club"
+    b = b.rstrip("/")
     if b.endswith("/v1"):
         b = b[:-3]
     return b
 
 
 def api_key():
-    k = os.environ.get("INFERENCE_CLUB_API_KEY") or os.environ.get("INFERENCE_CLUB_TOKEN")
+    inst = instance()
+    k = (inst or {}).get("api_key") or os.environ.get("INFERENCE_CLUB_API_KEY") \
+        or os.environ.get("INFERENCE_CLUB_TOKEN")
     if not k:
         fail("INFERENCE_CLUB_API_KEY is not set. Get a key at "
              "https://inference.club/dashboard/settings/token and export it.")
@@ -320,8 +371,11 @@ def cmd_models(a):
 
 def cmd_doctor(a):
     """Check config without printing secrets."""
-    k = os.environ.get("INFERENCE_CLUB_API_KEY") or os.environ.get("INFERENCE_CLUB_TOKEN") or ""
-    res = {"base_url": base_url(), "api_key_set": bool(k),
+    inst = instance()
+    k = (inst or {}).get("api_key") or os.environ.get("INFERENCE_CLUB_API_KEY") \
+        or os.environ.get("INFERENCE_CLUB_TOKEN") or ""
+    res = {"instance": (inst or {}).get("name") or "(environment)",
+           "base_url": base_url(), "api_key_set": bool(k),
            "api_key": (k[:4] + "…" + k[-2:]) if len(k) > 8 else None}
     if not k:
         out({"ok": False, **res, "error": "INFERENCE_CLUB_API_KEY is not set."}, 1)
@@ -533,6 +587,131 @@ def cmd_workflow(a):
              "steps": steps})
 
 
+# --- assistant, tools and the raw API -----------------------------------------
+
+
+def _mcp(method, params=None, timeout=900):
+    _, d, _ = call("POST", "/mcp", timeout=timeout,
+                   body={"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}})
+    if isinstance(d, dict) and d.get("error"):
+        fail(d["error"].get("message", "MCP error"))
+    return (d or {}).get("result") or {}
+
+
+def _kv(pairs):
+    """key=value pairs → dict; values that parse as JSON (numbers, true, lists)
+    are used as such, everything else stays a string."""
+    args = {}
+    for pair in pairs or []:
+        if "=" not in pair:
+            fail(f"Expected key=value, got '{pair}'.")
+        k, v = pair.split("=", 1)
+        try:
+            args[k] = json.loads(v)
+        except ValueError:
+            args[k] = v
+    return args
+
+
+def cmd_do(a):
+    """Plain-language request → the assistant acts on the account and reports."""
+    body = {"skill": "assistant", "stream": False,
+            "messages": [{"role": "user", "content": " ".join(a.request)}]}
+    if a.model:
+        body["model"] = a.model
+    _, d, _ = call("POST", "/v1/agent", body=body, timeout=a.timeout)
+    results = [e for e in d.get("tool_events", []) if e.get("type") == "tool_result"]
+    jobs = []
+    for e in results:
+        data = e.get("data") or {}
+        jobs += [j.get("job_id") for j in data.get("jobs", [])] or \
+            ([data["job_id"]] if data.get("job_id") and data.get("status") not in TERMINAL else [])
+    media = [m for e in results for m in ((e.get("data") or {}).get("media") or [])]
+    out({"ok": all(e.get("ok") for e in results) if results else True,
+         "did": d.get("actions", []),
+         "reply": (d.get("content") or "").strip(),
+         "tools": [e["name"] for e in results],
+         **({"media": media} if media else {}),
+         **({"job_ids": jobs, "hint": "Follow with `ic.py job <id> --wait`."} if jobs else {})})
+
+
+def cmd_tools(a):
+    tools = _mcp("tools/list").get("tools", [])
+    if a.name:
+        match = [t for t in tools if t["name"] == a.name]
+        if not match:
+            fail(f"No tool called '{a.name}'.")
+        out({"ok": True, "tool": match[0]})
+    out({"ok": True, "tools": [{"name": t["name"], "description": t["description"]}
+                               for t in tools]})
+
+
+def cmd_tool(a):
+    args = _kv(a.args)
+    if a.json:
+        args.update(json.loads(read_text(a.json)))
+    r = _mcp("tools/call", {"name": a.name, "arguments": args}, timeout=a.timeout)
+    payload = r.get("structuredContent")
+    if payload is None:
+        text = next((c.get("text") for c in r.get("content", []) if c.get("type") == "text"), "")
+        if r.get("isError"):
+            fail(text, tool=a.name)
+        payload = {"text": text}
+    out({"ok": not r.get("isError"), **payload})
+
+
+def cmd_api(a):
+    body = json.loads(read_text(a.data)) if a.data else None
+    try:
+        status, d, _ = call(a.method.upper(), a.path, body=body, query=_kv(a.query) or None)
+    except HTTPError as e:
+        out({"ok": False, "status": e.status, "data": e.body}, 1)
+    if isinstance(d, (bytes, bytearray)):
+        if a.output:
+            with open(a.output, "wb") as fh:
+                fh.write(d)
+            out({"ok": True, "status": status, "saved_to": a.output, "bytes": len(d)})
+        out({"ok": True, "status": status, "bytes": len(d),
+             "hint": "Binary response; pass -o FILE to save it."})
+    out({"ok": True, "status": status, "data": d})
+
+
+def cmd_instance(a):
+    cfg = load_instances()
+    if a.action == "list":
+        rows = {n: {"base_url": i.get("base_url"),
+                    "api_key": (i["api_key"][:4] + "…") if i.get("api_key") else None,
+                    "default": n == cfg.get("default")} for n, i in cfg["instances"].items()}
+        out({"ok": True, "file": INSTANCES_FILE, "instances": rows})
+    if not a.name:
+        fail("Give the instance name.")
+    if a.action == "add":
+        if not a.base_url:
+            fail("--base-url is required.")
+        # The key comes from the environment or stdin — never argv, where it
+        # would land in shell history and process listings.
+        key = os.environ.get("INFERENCE_CLUB_API_KEY") or (
+            sys.stdin.readline().strip() if not sys.stdin.isatty() else "")
+        if not key:
+            fail("Provide the API key in INFERENCE_CLUB_API_KEY or on stdin.")
+        cfg["instances"][a.name] = {"base_url": a.base_url.rstrip("/"), "api_key": key}
+        if a.default or not cfg.get("default"):
+            cfg["default"] = a.name
+    elif a.action == "use":
+        if a.name not in cfg["instances"]:
+            fail(f"No saved instance called '{a.name}'.")
+        cfg["default"] = a.name
+    elif a.action == "remove":
+        cfg["instances"].pop(a.name, None)
+        if cfg.get("default") == a.name:
+            cfg["default"] = next(iter(cfg["instances"]), None)
+    os.makedirs(os.path.dirname(INSTANCES_FILE), exist_ok=True)
+    fd = os.open(INSTANCES_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        json.dump(cfg, fh, indent=1)
+    out({"ok": True, "default": cfg.get("default"), "instances": sorted(cfg["instances"])})
+
+
 # --- argparse ----------------------------------------------------------------
 
 
@@ -540,7 +719,38 @@ def main():
     p = argparse.ArgumentParser(prog="ic.py", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--version", action="version", version=VERSION)
+    p.add_argument("--instance", "-I", help="Saved deployment to use (see `instance`).")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    sp = sub.add_parser("do", help="Say what you want in plain language; the assistant "
+                                   "does it and reports what it did.")
+    sp.add_argument("request", nargs="+")
+    sp.add_argument("--model", "-m", help="LLM that drives the assistant (default: auto).")
+    sp.add_argument("--timeout", type=int, default=300)
+    sp.set_defaults(fn=cmd_do)
+    sp = sub.add_parser("tools", help="List every account tool (or show one's schema).")
+    sp.add_argument("name", nargs="?")
+    sp.set_defaults(fn=cmd_tools)
+    sp = sub.add_parser("tool", help="Call one tool: tool NAME key=value …")
+    sp.add_argument("name")
+    sp.add_argument("args", nargs="*", metavar="KEY=VALUE")
+    sp.add_argument("--json", help="Arguments as JSON (or @file).")
+    sp.add_argument("--timeout", type=int, default=900)
+    sp.set_defaults(fn=cmd_tool)
+    sp = sub.add_parser("api", help="Call any endpoint: api METHOD /path [--data JSON]")
+    sp.add_argument("method", choices=["GET", "POST", "PATCH", "PUT", "DELETE",
+                                       "get", "post", "patch", "put", "delete"])
+    sp.add_argument("path")
+    sp.add_argument("--data", "-d", help="JSON body (or @file).")
+    sp.add_argument("--query", "-q", action="append", metavar="KEY=VALUE")
+    sp.add_argument("--output", "-o", help="Save a binary response here.")
+    sp.set_defaults(fn=cmd_api)
+    sp = sub.add_parser("instance", help="Saved deployments: list | add | use | remove")
+    sp.add_argument("action", choices=["list", "add", "use", "remove"])
+    sp.add_argument("name", nargs="?")
+    sp.add_argument("--base-url")
+    sp.add_argument("--default", action="store_true", help="Make it the default.")
+    sp.set_defaults(fn=cmd_instance)
 
     def gen(name, help_, fn):
         s = sub.add_parser(name, help=help_)
@@ -635,6 +845,8 @@ def main():
     sp.set_defaults(fn=cmd_workflow)
 
     a = p.parse_args()
+    global _SELECTED
+    _SELECTED = a.instance
     try:
         a.fn(a)
     except HTTPError as e:

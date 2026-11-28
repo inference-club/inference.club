@@ -40,6 +40,21 @@ curl https://api.inference.club/v1/chat/completions \
 Any OpenAI SDK works with `base_url="https://api.inference.club/v1"`. See the
 [quickstart](https://inference.club/docs/quickstart).
 
+## Tell it what to do
+
+The whole account can be driven in plain language, from inside the app or from
+another agent. All three use the same tools
+(`backend/apps/inference/control_tools.py`):
+
+- **In the app**: the Assistant button (or ⌘J) on any dashboard page. Type or
+  talk; it acts, shows each step, and can read the answer back.
+- **MCP**: `claude mcp add --transport http inference-club https://api.inference.club/mcp --header "Authorization: Bearer $INFERENCE_CLUB_API_KEY"`
+- **Skill + CLI** for Hermes, Claude Code and other shell agents:
+  [`integrations/skills/inference-club`](integrations/skills/inference-club/SKILL.md),
+  e.g. `ic.py do "make a 2 minute song about the ocean with 5 pictures"`.
+
+See [docs/assistant.md](docs/assistant.md).
+
 ## Run a node
 
 See [Run an agent](https://inference.club/docs/providers/run-an-agent) and, for

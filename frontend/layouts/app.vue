@@ -2,14 +2,16 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Button } from '@/components/ui/button'
-import { Sun, Moon } from 'lucide-vue-next'
+import { Sun, Moon, Sparkles } from 'lucide-vue-next'
 import { useTheme } from '@/composables/useTheme'
 import { usePlayerStore } from '@/stores/player'
 import { useAuth } from '@/composables/useAuth'
+import { useAssistantStore } from '@/stores/assistant'
 
 const { t } = useI18n()
 const { isDark, toggleTheme } = useTheme()
 const player = usePlayerStore()
+const assistant = useAssistantStore()
 const route = useRoute()
 const { isAuthenticated, isAnonymous, ready } = useAuth()
 
@@ -65,6 +67,19 @@ const gateDescription = computed(() =>
                LanguagePicker's root is a renderless Reka <Popover> (no DOM
                node), so a class on it would be dropped. -->
           <div class="ml-auto flex items-center gap-2">
+            <Button
+              v-if="isAuthenticated"
+              variant="outline"
+              size="sm"
+              class="gap-1.5"
+              :title="`${t('assistant.open')} (⌘J)`"
+              data-testid="assistant-open"
+              @click="assistant.toggle()"
+            >
+              <Sparkles class="size-4 text-primary" />
+              <span class="hidden sm:inline">{{ t('assistant.title') }}</span>
+              <span class="sr-only sm:hidden">{{ t('assistant.open') }}</span>
+            </Button>
             <LanguagePicker />
             <Button
               variant="ghost"
@@ -103,5 +118,6 @@ const gateDescription = computed(() =>
       <div v-if="player.hasQueue" class="h-20 shrink-0" />
     </SidebarInset>
     <GlobalPlayerBar />
+    <ClientOnly><AssistantPanel v-if="isAuthenticated" /></ClientOnly>
   </SidebarProvider>
 </template>
