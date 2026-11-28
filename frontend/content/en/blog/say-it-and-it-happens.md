@@ -4,8 +4,8 @@ description: "inference.club now has a single layer of 33 account tools — gene
 publishedAt: "2026-11-28"
 author: briancaffey
 tags: [agents, mcp, architecture, engineering]
-image: /showcase/night-market.webp
-image_prompt: "Cinematic photograph of a rainy night market alley, paper lanterns reflected in puddles, a food stall with rising steam, one person under a transparent umbrella seen from behind, 35mm film, shallow depth of field, teal and amber"
+image: /showcase/board-walkers.webp
+image_prompt: "Extreme macro photograph of tiny toy robots the size of ants walking in a line along the copper traces of a green circuit board, towering capacitors and a chip like a city block behind them, one robot waving, tilt-shift blur, warm rim light, crisp detail, no text, no lettering"
 ---
 
 After a year of shipping modalities, inference.club had a lot of pages. A playground per modality, a library, collections, a queue, settings, a music player. Each one works. The problem is what happens when you want something that crosses three of them.
@@ -114,9 +114,9 @@ The tool I use most is `make_song`. "Make a 2 minute 30 second song about the oc
 
 It returns the job ids straight away and the panel fills in as each GPU finishes. In the home cluster those three kinds of work land on different machines: the lyrics on whatever is serving the LLM, the song on a DGX Spark running ACE-Step, the pictures on an RTX 4090 running FLUX.
 
-![A print of a desk by a window at night: a computer tower glowing beside a sleeping cat, the town's lit windows outside](/showcase/desk-by-the-window.webp)
+![A pastel isometric miniature of a garage with one wall cut away: a small computer on a workbench, a bicycle, a washing machine and a sleeping dog](/showcase/garage-rig.webp)
 
-*"The machine by the window". FLUX 3 Image Klein on an RTX 4090 in the home cluster, seed 77310, 8.4 seconds. One of the pieces in the homepage showcase.*
+*"The rig in the garage". FLUX 3 Image Klein on an RTX 4090 in the home cluster, seed 18310, 8.1 seconds. One of the pieces in the homepage showcase.*
 
 I could have left this to the model: it has `chat`, `generate_music`, `generate_image` and `save_collection`, and a capable model can chain them. But that is five or six tool calls with ids carried between them, and each extra step is another chance for a small model to drop one. A composite tool for the thing people actually ask for is cheaper than hoping.
 

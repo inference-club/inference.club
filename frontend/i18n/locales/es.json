@@ -573,8 +573,8 @@
       "signals": {
         "eyebrow": "Lo que crea",
         "title": "Todo tipo de señales",
-        "body": "Palabras, imágenes, voces, canciones, vídeo y formas 3D viajan de la misma manera: sale una solicitud y responde una máquina en casa de alguien.",
-        "label": "Seis carriles en movimiento: palabras, una imagen que se compone a partir de teselas, la forma de onda de una voz, barras de música, una tira de fotogramas de vídeo y formas 3D que giran."
+        "body": "Palabras, imágenes, voces, canciones, vídeo y formas 3D viajan de la misma manera: sale una solicitud y responde una máquina en casa de alguien. A la izquierda de la línea brillante está la materia prima; a la derecha, el resultado terminado.",
+        "label": "Seis carriles en movimiento que cruzan una línea brillante: los tokens sueltos se vuelven palabras, el ruido se vuelve una imagen, una fila de puntos se vuelve la forma de onda de una voz, un pulso suave se vuelve barras de música, la película en blanco se vuelve fotogramas de vídeo y una nube de puntos se vuelve un modelo 3D."
       },
       "thinking": {
         "eyebrow": "Mira por dentro",
@@ -585,11 +585,19 @@
         "hint": "Toca una palabra para ver qué más consideró.",
         "replay": "Repetir"
       },
+      "assemble": {
+        "eyebrow": "En tres dimensiones",
+        "title": "Una imagen plana se convierte en algo que puedes girar",
+        "body": "Dale al club una sola imagen y la máquina de un miembro construye a partir de ella un modelo 3D completo. Estos son resultados reales, dibujados aquí como puntos para que carguen al instante.",
+        "label": "Unos puntos se despegan de una imagen plana, cruzan volando y se asientan en un modelo 3D de ella que gira; después llega la siguiente imagen.",
+        "caption": "{triangles} triángulos en {seconds} s en {gpu}",
+        "note": "Se muestra aquí con {points} puntos."
+      },
       "exchange": {
         "eyebrow": "Quién lo usa",
         "title": "Personas y agentes preguntan. Las máquinas de los miembros responden.",
         "body": "Cada solicitud pasa por el club, que comprueba quién pregunta y busca una máquina que esté libre. La respuesta vuelve por el mismo camino.",
-        "label": "Un círculo de personas y agentes que envían pequeñas luces a través de un anillo central hacia las máquinas, y luces más grandes que vuelven.",
+        "label": "Un círculo de personas y agentes que envían pequeñas luces con estela a través de un anillo central hacia las máquinas, que se iluminan mientras trabajan; las respuestas vuelven como pequeños dibujos de lo que son.",
         "person": "Una persona",
         "agent": "Un agente",
         "machine": "La máquina de un miembro",
@@ -599,7 +607,7 @@
         "eyebrow": "Hacia dónde va",
         "title": "Una ventana encendida, luego una calle, luego un pueblo",
         "body": "Hoy el club es un puñado de hogares. Cada miembro que añade una máquina lo hace más útil para todos los demás.",
-        "label": "Luces que aparecen una a una y se enlazan con sus vecinas hasta formar una gran red.",
+        "label": "Luces que aparecen una a una, cada una alcanzada por un enlace desde una vecina, con pequeñas luces que recorren los enlaces y arcos largos que unen zonas lejanas, hasta formar una gran red que luego se repliega hasta la primera luz.",
         "count": "hogar | hogares",
         "note": "Una ilustración del crecimiento, no un recuento en vivo."
       }

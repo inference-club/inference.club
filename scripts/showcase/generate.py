@@ -186,6 +186,18 @@ def main():
         found = club.call("POST", "/api/inference/collections/", {**col, "visibility": "PUBLIC"})
     slug = found["slug"]
 
+    # Pieces dropped from the manifest leave the collection (the requests
+    # themselves stay in the library).
+    wanted = {i["id"] for i in manifest["items"]}
+    for gone in sorted(set(state) - wanted):
+        try:
+            club.call("DELETE", f"/api/inference/collections/{slug}/items/{state[gone]['request_id']}/")
+        except RuntimeError:
+            pass
+        del state[gone]
+        say(f"  gone  {gone} (no longer in the manifest)")
+    json.dump(state, open(state_path, "w"), indent=1)
+
     for item in manifest["items"]:
         iid = item["id"]
         if only and iid not in only:
@@ -255,11 +267,7 @@ def main():
             stem = name.split(".")[0].removesuffix("-sm").removesuffix("-poster")
             if name != "index.json" and stem not in order:
                 os.remove(os.path.join(STATIC, name))
-        index = {
-            "collection": col,
-            "theme": manifest.get("theme"),
-            "items": [by_id[i] for i in order if i in by_id],
-        }
+        index = {"collection": col, "items": [by_id[i] for i in order if i in by_id]}
         json.dump(index, open(INDEX, "w"), indent=1, ensure_ascii=False)
         open(INDEX, "a").write("\n")
     print(json.dumps({"ok": True, "instance": a.instance, "collection": slug,
