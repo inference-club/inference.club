@@ -33,7 +33,7 @@ export const ROUTES: RouteSpec[] = [
   { name: 'register', path: '/register' },
   { name: 'confirm', path: '/confirm' },
   { name: 'blog-post', path: '/blog/introducing-inference-club' },
-  { name: 'docs-page', path: '/docs/getting-started' },
+  { name: 'docs-page', path: '/docs/quickstart' },
 
   // ---- dashboard (auth) ----
   { name: 'dashboard', path: '/dashboard', auth: true },

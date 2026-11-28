@@ -10,14 +10,17 @@ import { defineConfig, devices } from '@playwright/test'
 //   yarn shots         - full-page screenshot sweep of every route
 //   yarn audit         - non-failing sweep: overflow, console errors, failed
 //                        requests, clipped text, small tap targets, written
-//                        to e2e/audit/ and summarised by `yarn audit:report`
+//                        to <repo>/.captures/audit/ and summarised by `yarn audit:report`
 //
 // All viewports are Chromium so a single browser install covers the suite;
 // the mobile project uses a Pixel 7 profile (412px, touch, mobile UA) since
 // viewport width — not engine — is what layout bugs key on.
 export default defineConfig({
   testDir: './e2e',
-  outputDir: './e2e/test-results',
+  // Run output goes outside frontend/: the compose dev server bind-mounts and
+  // watches this directory, and every file written under it during a run made
+  // Nuxt regenerate its templates and stall the pages under test.
+  outputDir: '../.captures/playwright/test-results',
   fullyParallel: true,
   // Generous timeout + capped workers: the Nuxt DEV server compiles routes
   // on first hit, and a full-parallel stampede over 43 cold routes blows
@@ -25,7 +28,7 @@ export default defineConfig({
   timeout: 90_000,
   workers: 4,
   retries: 0,
-  reporter: [['list'], ['html', { outputFolder: './e2e/report', open: 'never' }]],
+  reporter: [['list'], ['html', { outputFolder: '../.captures/playwright/report', open: 'never' }]],
   expect: {
     toHaveScreenshot: { maxDiffPixelRatio: 0.02, animations: 'disabled' },
   },

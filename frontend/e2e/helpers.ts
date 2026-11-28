@@ -10,6 +10,12 @@ export async function gotoSettled(page: Page, path: string) {
   // Capped: pages with a live poll, an SSE stream or a WebGL scene never go
   // network-idle, and an uncapped wait burned the whole test timeout.
   await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {})
+  // Loading skeletons mean the page is still waiting on auth or data. Under a
+  // loaded machine the network-idle cap above can pass first, and the sweep
+  // then shoots a signed-out skeleton instead of the page.
+  await page
+    .waitForFunction(() => !document.querySelector('.animate-pulse'), null, { timeout: 20_000 })
+    .catch(() => {})
   await page.addStyleTag({
     content:
       '*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }',

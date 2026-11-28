@@ -5,7 +5,7 @@ import { gotoSettled, resolveRoutes, checkHorizontalOverflow } from './helpers'
 
 // The audit sweep. Unlike overflow.spec.ts this never fails: it visits every
 // route on every viewport and writes what it found to
-// e2e/audit/<project>/<route>.json (+ a full-page PNG), so one run gives the
+// <repo>/.captures/audit/<project>/<route>.json (+ a full-page PNG), so one run gives the
 // whole picture rather than stopping at the first broken page. Summarise with
 // `yarn audit:report`. Findings become GitHub issues; once a class of finding
 // is at zero it graduates into a failing guard like overflow.spec.ts.
@@ -23,7 +23,7 @@ test.beforeAll(async ({ playwright }) => {
 for (const route of ROUTES) {
   test(`audit: ${route.name}`, async ({ page }) => {
     const project = test.info().project.name
-    const dir = `e2e/audit/${project}`
+    const dir = `../.captures/audit/${project}`
     mkdirSync(dir, { recursive: true })
     const out: Record<string, unknown> = { name: route.name, path: route.path, project }
 
@@ -55,6 +55,11 @@ for (const route of ROUTES) {
     out.finalUrl = new URL(page.url()).pathname
     out.bouncedToLogin = !!route.auth && String(out.finalUrl).startsWith('/login')
 
+    // Still showing a skeleton after the settle wait: either a real stuck
+    // loading state or a page too slow to judge. Recorded, not hidden.
+    out.stuckSkeleton = await page.evaluate(() => !!document.querySelector('.animate-pulse'))
+    out.signedOut = !!route.auth && (await page.evaluate(() => /Sign in\s*Join the club/.test(document.body.innerText)))
+
     out.overflow = await checkHorizontalOverflow(page)
     out.dom = await page.evaluate(() => {
       const vw = document.documentElement.clientWidth
@@ -76,7 +81,7 @@ for (const route of ROUTES) {
       // i18n keys that leaked to the screen ("nav.dashboard.title").
       const rawKeys: string[] = []
       for (const el of Array.from(document.querySelectorAll('body *'))) {
-        if (el.closest('#vue-tracer-overlay,[id^="nuxt-devtools"],svg,pre,code')) continue
+        if (el.closest('#vue-tracer-overlay,[id^="nuxt-devtools"],svg,pre,code,.sr-only')) continue
         if (!visible(el)) continue
         const cs = getComputedStyle(el)
         const ownText = Array.from(el.childNodes).some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 1)
@@ -84,7 +89,7 @@ for (const route of ROUTES) {
           if (el.scrollWidth > el.clientWidth + 2 && cs.overflowX === 'hidden' && cs.textOverflow !== 'ellipsis' && cs.whiteSpace === 'nowrap')
             clipped.push(describe(el))
           const t = (el.textContent || '').trim()
-          if (/^[a-z][a-zA-Z0-9]*(\.[a-zA-Z0-9_]+){1,5}$/.test(t) && !/\.(com|club|io|md|json|yaml|py|ts|vue|lan|wav|mp3|png)$/.test(t))
+          if (/^[a-z][a-zA-Z0-9]*(\.[a-zA-Z0-9_]+){1,5}$/.test(t) && !/\.(com|club|io|md|json|yaml|py|ts|vue|lan|wav|mp3|png|cpp|js|sh)$/.test(t))
             rawKeys.push(t)
         }
         if (el.matches('a[href],button,[role="button"],input:not([type="hidden"]),select,textarea')) {

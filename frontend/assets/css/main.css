@@ -1,4 +1,10 @@
 @import "tailwindcss";
+/* Tailwind scans every file under the project for class names and has Vite
+   full-reload the page when one of them changes. The Playwright suite and its
+   output are not app source; without this, editing a spec or writing a report
+   reloaded every open page. */
+@source not "../../e2e";
+@source not "../../playwright.config.ts";
 @import "tw-animate-css";
 
 /* Typography plugin powers `prose` classes used by docs and blog content. */
