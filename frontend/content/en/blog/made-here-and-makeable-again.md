@@ -59,7 +59,7 @@ The picture at the top of this post is the second row. Here is the first, with i
 
 *"Cathedral of compute". Prompt: "A tall gothic stained glass window depicting a server rack as a saintly figure, rays of coloured light falling across a stone floor, deep cobalt, ruby and amber glass with thick lead lines, photographed from inside a dim chapel". 768×1024, seed 27015, 6.2 seconds.*
 
-**Three songs with covers**, ACE-Step 1.5 Turbo (`acestep-v15-turbo`) on a DGX Spark. The covers are three more FLUX images (seeds 12021, 12022 and 12023, between 7.8 and 8.1 seconds each).
+**Three songs with covers**, ACE-Step 1.5 Turbo (`acestep-v15-turbo`) on a DGX Spark. The covers are three more FLUX images (seeds 12021, 12022 and 12023, between 7.9 and 8.6 seconds each), each in its own medium: marbled paper, a low-poly render and a linocut.
 
 | Title | Style prompt | Seed | Length | Seconds to make |
 | --- | --- | --- | --- | --- |
@@ -69,7 +69,7 @@ The picture at the top of this post is the second row. Here is the first, with i
 
 "Porch Light" is the one with a vocal. Seventy-five seconds of music in 17.3 seconds, about four times faster than it plays:
 
-![Album cover: a watercolour of a wooden porch at dusk with one lamp lit and a guitar leaning on a chair](/showcase/cover-porch-sm.webp)
+![Album cover: a two-colour linocut in mustard and green of a hanging porch lamp with moths around it and a guitar leaning on a chair](/showcase/cover-porch-sm.webp)
 
 <audio controls preload="none" src="/showcase/song-porch.mp3"></audio>
 
@@ -151,7 +151,7 @@ The generator records a SHA-256 of each raw output in the index, and a later run
 
 **Not guaranteed, and I do not expect it everywhere:** identical output across different GPUs or driver versions. A seed fixes the starting noise. It does not fix the order of floating-point operations, and different GPU architectures, CUDA and cuDNN versions, and kernel-selection heuristics can all produce results that differ in the low bits and then diverge over a diffusion run. An RTX 4090 and a DGX Spark are not obliged to agree with each other. Whether two deployments of the same model on similar cards produce the same bytes, a visually identical picture with a different hash, or a visibly different one is exactly what the production run is going to tell me, and I will write up whichever it is.
 
-**Update, the same day.** The manifest has now been run against the production deployment. All thirteen images of the first set (ten pictures and three covers) came back byte-identical to the local run: same SHA-256, piece for piece. Both deployments route to the same RTX 4090s, so this confirms the seed travels intact through a second control plane; it does not yet say anything about different hardware. The current set of twelve pictures has so far only been made on the local deployment; the same check against production is still to do.
+**Update, the same day.** The manifest has now been run against the production deployment. All thirteen images of the first set (ten pictures and three covers) came back byte-identical to the local run: same SHA-256, piece for piece. Both deployments route to the same RTX 4090s, so this confirms the seed travels intact through a second control plane; it does not yet say anything about different hardware. The current set of twelve pictures has since had the same check: made again on production and on the home-lab deployment, all twelve came back byte-identical to the local files.
 
 The songs did not match, and a follow-up test showed why that is not a deployment difference: two songs made on the *same* deployment with the same seed are different songs. The seed is stored and sent, but the music model has a second source of randomness that it does not cover. Until that is fixed, a song's seed is a record, not a replay button. The spoken clip has no seed to set, and the poem differed too, which is expected for chat without stricter sampling settings.
 
