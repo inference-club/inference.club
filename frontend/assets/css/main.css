@@ -315,3 +315,35 @@
   border-color: var(--border);
   margin: 2.5rem 0;
 }
+
+/* Touch targets. Controls keep their visual size, but on touch screens each
+   gets a hit area of at least 44×44px, centred on it, through a transparent
+   pseudo-element. Growing the controls themselves would reflow every dense
+   row (track rows, toolbars); this costs no layout. Positioned controls are
+   left alone because making them `relative` would move them. */
+@media (pointer: coarse) {
+  :where(
+      [data-slot='button'],
+      [data-slot='switch'],
+      [data-slot='checkbox'],
+      [data-slot='select-trigger'],
+      [data-slot='sidebar-trigger']
+    ):where(:not(.absolute, .fixed, .sticky)) {
+    position: relative;
+  }
+  :where(
+      [data-slot='button'],
+      [data-slot='switch'],
+      [data-slot='checkbox'],
+      [data-slot='select-trigger'],
+      [data-slot='sidebar-trigger']
+    ):where(:not(.absolute, .fixed, .sticky))::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 2.75rem);
+    height: max(100%, 2.75rem);
+    transform: translate(-50%, -50%);
+  }
+}

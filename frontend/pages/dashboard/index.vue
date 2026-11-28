@@ -298,8 +298,9 @@ const STATUS_DOT: Record<SvcState, string> = {
                 >:{{ provider.agent_port }}</template>
               </p>
             </div>
-            <div class="flex flex-col items-end gap-1.5 shrink-0">
-              <div class="text-right text-xs text-muted-foreground space-y-0.5">
+            <!-- Wraps under the name on phones; keep it left-aligned there. -->
+            <div class="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
+              <div class="space-y-0.5 text-xs text-muted-foreground sm:text-right">
                 <p>last seen {{ formatRelative(provider.last_seen_at) }}</p>
                 <p>registered {{ formatDate(provider.registered_at) }}</p>
               </div>
@@ -343,7 +344,7 @@ const STATUS_DOT: Record<SvcState, string> = {
                   <span
                     v-if="host.gpu.vram_gb"
                     class="text-muted-foreground"
-                  >{{ host.gpu.vram_gb }}&thinsp;GB</span>
+                  >{{ Math.round(host.gpu.vram_gb) }}&thinsp;GB</span>
                   <span
                     v-if="host.gpu.count && host.gpu.count > 1"
                     class="text-muted-foreground"

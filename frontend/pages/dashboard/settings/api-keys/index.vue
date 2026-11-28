@@ -111,10 +111,10 @@ onMounted(load)
             type="password"
             autocomplete="off"
             :placeholder="svc.is_set ? 'Replace key…' : 'Paste key…'"
-            class="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm font-mono"
+            class="min-w-0 flex-1 rounded-md border bg-background px-3 py-1.5 text-sm font-mono"
             @keydown.enter="save(svc)"
           />
-          <Button size="sm" :disabled="saving[svc.service] || !(drafts[svc.service] || '').trim()" @click="save(svc)">
+          <Button size="sm" class="shrink-0" :disabled="saving[svc.service] || !(drafts[svc.service] || '').trim()" @click="save(svc)">
             <Loader2 v-if="saving[svc.service]" class="mr-1 size-3.5 animate-spin" />
             {{ svc.is_set ? 'Replace' : 'Save' }}
           </Button>
@@ -122,7 +122,7 @@ onMounted(load)
             v-if="svc.is_set"
             size="icon"
             variant="ghost"
-            class="size-8 text-muted-foreground hover:text-destructive"
+            class="size-8 shrink-0 text-muted-foreground hover:text-destructive"
             :disabled="saving[svc.service]"
             title="Remove key"
             @click="remove(svc)"

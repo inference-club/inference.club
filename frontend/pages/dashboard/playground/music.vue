@@ -247,11 +247,13 @@ onBeforeUnmount(() => {
             :aria-expanded="showAssist"
             @click="showAssist = !showAssist"
           >
-            <Sparkles class="size-4 text-primary" />
-            <span class="text-sm font-semibold">Write with AI</span>
-            <span class="text-[11px] text-muted-foreground">Let an LLM draft a prompt &amp; lyrics</span>
+            <Sparkles class="size-4 shrink-0 text-primary" />
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-semibold">Write with AI</span>
+              <span class="block text-[11px] text-muted-foreground">Let an LLM draft a prompt &amp; lyrics</span>
+            </span>
             <ChevronDown
-              class="ml-auto size-4 text-muted-foreground transition-transform"
+              class="ml-auto size-4 shrink-0 text-muted-foreground transition-transform"
               :class="showAssist ? 'rotate-0' : '-rotate-90'"
             />
           </button>

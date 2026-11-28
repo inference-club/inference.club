@@ -423,7 +423,7 @@ onBeforeUnmount(() => {
             <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">More inputs</div>
 
             <div v-if="has('keyframes')" class="flex flex-wrap items-center gap-2">
-              <span class="w-24 shrink-0 text-xs text-muted-foreground">End frame</span>
+              <span class="w-full shrink-0 text-xs font-medium text-muted-foreground sm:w-24 sm:font-normal">End frame</span>
               <template v-if="endFrame">
                 <img :src="endFrame.url" class="size-12 rounded object-cover border" />
                 <span class="text-xs truncate max-w-[12rem]">{{ endFrame.name }}</span>
@@ -432,29 +432,29 @@ onBeforeUnmount(() => {
               <template v-else>
                 <Button variant="outline" size="sm" @click="endInput?.click()"><Upload class="size-3.5 mr-1" />Upload</Button>
                 <Button variant="outline" size="sm" @click="endPickerOpen = true"><Images class="size-3.5 mr-1" />Existing image</Button>
-                <span class="text-[11px] text-muted-foreground">interpolates first frame → this frame</span>
+                <span class="basis-full text-[11px] text-muted-foreground sm:basis-auto">interpolates first frame → this frame</span>
               </template>
               <input ref="endInput" type="file" accept="image/*" class="hidden" @change="onEndFiles" />
             </div>
 
             <div v-if="has('audio-to-video')" class="flex flex-wrap items-center gap-2">
-              <span class="w-24 shrink-0 text-xs text-muted-foreground flex items-center gap-1"><AudioLines class="size-3.5" />Audio</span>
+              <span class="w-full shrink-0 text-xs font-medium text-muted-foreground sm:w-24 sm:font-normal flex items-center gap-1"><AudioLines class="size-3.5" />Audio</span>
               <template v-if="audioIn">
-                <audio :src="audioIn.url" controls class="h-8 max-w-[16rem]" />
+                <audio :src="audioIn.url" controls class="h-8 w-full max-w-[16rem]" />
                 <span class="text-xs truncate max-w-[10rem]">{{ audioIn.label }}</span>
                 <Button variant="ghost" size="icon" @click="audioIn = null"><X class="size-4" /></Button>
               </template>
               <template v-else>
                 <Button variant="outline" size="sm" @click="audioFile?.click()"><Upload class="size-3.5 mr-1" />Upload</Button>
                 <Button variant="outline" size="sm" @click="audioPickerOpen = true">From my music / voices</Button>
-                <span class="text-[11px] text-muted-foreground">the video is driven by this track (lip-sync, beats)</span>
+                <span class="basis-full text-[11px] text-muted-foreground sm:basis-auto">the video is driven by this track (lip-sync, beats)</span>
               </template>
               <input ref="audioFile" type="file" accept="audio/*" class="hidden" @change="(e) => onMediaFile(e, audioIn)" />
             </div>
 
             <div v-if="has('video-to-video') || has('retake')" class="space-y-2">
               <div class="flex flex-wrap items-center gap-2">
-                <span class="w-24 shrink-0 text-xs text-muted-foreground flex items-center gap-1"><Video class="size-3.5" />Source video</span>
+                <span class="w-full shrink-0 text-xs font-medium text-muted-foreground sm:w-24 sm:font-normal flex items-center gap-1"><Video class="size-3.5" />Source video</span>
                 <template v-if="videoIn">
                   <video :src="videoIn.url" muted controls class="h-16 rounded border" />
                   <span class="text-xs truncate max-w-[10rem]">{{ videoIn.label }}</span>
@@ -466,7 +466,7 @@ onBeforeUnmount(() => {
                 </template>
                 <input ref="videoFile" type="file" accept="video/*" class="hidden" @change="(e) => onMediaFile(e, videoIn)" />
               </div>
-              <div v-if="videoIn" class="flex flex-wrap items-center gap-2 pl-[6.5rem]">
+              <div v-if="videoIn" class="flex flex-wrap items-center gap-2 sm:pl-[6.5rem]">
                 <Select v-model="videoAction">
                   <SelectTrigger class="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -485,13 +485,13 @@ onBeforeUnmount(() => {
                   <Input v-model.number="retakeStart" type="number" min="0" step="0.5" class="h-8 w-16 text-xs" />
                   <Label class="text-xs text-muted-foreground">to</Label>
                   <Input v-model.number="retakeEnd" type="number" min="0" step="0.5" class="h-8 w-16 text-xs" />
-                  <span class="text-[11px] text-muted-foreground">s — the prompt describes the new action</span>
+                  <span class="basis-full text-[11px] text-muted-foreground sm:basis-auto">s — the prompt describes the new action</span>
                 </template>
               </div>
             </div>
 
             <div v-if="has('loras') && !videoIn" class="flex flex-wrap items-center gap-2">
-              <span class="w-24 shrink-0 text-xs text-muted-foreground">LoRA</span>
+              <span class="w-full shrink-0 text-xs font-medium text-muted-foreground sm:w-24 sm:font-normal">LoRA</span>
               <Select v-model="plainLora">
                 <SelectTrigger class="h-8 w-60 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -500,7 +500,7 @@ onBeforeUnmount(() => {
               </Select>
             </div>
             <div v-if="(has('loras') && plainLora !== 'none' && !videoIn) || (videoIn && videoAction === 'v2v')"
-                 class="flex items-center gap-2 pl-[6.5rem]">
+                 class="flex items-center gap-2 sm:pl-[6.5rem]">
               <Label class="text-xs text-muted-foreground whitespace-nowrap">Strength {{ loraStrength.toFixed(2) }}</Label>
               <Input v-model.number="loraStrength" type="range" min="0" max="1.5" step="0.05" class="w-32" />
             </div>
