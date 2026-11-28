@@ -13,7 +13,7 @@ const props = defineProps<{
   offsets?: Array<{ segment_id: number; start: number; end: number }>
   downloadName?: string
 }>()
-const emit = defineEmits<{ (e: 'segment', id: number | null): void }>()
+const emit = defineEmits<{ (e: 'segment', id: number | null): void; (e: 'time', seconds: number): void }>()
 
 const { t } = useI18n()
 const { rate, apply } = usePlaybackRate()
@@ -42,8 +42,20 @@ const seek = (s: number) => {
   const a = el.value
   if (!a) return
   a.currentTime = Math.min(Math.max(0, s), total.value || s)
-  now.value = a.currentTime
+  onTime()
 }
+// timeupdate fires only a few times a second; while playing, read the clock
+// every frame so word-by-word highlighting keeps up at 3× speed.
+let raf = 0
+const onTime = () => {
+  now.value = el.value?.currentTime ?? 0
+  emit('time', now.value)
+}
+const follow = () => {
+  onTime()
+  raf = playing.value ? requestAnimationFrame(follow) : 0
+}
+watch(playing, (p) => { if (p && !raf) raf = requestAnimationFrame(follow) })
 const onMeta = () => {
   apply(el.value)
   const d = el.value?.duration
@@ -61,7 +73,7 @@ const playSegment = (id: number) => {
   el.value?.play().catch(() => {})
 }
 defineExpose({ playSegment, toggle })
-onBeforeUnmount(() => el.value?.pause())
+onBeforeUnmount(() => { cancelAnimationFrame(raf); el.value?.pause() })
 </script>
 
 <template>
@@ -71,7 +83,7 @@ onBeforeUnmount(() => el.value?.pause())
       :src="src"
       preload="metadata"
       @loadedmetadata="onMeta"
-      @timeupdate="now = el?.currentTime ?? 0"
+      @timeupdate="onTime"
       @play="playing = true"
       @pause="playing = false"
       @ended="playing = false"

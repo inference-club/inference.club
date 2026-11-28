@@ -716,7 +716,9 @@
         "ready": "Bien",
         "flagged": "Conviene escuchar",
         "error": "Falló"
-      }
+      },
+      "tailCut": "{n} s de ruido recortado",
+      "tailCutHint": "Se quitó un sonido tras la última palabra que no era voz."
     }
   }
 }

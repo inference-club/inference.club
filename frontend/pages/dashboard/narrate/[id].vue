@@ -24,6 +24,12 @@ const id = computed(() => String(route.params.id))
 const item = ref<Narration | null>(null)
 const failed = ref(false)
 const playingSegment = ref<number | null>(null)
+const playTime = ref(0)
+// Seconds into the piece that is playing, for word-by-word follow-along.
+const pieceTime = computed(() => {
+  const o = n.value?.mix.offsets?.find((x) => x.segment_id === playingSegment.value)
+  return o ? playTime.value - o.start : null
+})
 const player = ref<{ playSegment: (id: number) => void } | null>(null)
 const showLog = ref(false)
 const mixing = ref(false)
@@ -240,6 +246,7 @@ useHead(() => ({ title: item.value?.title }))
           :offsets="n?.mix.offsets"
           :download-name="`${item.title}.mp3`"
           @segment="playingSegment = $event"
+          @time="playTime = $event"
         />
       </section>
       <p v-if="item.audio_url && n && !live" class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
@@ -266,6 +273,7 @@ useHead(() => ({ title: item.value?.title }))
             :index="i"
             :kind="n?.kinds[String(s.id)]"
             :playing="playingSegment === s.id"
+            :time="playingSegment === s.id ? pieceTime : null"
             :seekable="!!item.audio_url && !!n?.mix.offsets?.some((o) => o.segment_id === s.id)"
             @play="player?.playSegment(s.id)"
             @changed="load"

@@ -609,6 +609,20 @@ class EpisodeMixView(APIView):
         return Response(EpisodeSerializer(ep, context={"request": request}).data)
 
 
+class EpisodeTranscriptView(APIView):
+    """GET /v1/episodes/<id>/transcript — every word of the joined recording
+    with its start and end time in that recording, plus where each piece
+    starts. For captions, follow-along text, or cutting video to the voice."""
+
+    permission_classes = [IsFullMember]
+
+    def get(self, request, id):
+        from . import narrate
+
+        ep = get_object_or_404(_episodes_for(request.user), id=id)
+        return Response(narrate.transcript(ep))
+
+
 class EpisodeCancelView(APIView):
     """POST /v1/episodes/<id>/cancel — stop a narration after the piece it is
     on. What is already voiced is kept."""

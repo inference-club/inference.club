@@ -1959,6 +1959,15 @@ paths:
       responses:
         "200": { description: "The episode." }
         "409": { description: "Nothing is voiced yet." }
+  /episodes/{id}/transcript:
+    get:
+      tags: [Studio]
+      operationId: getEpisodeTranscript
+      summary: Word timings for the joined recording
+      description: Every word of the joined recording with its start and end time in that recording (`words`), and where each piece starts and ends (`segments`). Word times come from speech recognition of each take, are corrected for recognition lag and carried through every cut, then shifted to the piece's place in the joined file. `current` is false when takes changed since the file was built.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: "`{seconds, current, segments: [{segment_id, start, end, text}], words: [{word, segment_id, start, end}]}`." }
   /episodes/{id}/cancel:
     post:
       tags: [Studio]

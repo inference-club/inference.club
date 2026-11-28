@@ -716,7 +716,9 @@
         "ready": "Bon",
         "flagged": "À écouter",
         "error": "Échec"
-      }
+      },
+      "tailCut": "{n} s de bruit coupé",
+      "tailCutHint": "Un son après le dernier mot, qui n'était pas de la parole, a été retiré."
     }
   }
 }

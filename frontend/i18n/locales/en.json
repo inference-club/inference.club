@@ -810,7 +810,9 @@
         "ready": "Good",
         "flagged": "Worth a listen",
         "error": "Failed"
-      }
+      },
+      "tailCut": "{n}s of stray sound cut",
+      "tailCutHint": "Sound after the last word that was not speech was removed."
     }
   }
 }

@@ -19,6 +19,8 @@ const props = defineProps<{
   playing?: boolean
   /** The main player can jump to this piece. */
   seekable?: boolean
+  /** Seconds into this piece, while it is the one playing. */
+  time?: number | null
 }>()
 const emit = defineEmits<{ (e: 'play' | 'changed'): void }>()
 
@@ -37,6 +39,17 @@ const take = computed(() => props.segment.variants.find((v) => v.id === props.se
 const working = computed(() => ['queued', 'generating'].includes(props.segment.status))
 const score = computed(() => take.value?.grade?.take_score ?? take.value?.grade?.score ?? null)
 const clip = computed(() => take.value?.cleaned_audio_url || take.value?.audio_url || '')
+// While this piece plays, show the words as they were heard, lit up in time.
+// The timings come from speech recognition of this take, carried through
+// every cut, so this is also a check that the cuts kept them aligned.
+const spoken = computed(() => (props.playing && props.time != null && take.value?.words?.length ? take.value.words : null))
+const wordAt = computed(() => {
+  const w = spoken.value
+  if (!w || props.time == null) return -1
+  let at = -1
+  for (let i = 0; i < w.length; i++) if (w[i].start <= props.time + 0.03) at = i
+  return at
+})
 const takes = computed(() => [...props.segment.variants].sort((a, b) => (b.grade?.take_score ?? 0) - (a.grade?.take_score ?? 0)))
 
 const run = async (fn: () => Promise<unknown>, done?: string) => {
@@ -113,7 +126,15 @@ const play = () => {
       </button>
 
       <button type="button" class="min-w-0 flex-1 text-left" :aria-expanded="open" @click="open = !open">
-        <p class="break-words text-sm leading-relaxed" :class="!clip && !working ? 'text-muted-foreground' : ''">
+        <p v-if="spoken" class="break-words text-sm leading-relaxed" data-testid="piece-words">
+          <span
+            v-for="(w, i) in spoken"
+            :key="i"
+            class="rounded-sm transition-colors duration-75"
+            :class="i === wordAt ? 'bg-primary text-primary-foreground' : i < wordAt ? '' : 'text-muted-foreground'"
+          >{{ w.word }}{{ ' ' }}</span>
+        </p>
+        <p v-else class="break-words text-sm leading-relaxed" :class="!clip && !working ? 'text-muted-foreground' : ''">
           {{ segment.text }}
         </p>
         <p class="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-normal text-muted-foreground">
@@ -131,6 +152,7 @@ const play = () => {
           </span>
           <span v-if="take?.duration_seconds">{{ clock(take.duration_seconds) }}</span>
           <span v-if="score != null" :title="take?.grade?.reason">{{ t('narrate.piece.score', { n: score.toFixed(1) }) }}</span>
+          <span v-if="take?.grade?.tail_cut" :title="t('narrate.piece.tailCutHint')">{{ t('narrate.piece.tailCut', { n: take.grade.tail_cut.toFixed(1) }) }}</span>
           <span v-if="segment.variants.length > 1">{{ t('narrate.piece.takes', { n: segment.variants.length }, segment.variants.length) }}</span>
         </p>
       </button>

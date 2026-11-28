@@ -392,6 +392,26 @@ def mix(ep):
     return asset
 
 
+def transcript(ep) -> dict:
+    """Every word of the joined recording with its time in that recording.
+    Word times come from speech recognition of each take, corrected for
+    recognition lag and carried through every cut, then shifted to where the
+    piece sits in the joined file."""
+    offsets = {o["segment_id"]: o for o in ((ep.production or {}).get("mix") or {}).get("offsets") or []}
+    segments, words = [], []
+    for seg, v in selected_takes(ep):
+        o = offsets.get(seg.id)
+        if o is None:
+            continue
+        segments.append({"segment_id": seg.id, "start": o["start"], "end": o["end"], "text": seg.text})
+        for w in v.words or []:
+            words.append({"word": w["word"], "segment_id": seg.id,
+                          "start": round(o["start"] + w["start"], 3),
+                          "end": round(min(o["end"], o["start"] + w["end"]), 3)})
+    return {"seconds": ((ep.production or {}).get("mix") or {}).get("seconds"),
+            "current": mix_is_current(ep), "segments": segments, "words": words}
+
+
 # --- Cover ------------------------------------------------------------------
 
 

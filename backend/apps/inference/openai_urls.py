@@ -25,6 +25,7 @@ from .job_views import (
 from .studio_views import (
     EpisodeCancelView,
     EpisodeMixView,
+    EpisodeTranscriptView,
     NarrationCreateView,
     SegmentFeedbackView,
     SegmentProduceView,
@@ -147,6 +148,8 @@ urlpatterns = [
     path("narrations/", NarrationCreateView.as_view()),
     path("episodes/<int:id>/mix", EpisodeMixView.as_view(), name="episode-mix"),
     path("episodes/<int:id>/mix/", EpisodeMixView.as_view()),
+    path("episodes/<int:id>/transcript", EpisodeTranscriptView.as_view(), name="episode-transcript"),
+    path("episodes/<int:id>/transcript/", EpisodeTranscriptView.as_view()),
     path("episodes/<int:id>/cancel", EpisodeCancelView.as_view(), name="episode-cancel"),
     path("episodes/<int:id>/cancel/", EpisodeCancelView.as_view()),
     path("segments/<int:id>/produce", SegmentProduceView.as_view(), name="segment-produce"),
