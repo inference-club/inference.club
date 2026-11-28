@@ -27,7 +27,8 @@
     "loading": "Loading…",
     "readArticle": "Read article",
     "readTheDocs": "Read the docs",
-    "allPosts": "All posts"
+    "allPosts": "All posts",
+    "new": "New"
   },
   "content": {
     "fallbackNotice": "Not yet available in {language} — showing English.",
@@ -179,7 +180,8 @@
       "workflows": "Workflows",
       "queue": "Queue & workflows",
       "anonAccess": "Anonymous access",
-      "roadmap": "Roadmap"
+      "roadmap": "Roadmap",
+      "narrate": "Narrate"
     }
   },
   "queue": {
@@ -286,7 +288,8 @@
     "removeFromQueue": "Remove from queue",
     "mute": "Mute",
     "unmute": "Unmute",
-    "close": "Close player"
+    "close": "Close player",
+    "speed": "Speed"
   },
   "media": {
     "play": "Play",
@@ -693,6 +696,120 @@
         "label": "Lights appearing one by one and linking to their neighbours until they form a large network.",
         "count": "household | households",
         "note": "An illustration of growth, not a live count."
+      }
+    }
+  },
+  "narrate": {
+    "title": "Narrate",
+    "subtitle": "Paste a link to an article, or the text itself. It is read aloud in your voice, checked piece by piece, and joined into one recording.",
+    "inputLabel": "A link or text to narrate",
+    "placeholder": "Paste an article link (a Hacker News link works too), or paste the text…",
+    "detectedLink": "Link: the article behind it will be found and read",
+    "detectedText": "{n} word of text | {n} words of text",
+    "voice": "Voice",
+    "voiceDefault": "My default voice",
+    "voiceNone": "A steady narrator voice",
+    "go": "Narrate",
+    "startFailed": "Could not start the narration.",
+    "deleteFailed": "Could not delete it.",
+    "delete": "Delete",
+    "noVoiceModel": "No voice model is online right now, so narration cannot start.",
+    "noSampleHint": "You have no voice sample yet, so a narrator voice will be chosen and kept for the whole piece.",
+    "addVoice": "Add your voice",
+    "steps": {
+      "read": {
+        "title": "Read",
+        "body": "Finds the article, its author and date."
+      },
+      "plan": {
+        "title": "Plan",
+        "body": "Splits it into pieces and notes tricky words."
+      },
+      "voice": {
+        "title": "Voice",
+        "body": "Speaks, cleans, checks and retakes each piece."
+      },
+      "mix": {
+        "title": "Join",
+        "body": "One recording, with a title image."
+      }
+    },
+    "yours": "Your narrations",
+    "empty": "Nothing narrated yet. Paste a link above to make the first one.",
+    "stage": {
+      "reading": "Reading",
+      "planning": "Planning",
+      "voicing": "Voicing",
+      "mixing": "Joining",
+      "done": "Done",
+      "error": "Stopped by a problem",
+      "stopped": "Stopped"
+    },
+    "stageLong": {
+      "reading": "Finding the article",
+      "planning": "Splitting it into pieces",
+      "voicing": "Voicing the pieces",
+      "mixing": "Joining the pieces into one recording",
+      "stopped": "Stopped before the end",
+      "done": "Done"
+    },
+    "voicingCount": "Voicing: {done} of {total} pieces done",
+    "jobs": {
+      "voice": "Voice",
+      "clean": "Clean-up",
+      "check": "Word check",
+      "judge": "Judge",
+      "cover": "Title image",
+      "read": "Reader"
+    },
+    "back": "All narrations",
+    "notFound": "This narration was not found.",
+    "original": "Original",
+    "words": "{n} words",
+    "inVoice": "In {name}'s voice",
+    "openStudio": "Fine-tune in Studio",
+    "stop": "Stop",
+    "stopping": "Stopping after the current piece",
+    "resume": "Continue",
+    "resumed": "Voicing the remaining pieces",
+    "hideLog": "Hide the log",
+    "remixed": "Recording updated",
+    "remixFailed": "Could not update the recording",
+    "remixing": "Updating the recording…",
+    "toReview": "{n} piece is worth a listen | {n} pieces are worth a listen",
+    "retryThose": "Voice them again",
+    "allGood": "Every piece passed its check",
+    "pieces": "{n} piece | {n} pieces",
+    "player": {
+      "left": "{time} left",
+      "back": "Back 15 seconds",
+      "forward": "Forward 15 seconds"
+    },
+    "piece": {
+      "play": "Play piece {n}",
+      "failed": "That did not work. Try again.",
+      "revoicing": "Voicing it again",
+      "revoice": "Voice it again",
+      "saveAndVoice": "Save and voice again",
+      "words": "Words",
+      "noteLabel": "Or say what is wrong",
+      "notePlaceholder": "e.g. say SQL as sequel; slower at the end",
+      "record": "Record a voice note",
+      "stopRecording": "Stop recording",
+      "sendNote": "Send note",
+      "notHeard": "Nothing was heard in that recording.",
+      "micDenied": "The microphone could not be used.",
+      "otherTakes": "Takes",
+      "use": "Use",
+      "inUse": "In use",
+      "score": "score {n}",
+      "takes": "{n} take | {n} takes",
+      "status": {
+        "generating": "Voicing now",
+        "queued": "Waiting",
+        "ready": "Good",
+        "flagged": "Worth a listen",
+        "error": "Failed"
       }
     }
   }

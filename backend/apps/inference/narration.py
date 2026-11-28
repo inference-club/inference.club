@@ -404,7 +404,11 @@ _QUALITY_PROMPT = (
     "- reason: short reason (max 160 chars)\n\n"
     "Scoring: 9-10 near-perfect; 7-8 minor issues, acceptable; 4-6 noticeable "
     "errors; 0-3 severe mismatch. Ignore punctuation/casing unless meaning "
-    "changes. On major omissions, substitutions, hallucinations, or wrong "
+    "changes. Numbers, dates and money written as digits in the script and as "
+    "words in the transcription are the same thing, and so is an acronym "
+    "written with or without spaces between its letters; never mark those "
+    "down. A proper name spelled differently but sounding the same is a minor "
+    "issue. On major omissions, substitutions, hallucinations, or wrong "
     "names/numbers set should_regenerate=true. Respond with ONLY the JSON."
 )
 
@@ -418,10 +422,66 @@ def strip_speaker_tags(text: str) -> str:
     return re.sub(r"\s+", " ", _SPEAKER_TAG_RE.sub("", text or "")).strip()
 
 
+_ONES = ("zero one two three four five six seven eight nine ten eleven twelve thirteen "
+         "fourteen fifteen sixteen seventeen eighteen nineteen").split()
+_TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+_ORDINALS = {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight",
+             "ninth": "nine", "twelfth": "twelve"}
+
+
+def _number_words(n: int) -> str:
+    """Cardinal number in words, the way speech recognition writes it out."""
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        return _TENS[n // 10 - 2] + ("" if n % 10 == 0 else " " + _ONES[n % 10])
+    if n < 1000:
+        return _ONES[n // 100] + " hundred" + ("" if n % 100 == 0 else " " + _number_words(n % 100))
+    for size, name in ((10**12, "trillion"), (10**9, "billion"), (10**6, "million"), (1000, "thousand")):
+        if n >= size:
+            return _number_words(n // size) + " " + name + ("" if n % size == 0 else " " + _number_words(n % size))
+    return str(n)
+
+
+def _spell_number(m) -> str:
+    raw = m.group(0).replace(",", "")
+    n = int(raw)
+    # A bare four-digit number in this range is almost always a year.
+    if "," not in m.group(0) and 1100 <= n <= 2099 and n % 100:
+        return _number_words(n // 100) + " " + (("oh " if n % 100 < 10 else "") + _number_words(n % 100))
+    return _number_words(n) if n < 10**15 else raw
+
+
 def _normalize_for_similarity(text: str) -> str:
+    """Reduce a line and its transcript to the same plain form, so that
+    writing differences are not counted as speaking mistakes: "$245,000" and
+    "two hundred forty five thousand dollars", "24" and "twenty fourth",
+    "U B I" and "UBI", "20%" and "twenty percent" all compare equal."""
     text = (text or "").lower()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\$\s?([\d,]+)", r"\1 dollars", text)
+    text = text.replace("%", " percent")
+    text = re.sub(r"(\d)(?:st|nd|rd|th)\b", r"\1", text)  # 21st → 21
+    text = re.sub(r"\d{1,3}(?:,\d{3})+|\d+", _spell_number, text)
+    text = re.sub(r"[^a-z\s]", " ", text)
+    words = []
+    for w in text.split():
+        if w == "and":
+            continue  # "two hundred and forty" vs "two hundred forty"
+        w = _ORDINALS.get(w, w)
+        if w.endswith("ieth"):
+            w = w[:-4] + "y"  # twentieth → twenty
+        elif w.endswith("th") and (w[:-2] in _ONES or w[:-2] in ("hundred", "thousand", "million")):
+            w = w[:-2]  # fourth → four
+        words.append(w)
+    # Letters said one at a time are one acronym.
+    out = []
+    for w in words:
+        if out and out[-1][1] and (len(w) == 1 or (len(w) == 2 and w[1] == "s")):
+            # "p m" → "pm"; a plural ("p ms") closes the run.
+            out[-1] = (out[-1][0] + w, len(w) == 1)
+        else:
+            out.append((w, len(w) == 1))
+    return " ".join(w for w, _ in out)
 
 
 def fallback_grade(original: str, transcript: str) -> dict:
@@ -465,6 +525,9 @@ def grade_transcription(user, original: str, transcript: str) -> dict:
                     f"Original text:\n{original.strip()}\n\nTranscription:\n{transcript.strip()}"},
             ],
             "max_tokens": 256, "temperature": 0.1, "stream": False,
+            # A reasoning model spends the whole token budget thinking and
+            # returns no answer; the judge needs the answer, not the thoughts.
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         from .locks import device_lock, provider_device_key
         with device_lock(provider_device_key(pm), ttl=UPSTREAM_TIMEOUT_SECONDS + 60):

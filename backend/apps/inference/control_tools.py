@@ -541,6 +541,7 @@ _PAGES = {
     "playground-speech": "/dashboard/playground/speech",
     "playground-transcribe": "/dashboard/playground/transcribe",
     "playground-agent": "/dashboard/playground/agent", "playground-voice": "/dashboard/playground/voice",
+    "narrate": "/dashboard/narrate", "studio": "/dashboard/studio",
     "settings": "/dashboard/settings/general", "settings-token": "/dashboard/settings/token",
     "settings-api-keys": "/dashboard/settings/api-keys", "settings-access": "/dashboard/settings/access",
     "settings-routing": "/dashboard/settings/routing", "settings-usage": "/dashboard/settings/usage",
@@ -833,6 +834,61 @@ def _find_api(outer, args):
                        "Full spec at /openapi.json.", "endpoints": rows}
 
 
+# --- narration ---------------------------------------------------------------
+
+
+def _narration_summary(ep) -> dict:
+    n = ep.get("narration") or {}
+    c = n.get("counts") or {}
+    path = f"/dashboard/narrate/{ep['id']}"
+    stage = n.get("stage") or ""
+    done = c.get("ready", 0) + c.get("flagged", 0) + c.get("error", 0)
+    if stage == "done":
+        minutes = (ep.get("audio_seconds") or 0) / 60
+        review = c.get("flagged", 0) + c.get("error", 0)
+        text = f"“{ep['title']}” is narrated: {minutes:.1f} minutes of audio" + (
+            f", with {review} piece(s) worth a listen" if review else "") + "."
+    elif stage == "error":
+        text = f"The narration stopped: {n.get('error') or 'unknown error'}"
+    elif stage == "stopped":
+        text = f"The narration of “{ep['title']}” was stopped at {done} of {c.get('total', 0)} pieces."
+    elif stage == "voicing":
+        text = f"Narrating “{ep['title']}”: {done} of {c.get('total', 0)} pieces voiced so far."
+    else:
+        text = f"Narration started ({stage or 'reading'})."
+    out = {"summary": text + f" Follow it at {_frontend(path)}", "narration_id": ep["id"], "stage": stage,
+           "title": ep["title"], "pieces": c, "url": _frontend(path), "audio_url": ep.get("audio_url"),
+           "audio_seconds": ep.get("audio_seconds"), "source": ep.get("source") or {}}
+    if ep.get("audio_url"):
+        out["media"] = [{"kind": "audio", "url": ep["audio_url"], "title": ep["title"]}]
+    return out
+
+
+def _narrate(outer, args):
+    body = {k: args[k] for k in ("url", "text", "title") if args.get(k)}
+    if not body.get("url") and not body.get("text"):
+        raise ToolError("Give a url or some text to narrate.")
+    ep = _ok(outer, "POST", "/v1/narrations", body)
+    out = _narration_summary(ep)
+    out["client_action"] = {"type": "navigate", "path": f"/dashboard/narrate/{ep['id']}"}
+    return out
+
+
+def _get_narration(outer, args):
+    if args.get("narration_id") is None:
+        rows = (_ok(outer, "GET", "/v1/episodes") or {}).get("data") or []
+        rows = [r for r in rows if (r.get("narration") or {}).get("stage")][:8]
+        if not rows:
+            return {"summary": "There are no narrations yet.", "narrations": []}
+        return {"summary": f"{len(rows)} recent narration(s); newest: “{rows[0]['title']}” "
+                           f"({(rows[0].get('narration') or {}).get('stage')}).",
+                "narrations": [{"narration_id": r["id"], "title": r["title"],
+                                "stage": (r.get("narration") or {}).get("stage"),
+                                "audio_seconds": r.get("audio_seconds")} for r in rows]}
+    ep = _ok(outer, "GET", f"/v1/episodes/{int(args['narration_id'])}")
+    return _narration_summary(ep)
+
+
 # --- the tool list -----------------------------------------------------------
 
 RO = {"readOnlyHint": True}
@@ -936,6 +992,21 @@ CONTROL_TOOLS = [
                            "description": "Your own picture prompts, one per image."},
          "image_size": _S, "collection": _COLL, "visibility": _VIS,
          "writer_model": {**_S, "description": "LLM id for the lyric writing."}})},
+    {"name": "narrate", "handler": _narrate,
+     "description": "Narrate an article or text aloud in the member's cloned voice. Give a "
+                    "`url` (any article, or a Hacker News discussion link) or `text`. It finds "
+                    "the article, splits it into pieces, voices each one with quality checks "
+                    "and retakes, joins them into one audio file and makes a title image. "
+                    "Returns at once with a link; it takes a few minutes. Use get_narration "
+                    "to check on it.",
+     "inputSchema": _obj({
+         "url": {**_S, "description": "Link to the article."},
+         "text": {**_S, "description": "Text to narrate instead of a link."},
+         "title": _S})},
+    {"name": "get_narration", "annotations": RO, "handler": _get_narration,
+     "description": "Progress and result of a narration (stage, pieces voiced, audio link). "
+                    "Without narration_id, lists recent narrations.",
+     "inputSchema": _obj({"narration_id": _I})},
     {"name": "find_api", "annotations": RO, "handler": _find_api,
      "description": "Search the API for an endpoint to use with api_request.",
      "inputSchema": _obj({"query": _S}, ["query"])},

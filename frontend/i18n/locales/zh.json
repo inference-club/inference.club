@@ -25,7 +25,8 @@
     "loading": "加载中…",
     "readArticle": "阅读文章",
     "readTheDocs": "查看文档",
-    "allPosts": "全部文章"
+    "allPosts": "全部文章",
+    "new": "新功能"
   },
   "content": {
     "fallbackNotice": "暂无{language}版本——显示英文。",
@@ -174,7 +175,8 @@
       "anonAccess": "匿名访问",
       "roadmap": "路线图",
       "queue": "Queue & workflows",
-      "chats": "对话"
+      "chats": "对话",
+      "narrate": "朗读"
     }
   },
   "player": {
@@ -190,7 +192,8 @@
     "removeFromQueue": "从队列中移除",
     "mute": "静音",
     "unmute": "取消静音",
-    "close": "关闭播放器"
+    "close": "关闭播放器",
+    "speed": "播放速度"
   },
   "media": {
     "play": "播放",
@@ -599,6 +602,120 @@
         "label": "灯光一盏接一盏亮起，与相邻的灯光相连，直到连成一张大网。",
         "count": "户家庭 | 户家庭",
         "note": "这是增长的示意图，不是实时计数。"
+      }
+    }
+  },
+  "narrate": {
+    "title": "朗读",
+    "subtitle": "粘贴文章链接或直接粘贴正文。系统会用你的声音朗读，逐段检查，再合并成一段录音。",
+    "inputLabel": "要朗读的链接或文本",
+    "placeholder": "粘贴文章链接（Hacker News 链接也可以），或粘贴正文…",
+    "detectedLink": "链接：将找到并朗读它指向的文章",
+    "detectedText": "文本共 {n} 词 | 文本共 {n} 词",
+    "voice": "音色",
+    "voiceDefault": "我的默认音色",
+    "voiceNone": "平稳的旁白音色",
+    "go": "开始朗读",
+    "startFailed": "无法开始朗读。",
+    "deleteFailed": "无法删除。",
+    "delete": "删除",
+    "noVoiceModel": "目前没有在线的语音模型，无法开始朗读。",
+    "noSampleHint": "你还没有声音样本，系统会选一个旁白音色，并全程使用。",
+    "addVoice": "添加你的声音",
+    "steps": {
+      "read": {
+        "title": "读取",
+        "body": "找到文章及其作者和日期。"
+      },
+      "plan": {
+        "title": "规划",
+        "body": "把文章分成小段，并标出难读的词。"
+      },
+      "voice": {
+        "title": "配音",
+        "body": "逐段配音、清理、检查，不合格就重录。"
+      },
+      "mix": {
+        "title": "合并",
+        "body": "合成一段录音，并配上标题图。"
+      }
+    },
+    "yours": "你的朗读",
+    "empty": "还没有朗读内容。在上方粘贴链接，创建第一个。",
+    "stage": {
+      "reading": "读取中",
+      "planning": "规划中",
+      "voicing": "配音中",
+      "mixing": "合并中",
+      "done": "完成",
+      "error": "因问题而停止",
+      "stopped": "已停止"
+    },
+    "stageLong": {
+      "reading": "正在查找文章",
+      "planning": "正在分段",
+      "voicing": "正在逐段配音",
+      "mixing": "正在把各段合并成一段录音",
+      "stopped": "未完成就已停止",
+      "done": "完成"
+    },
+    "voicingCount": "配音：已完成 {done} / {total} 段",
+    "jobs": {
+      "voice": "配音",
+      "clean": "清理",
+      "check": "词语检查",
+      "judge": "评分",
+      "cover": "标题图",
+      "read": "读取文章"
+    },
+    "back": "全部朗读",
+    "notFound": "未找到此朗读。",
+    "original": "原文",
+    "words": "{n} 词",
+    "inVoice": "用 {name} 的声音",
+    "openStudio": "在旁白工作室中精修",
+    "stop": "停止",
+    "stopping": "当前这段完成后停止",
+    "resume": "继续",
+    "resumed": "正在为剩余各段配音",
+    "hideLog": "隐藏日志",
+    "remixed": "录音已更新",
+    "remixFailed": "无法更新录音",
+    "remixing": "正在更新录音…",
+    "toReview": "有 {n} 段建议听一下 | 有 {n} 段建议听一下",
+    "retryThose": "重新配音这些段",
+    "allGood": "每一段都通过了检查",
+    "pieces": "{n} 段 | {n} 段",
+    "player": {
+      "left": "剩余 {time}",
+      "back": "后退 15 秒",
+      "forward": "前进 15 秒"
+    },
+    "piece": {
+      "play": "播放第 {n} 段",
+      "failed": "没有成功，请再试一次。",
+      "revoicing": "正在重新配音",
+      "revoice": "重新配音",
+      "saveAndVoice": "保存并重新配音",
+      "words": "文本",
+      "noteLabel": "或者说说哪里不对",
+      "notePlaceholder": "例如：SQL 读作 sequel；结尾慢一点",
+      "record": "录一条语音备注",
+      "stopRecording": "停止录音",
+      "sendNote": "发送备注",
+      "notHeard": "这段录音里没有听到声音。",
+      "micDenied": "无法使用麦克风。",
+      "otherTakes": "各次录制",
+      "use": "使用",
+      "inUse": "使用中",
+      "score": "评分 {n}",
+      "takes": "{n} 次录制 | {n} 次录制",
+      "status": {
+        "generating": "配音中",
+        "queued": "等待中",
+        "ready": "良好",
+        "flagged": "建议听一下",
+        "error": "失败"
       }
     }
   }

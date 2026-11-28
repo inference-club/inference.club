@@ -1912,6 +1912,86 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /narrations:
+    post:
+      tags: [Studio]
+      operationId: createNarration
+      summary: Narrate an article or text
+      description: |
+        The one-call path from "something to read" to a finished narration in
+        your cloned voice. Give a `url` (any article page, or a Hacker News
+        discussion link, which is followed to the story) or `text`.
+
+        The server finds the article (title, author, date, main text),
+        writes a script with an opening line, notes pronunciations for
+        acronyms and odd terms, voices each piece with the Studio loop
+        (take, clean-up, silence trim, word check, retake while the check is
+        poor), joins the chosen takes into one MP3 and makes a title image.
+
+        Answers `202` with the episode at once. Follow it with
+        `GET /episodes/{id}`: `narration.stage` moves through `reading`,
+        `planning`, `voicing`, `mixing` to `done` (or `error` / `stopped`),
+        `narration.fraction` is 0 to 1, `narration.counts` and each segment's
+        `status` show the pieces, `narration.models` says which model does
+        each job, and `audio_url` is the finished recording.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string, description: "Link to the article." }
+                text: { type: string, description: "Text to narrate instead of a link." }
+                title: { type: string }
+                voice_sample_id: { type: integer, description: "Voice to clone. Default: your default voice sample." }
+            example: { url: "https://example.com/essays/an-essay" }
+      responses:
+        "202": { description: "The episode, with `narration`, `source`, `audio_url` and `cover_image_url`." }
+        "400": { description: "Nothing to narrate, or an unknown voice sample." }
+  /episodes/{id}/mix:
+    post:
+      tags: [Studio]
+      operationId: mixEpisode
+      summary: Rebuild the joined recording
+      description: Join the takes currently chosen into one MP3 again, after an edit, a retake or a different take was picked. `narration.mix_current` is false when this is needed.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: "The episode." }
+        "409": { description: "Nothing is voiced yet." }
+  /episodes/{id}/cancel:
+    post:
+      tags: [Studio]
+      operationId: cancelNarration
+      summary: Stop a narration
+      description: Stops after the piece being voiced. What is already voiced is kept; `POST /episodes/{id}/produce` continues later.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: "The episode." }
+  /segments/{id}/produce:
+    post:
+      tags: [Studio]
+      operationId: produceSegment
+      summary: Voice one piece again
+      description: Runs the full loop for one segment (take, clean-up, trim, check, retake while poor) and keeps the best take.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "202": { description: "The segment, queued." }
+  /segments/{id}/feedback:
+    post:
+      tags: [Studio]
+      operationId: segmentFeedback
+      summary: Fix a piece from a note
+      description: Say what is wrong in plain words (`note`; a transcribed voice note works). The line is reworded or a pronunciation is added as the note asks, and the piece is voiced again.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [note], properties: { note: { type: string } } }
+            example: { note: "say SQL as sequel" }
+      responses:
+        "202": { description: "`{understood: {summary, text_changed, lexicon}, segment}`." }
   /episodes/from-text:
     post:
       tags: [Studio]

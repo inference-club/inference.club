@@ -2,8 +2,15 @@
 import { onMounted, computed } from 'vue'
 import {
   RefreshCw, Cpu, Server, Sparkles, Wrench, Activity, Layers,
-  Images, Music, Clapperboard, Trophy, Boxes, Github,
+  Images, Music, Clapperboard, Trophy, Boxes, Github, AudioLines, MessageSquare,
 } from 'lucide-vue-next'
+
+const { t } = useI18n()
+const quickLinks = [
+  { to: '/dashboard/playground', key: 'dashboard.items.chat', icon: MessageSquare },
+  { to: '/dashboard/playground/images', key: 'dashboard.items.images', icon: Images },
+  { to: '/dashboard/playground/music', key: 'dashboard.items.musicGeneration', icon: Music },
+]
 import { useProviders, type Provider } from '@/composables/useProviders'
 import { useAuth } from '@/composables/useAuth'
 import {
@@ -178,6 +185,29 @@ const STATUS_DOT: Record<SvcState, string> = {
     />
 
     <OnboardingChecklist />
+
+    <!-- The quickest things to try, with the newest first. -->
+    <section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="quick-start">
+      <NuxtLink
+        to="/dashboard/narrate"
+        class="group rounded-2xl border border-primary/40 bg-primary/5 p-4 transition-colors hover:border-primary sm:col-span-2"
+      >
+        <span class="mb-2 inline-flex items-center gap-2 font-semibold">
+          <AudioLines class="size-5 text-primary" /> {{ t('dashboard.items.narrate') }}
+          <span class="rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary-foreground">{{ t('common.new') }}</span>
+        </span>
+        <p class="text-sm text-muted-foreground">{{ t('narrate.subtitle') }}</p>
+      </NuxtLink>
+      <NuxtLink
+        v-for="q in quickLinks"
+        :key="q.to"
+        :to="q.to"
+        class="group flex items-center gap-3 rounded-2xl border bg-card p-4 transition-colors hover:border-primary/40"
+      >
+        <component :is="q.icon" class="size-5 shrink-0 text-muted-foreground group-hover:text-primary" />
+        <span class="min-w-0 truncate font-medium">{{ t(q.key) }}</span>
+      </NuxtLink>
+    </section>
 
     <section class="space-y-4">
       <div class="flex items-end justify-between">
