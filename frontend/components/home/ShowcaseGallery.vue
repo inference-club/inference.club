@@ -20,6 +20,7 @@ interface Piece {
   length?: number | null
   src?: string
   thumb?: string
+  size?: string
   cover?: string
   text?: string
 }
@@ -27,6 +28,8 @@ interface Piece {
 const { t } = useI18n()
 const lightbox = useImageLightbox()
 const url = (f?: string) => (f ? `/showcase/${f}` : '')
+// Width and height reserve the picture's space, so nothing jumps as it loads.
+const dims = (p: Piece) => (p.size || '1024x1024').split('x').map(Number)
 
 const pieces = index.items as Piece[]
 // Covers belong to their songs, not to the picture wall.
@@ -63,9 +66,11 @@ const pictureUrls = computed(() => pictures.value.map((p) => url(p.src)))
             <img
               :src="url(p.thumb)"
               :alt="p.title"
+              :width="dims(p)[0]"
+              :height="dims(p)[1]"
               loading="lazy"
               decoding="async"
-              class="w-full transition duration-500 group-hover:scale-[1.03]"
+              class="h-auto w-full transition duration-500 group-hover:scale-[1.03]"
             />
           </button>
           <figcaption

@@ -114,9 +114,9 @@ The tool I use most is `make_song`. "Make a 2 minute 30 second song about the oc
 
 It returns the job ids straight away and the panel fills in as each GPU finishes. In the home cluster those three kinds of work land on different machines: the lyrics on whatever is serving the LLM, the song on a DGX Spark running ACE-Step, the pictures on an RTX 4090 running FLUX.
 
-![A macro photograph of a small brass wind-up automaton standing on a dark green circuit board](/showcase/brass-automaton.webp)
+![A print of a desk by a window at night: a computer tower glowing beside a sleeping cat, the town's lit windows outside](/showcase/desk-by-the-window.webp)
 
-*"Brass automaton". FLUX 3 Image Klein on an RTX 4090 in the home cluster, seed 20261128, 8.3 seconds. One of the pieces in the homepage showcase.*
+*"The machine by the window". FLUX 3 Image Klein on an RTX 4090 in the home cluster, seed 77310, 8.4 seconds. One of the pieces in the homepage showcase.*
 
 I could have left this to the model: it has `chat`, `generate_music`, `generate_image` and `save_collection`, and a capable model can chain them. But that is five or six tool calls with ids carried between them, and each extra step is another chance for a small model to drop one. A composite tool for the thing people actually ask for is cheaper than hoping.
 

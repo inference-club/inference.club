@@ -466,7 +466,9 @@
       "music": "Música",
       "video": "Vídeo",
       "speech": "Voz",
-      "listen": "Transcripción"
+      "listen": "Transcripción",
+      "text": "Texto",
+      "shape": "3D"
     },
     "hero": {
       "badge": "Funcionando ahora mismo en GPU caseras",
@@ -475,7 +477,7 @@
       "subtitle": "inference.club es una red de tarjetas gráficas en casas particulares. Los miembros comparten modelos abiertos de chat, imágenes, música, vídeo y voz tras una sola dirección, para personas y para agentes.",
       "primary": "Empieza a crear",
       "primaryMember": "Abrir el panel",
-      "secondary": "Mira cómo funciona",
+      "secondary": "Mira lo que hace",
       "madeOn": "Hecho en {gpu}",
       "points": [
         "Funciona con el SDK de OpenAI",
@@ -501,48 +503,6 @@
       "eyebrow": "Elegido por el club",
       "title": "Generaciones destacadas",
       "subtitle": "Solicitudes reales de miembros, elegidas a mano."
-    },
-    "how": {
-      "eyebrow": "Cómo funciona",
-      "title": "Un vecindario de GPU, una sola dirección",
-      "subtitle": "Desplázate para seguir una solicitud desde quien la pide hasta la máquina que responde.",
-      "steps": [
-        {
-          "title": "Los hogares ponen el hardware",
-          "body": "Un PC de juegos en un garaje, una estación de trabajo en un estudio, un portátil en un piso. Cada miembro ejecuta un pequeño agente junto a los modelos que ya tiene. Nada queda abierto a internet."
-        },
-        {
-          "title": "Cada máquina sirve lo que mejor se le da",
-          "body": "Una ejecuta un modelo de imágenes, otra de música, otra de voz. El agente le dice al club qué modelos están cargados y lo ocupada que está la máquina."
-        },
-        {
-          "title": "Una dirección encuentra la máquina adecuada",
-          "body": "Envías una solicitud a inference.club. Comprueba quién eres, elige una máquina que tenga el modelo y esté libre, y te devuelve el resultado. Si la máquina está ocupada, la solicitud espera en una cola."
-        },
-        {
-          "title": "Privado o compartido, tú decides",
-          "body": "Un miembro puede reservar una máquina solo para miembros, o para sí mismo. Todo lo que creas empieza con la visibilidad que elijas: secreto, miembros, por enlace o público en la galería."
-        },
-        {
-          "title": "Para personas, aplicaciones y agentes",
-          "body": "Usa la web, llama a la API desde tu código o conecta un agente por MCP. La misma dirección y la misma clave sirven para los tres."
-        }
-      ],
-      "scene": {
-        "gallery": "Galería",
-        "membersOnly": "Solo miembros",
-        "households": [
-          "El garaje",
-          "El estudio",
-          "El piso",
-          "El laboratorio"
-        ],
-        "requesters": [
-          "Tú",
-          "Tu app",
-          "Tu agente"
-        ]
-      }
     },
     "ways": {
       "eyebrow": "Tres formas de entrar",
@@ -605,6 +565,41 @@
       "body": "Inicia sesión, elige un modelo y el primer resultado suele llegar en segundos.",
       "primary": "Empezar",
       "secondary": "Leer la documentación"
+    },
+    "scenes": {
+      "signals": {
+        "eyebrow": "Lo que crea",
+        "title": "Todo tipo de señales",
+        "body": "Palabras, imágenes, voces, canciones, vídeo y formas 3D viajan de la misma manera: sale una solicitud y responde una máquina en casa de alguien.",
+        "label": "Seis carriles en movimiento: palabras, una imagen que se compone a partir de teselas, la forma de onda de una voz, barras de música, una tira de fotogramas de vídeo y formas 3D que giran."
+      },
+      "thinking": {
+        "eyebrow": "Mira por dentro",
+        "title": "Mira cómo un modelo elige sus palabras",
+        "body": "Cada palabra que escribe un modelo se elige entre varias alternativas. La API del club devuelve esas probabilidades, así que puedes ver dónde estaba seguro y dónde estaba adivinando. Esta es una respuesta real de la máquina de un miembro.",
+        "asked": "Pregunta",
+        "considered": "Lo que sopesó",
+        "hint": "Toca una palabra para ver qué más consideró.",
+        "replay": "Repetir"
+      },
+      "exchange": {
+        "eyebrow": "Quién lo usa",
+        "title": "Personas y agentes preguntan. Las máquinas de los miembros responden.",
+        "body": "Cada solicitud pasa por el club, que comprueba quién pregunta y busca una máquina que esté libre. La respuesta vuelve por el mismo camino.",
+        "label": "Un círculo de personas y agentes que envían pequeñas luces a través de un anillo central hacia las máquinas, y luces más grandes que vuelven.",
+        "person": "Una persona",
+        "agent": "Un agente",
+        "machine": "La máquina de un miembro",
+        "private": "Reservada para su dueño"
+      },
+      "network": {
+        "eyebrow": "Hacia dónde va",
+        "title": "Una ventana encendida, luego una calle, luego un pueblo",
+        "body": "Hoy el club es un puñado de hogares. Cada miembro que añade una máquina lo hace más útil para todos los demás.",
+        "label": "Luces que aparecen una a una y se enlazan con sus vecinas hasta formar una gran red.",
+        "count": "hogar | hogares",
+        "note": "Una ilustración del crecimiento, no un recuento en vivo."
+      }
     }
   }
 }
