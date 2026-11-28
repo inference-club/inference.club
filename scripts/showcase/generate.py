@@ -50,7 +50,11 @@ class Club:
     def call(self, method, path, body=None, timeout=900, raw=False):
         url = path if path.startswith("http") else self.base + path
         req = urllib.request.Request(url, method=method)
-        req.add_header("Authorization", f"Bearer {self.key}")
+        # The key goes only to the deployment itself. Public media may be
+        # served straight from a storage bucket, which rejects (and should
+        # never be sent) the club's key.
+        if url.startswith(self.base):
+            req.add_header("Authorization", f"Bearer {self.key}")
         data = None
         if body is not None:
             data = json.dumps(body).encode()

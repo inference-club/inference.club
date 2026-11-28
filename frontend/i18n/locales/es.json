@@ -480,13 +480,13 @@
       "points": [
         "Funciona con el SDK de OpenAI",
         "Servidor MCP incluido",
-        "Cada resultado se puede repetir"
+        "Cada resultado guarda su semilla"
       ]
     },
     "gallery": {
       "eyebrow": "Hecho aquí",
       "title": "Todo lo que ves en esta página lo generó el club",
-      "subtitle": "Imágenes, canciones y voces de modelos abiertos en las máquinas de los miembros. Cada una guarda su prompt, su modelo y su semilla, así que la misma llamada vuelve a dar el mismo resultado.",
+      "subtitle": "Imágenes, canciones y voces de modelos abiertos en las máquinas de los miembros. Cada una guarda su prompt, su modelo y su semilla. Las imágenes repetidas con la misma semilla salen idénticas.",
       "pictures": "Imágenes",
       "songs": "Canciones",
       "voice": "Una voz",
@@ -583,9 +583,10 @@
         "El Asistente: maneja tu cuenta con lenguaje corriente, escrito o hablado",
         "Servidor MCP, API compatible con OpenAI, skill y CLI",
         "Páginas para compartir resultados sueltos y colecciones enteras",
-        "Una semilla guardada en cada generación, para poder repetir los resultados"
+        "Una semilla guardada en cada generación; las imágenes se repiten con exactitud"
       ],
       "soonItems": [
+        "Canciones que se repitan con exactitud a partir de su semilla",
         "Los modelos de vídeo y 3D de vuelta en el clúster doméstico",
         "Un sitio como es debido para álbumes y listas de reproducción",
         "Un visor ampliado y un único reproductor allí donde haya contenido multimedia"

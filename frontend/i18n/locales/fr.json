@@ -480,13 +480,13 @@
       "points": [
         "Fonctionne avec le SDK OpenAI",
         "Serveur MCP intégré",
-        "Chaque résultat peut être refait"
+        "Chaque résultat garde sa seed"
       ]
     },
     "gallery": {
       "eyebrow": "Fait ici",
       "title": "Tout ce qui figure sur cette page a été généré par le club",
-      "subtitle": "Des images, des chansons et des voix issues de modèles ouverts sur les machines des membres. Chacune garde son prompt, son modèle et son seed : le même appel redonne la même chose.",
+      "subtitle": "Images, chansons et voix issues de modèles ouverts sur les machines des membres. Chacune garde son prompt, son modèle et sa seed. Les images refaites avec la même seed sont identiques.",
       "pictures": "Images",
       "songs": "Chansons",
       "voice": "Une voix",
@@ -583,9 +583,10 @@
         "L'Assistant : pilotez votre compte en langage courant, à l'écrit ou à l'oral",
         "Serveur MCP, API compatible OpenAI, skill et CLI",
         "Des pages de partage pour un résultat seul ou une collection entière",
-        "Un seed enregistré à chaque génération, pour pouvoir refaire les résultats"
+        "Une seed enregistrée à chaque génération ; les images se rejouent à l'identique"
       ],
       "soonItems": [
+        "Des chansons rejouables à l'identique à partir de leur seed",
         "Les modèles vidéo et 3D de retour sur le cluster domestique",
         "Un vrai espace pour les albums et les playlists",
         "Une visionneuse et un lecteur unique partout où il y a des médias"
