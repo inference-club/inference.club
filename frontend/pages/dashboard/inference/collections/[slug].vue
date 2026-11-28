@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   ArrowLeft, Trash2, Settings2, X, Play, Pause, Shuffle, Clapperboard,
-  Music, Palette, GripVertical, ArrowUp, ArrowDown, ListMusic, LayoutList,
+  Music, Palette, GripVertical, ArrowUp, ArrowDown, ListMusic, LayoutList, Share2,
 } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import type { Collection, InferenceRequest, Visibility } from '@/types'
@@ -30,6 +30,12 @@ const error = ref<string | null>(null)
 
 const editOpen = ref(false)
 const coverOpen = ref(false)
+const shareOpen = ref(false)
+const onShared = (c: Collection) => {
+  if (collection.value) collection.value = { ...collection.value, ...c, items: collection.value.items }
+  // Items raised to UNLISTED: refresh their badges.
+  load()
+}
 const form = ref<{ name: string; description: string; visibility: Visibility }>({
   name: '', description: '', visibility: 'UNLISTED',
 })
@@ -273,6 +279,15 @@ const onDrop = async (i: number) => {
             </Button>
 
             <div class="ml-auto flex items-center gap-2">
+              <Button
+                v-if="collection.is_owner"
+                size="sm"
+                class="gap-2"
+                data-testid="collection-share"
+                @click="shareOpen = true"
+              >
+                <Share2 class="size-4" /> {{ t('share.share') }}
+              </Button>
               <Button v-if="collection.is_owner" variant="outline" size="sm" @click="openEdit">
                 <Settings2 class="size-4" /> Edit
               </Button>
@@ -477,6 +492,12 @@ const onDrop = async (i: number) => {
       :target="{ kind: 'collection', slug }"
       :seed-prompt="`${collection.name}. ${collection.description || ''}`"
       @updated="onCoverUpdated"
+    />
+    <ShareCollectionDialog
+      v-if="collection?.is_owner"
+      v-model:open="shareOpen"
+      :collection="collection"
+      @changed="onShared"
     />
   </div>
 </template>

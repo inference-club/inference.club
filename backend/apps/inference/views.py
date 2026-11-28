@@ -47,6 +47,7 @@ from .models import (
     ServiceManifest,
     Star,
     VISIBILITY_PUBLIC,
+    VISIBILITY_UNLISTED,
     VoiceSample,
     link_catalog_model,
     slugify_model_id,
@@ -3147,6 +3148,69 @@ class CollectionDetailView(APIView):
     def delete(self, request, slug):
         self._get(request, slug).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CollectionShareView(APIView):
+    """POST /api/inference/collections/<slug>/share/ — make a collection
+    shareable by link.
+
+    Body: ``visibility`` (``UNLISTED`` by default, or ``PUBLIC``) and
+    ``include_items`` (bool). A shared collection is only whole when everything
+    inside is PUBLIC or UNLISTED, so if some items are not, the call answers 409
+    with their count unless ``include_items`` is true, in which case the
+    caller's own items are raised to UNLISTED. Items owned by someone else are
+    never changed; they stay hidden from link holders."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, slug):
+        col = get_object_or_404(Collection, user=request.user, slug=slug)
+        ser = CollectionWriteSerializer(
+            col,
+            data={"visibility": request.data.get("visibility") or VISIBILITY_UNLISTED},
+            partial=True,
+            context={"request": request},
+        )
+        ser.is_valid(raise_exception=True)
+        visibility = ser.validated_data["visibility"]
+        if visibility not in (VISIBILITY_PUBLIC, VISIBILITY_UNLISTED):
+            return Response(
+                {"detail": "A shared collection is PUBLIC or UNLISTED."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        blocked = col.unshareable_items()
+        mine = blocked.filter(user=request.user)
+        if mine.exists() and not request.data.get("include_items"):
+            return Response(
+                {
+                    "detail": "Some items in this collection are not shareable yet.",
+                    "unshareable_count": blocked.count(),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        raised = mine.update(visibility=VISIBILITY_UNLISTED)
+        ser.save()
+        data = CollectionSerializer(col, context={"request": request}).data
+        data["items_raised"] = raised
+        return Response(data)
+
+
+class SharedCollectionView(APIView):
+    """GET /api/inference/shared-collections/<share_token>/ — a collection by
+    its unguessable link, with the items the viewer may see. Open to anyone
+    when the collection is PUBLIC or UNLISTED; otherwise only its owner. 404
+    (never 403) so a token's existence isn't confirmed."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, share_token):
+        col = get_object_or_404(
+            Collection.objects.select_related("user"), share_token=share_token
+        )
+        is_owner = request.user.is_authenticated and col.user_id == request.user.id
+        if not (is_owner or col.is_shareable()):
+            raise Http404("no such collection")
+        return Response(_collection_with_items(col, request))
 
 
 class CollectionItemView(APIView):

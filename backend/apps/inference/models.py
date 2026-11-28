@@ -1447,6 +1447,12 @@ class Collection(BaseModel):
         related_name="+",
     )
 
+    # Unguessable token behind the collection's share link (/c/<token>), the
+    # same role share_token plays for a request. Null only until first save.
+    share_token = models.CharField(
+        max_length=32, unique=True, null=True, blank=True, editable=False
+    )
+
     class Meta:
         ordering = ["name"]
         constraints = [
@@ -1457,6 +1463,24 @@ class Collection(BaseModel):
 
     def __str__(self):
         return f"{self.user_id}:{self.slug}"
+
+    def save(self, *args, **kwargs):
+        if not self.share_token:
+            self.share_token = generate_share_token()
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = {*kwargs["update_fields"], "share_token"}
+        super().save(*args, **kwargs)
+
+    def is_shareable(self) -> bool:
+        """A link to this collection opens for people other than the owner."""
+        return self.visibility in (VISIBILITY_PUBLIC, VISIBILITY_UNLISTED)
+
+    def unshareable_items(self):
+        """Member requests a link holder would not see: anything that is not
+        PUBLIC or UNLISTED."""
+        return InferenceRequest.objects.filter(
+            collection_items__collection=self
+        ).exclude(visibility__in=(VISIBILITY_PUBLIC, VISIBILITY_UNLISTED))
 
 
 class CollectionItem(BaseModel):

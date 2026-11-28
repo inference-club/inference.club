@@ -1,22 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
-import {
-  ArrowLeft, Trash2, Cpu, Server, Zap, Clock, Radio, ChevronDown, Brain, Github, Gauge, Download, Loader2, SlidersHorizontal, Waves, HardDrive,
-} from 'lucide-vue-next'
+import { ArrowLeft, Trash2, SlidersHorizontal } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { useInferenceRequestStore } from '@/stores/inferenceRequest'
 import { usePlaygroundPrefill, REPRODUCE_ROUTES } from '@/composables/usePlaygroundPrefill'
 import { useAuth } from '@/composables/useAuth'
-import {
-  statusVariant, formatAbsolute, formatLatency, totalTokens, roleClasses, nodeUrl,
-} from '@/utils/inference'
-import { prettyGpuModel } from '@/composables/useMachineForm'
+import { requestTitle } from '@/utils/requestView'
 
 definePageMeta({
   layout: 'app',
 })
 
+const { t } = useI18n()
 const route = useRoute()
 const store = useInferenceRequestStore()
 const { isAuthenticated } = useAuth()
@@ -30,62 +26,18 @@ const backTo = computed(() =>
 )
 
 const req = computed(() => store.currentRequest)
-const reqNodeUrl = computed(() => (req.value ? nodeUrl(req.value) : null))
-const isStt = computed(() => req.value?.inference_type === 'STT')
-const isImage = computed(() => req.value?.inference_type === 'IMAGE')
-// Source image(s) for an edit: prefer the plural list, fall back to the single.
-const imageInputs = computed(() =>
-  req.value?.input_image_urls?.length
-    ? req.value.input_image_urls
-    : req.value?.input_image_url
-      ? [req.value.input_image_url]
-      : [],
-)
-const isTts = computed(() => req.value?.inference_type === 'TTS')
-const isMesh = computed(() => req.value?.inference_type === 'MESH')
-const isMusic = computed(() => req.value?.inference_type === 'MUSIC')
-const isVideo = computed(() => req.value?.inference_type === 'VIDEO')
-const isEnhance = computed(() => req.value?.inference_type === 'ENHANCE')
-const lightbox = useImageLightbox()
-const { downloading: downloadingModel, download } = useFileDownload()
 
-const finishReason = computed<string | null>(() => {
-  const results = req.value?.results as { choices?: { finish_reason?: string }[] } | null | undefined
-  const choices = results?.choices
-  if (Array.isArray(choices) && choices[0]?.finish_reason) {
-    return String(choices[0].finish_reason)
-  }
-  return null
-})
-
-// Sampling/other request parameters (everything in the payload that isn't the
-// message content or model name), shown as a key/value grid.
-const params = computed(() => {
-  const p = req.value?.payload
-  if (!p || typeof p !== 'object') return []
-  const skip = new Set(['messages', 'prompt', 'model'])
-  return Object.entries(p)
-    .filter(([k]) => !skip.has(k))
-    .map(([k, v]) => ({
-      key: k,
-      value: typeof v === 'object' ? JSON.stringify(v) : String(v),
-    }))
-})
-
-const prettyPayload = computed(() =>
-  req.value ? JSON.stringify(req.value.payload ?? {}, null, 2) : ''
-)
-const prettyResults = computed(() =>
-  req.value ? JSON.stringify(req.value.results ?? {}, null, 2) : ''
-)
+useHead(() => ({
+  title: req.value ? requestTitle(req.value, t(`request.kind.${req.value.inference_type}`)) : undefined,
+}))
 
 const remove = async () => {
   try {
     await store.deleteRequest(id.value)
-    toast.success('Inference request deleted')
+    toast.success(t('request.deleted'))
     navigateTo('/dashboard/inference/requests')
   } catch {
-    toast.error('Failed to delete inference request')
+    toast.error(t('request.deleteFailed'))
   }
 }
 
@@ -115,492 +67,74 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-4xl px-3 sm:px-6 py-6">
-    <!-- Top bar -->
-    <div class="flex flex-wrap items-center justify-between gap-y-2 mb-6">
-      <NuxtLink
-        :to="backTo"
-        class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft class="size-4" /> {{ isAuthenticated ? 'Back to requests' : 'Explore the gallery' }}
-      </NuxtLink>
+  <div class="mx-auto w-full max-w-4xl px-3 py-5 sm:px-6 sm:py-6">
+    <NuxtLink
+      :to="backTo"
+      class="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+    >
+      <ArrowLeft class="size-4" /> {{ isAuthenticated ? t('request.back') : t('request.backGallery') }}
+    </NuxtLink>
 
-      <div class="flex flex-wrap items-center justify-end gap-2">
+    <div v-if="store.loading && !req" class="space-y-4">
+      <div class="h-8 w-64 animate-pulse rounded bg-muted" />
+      <div class="h-72 animate-pulse rounded-2xl bg-muted" />
+      <div class="h-20 animate-pulse rounded-2xl bg-muted" />
+    </div>
+
+    <div v-else-if="store.error" class="py-12 text-center text-destructive">
+      {{ store.error }}
+    </div>
+
+    <RequestView v-else-if="req" :request="req">
+      <template #actions>
         <RequestActionBar
-          v-if="req"
           :request="req"
           @visibility-change="(v) => { if (store.currentRequest) store.currentRequest.visibility = v }"
           @retried="onRetried"
         />
-
+        <ShareButton
+          v-if="!req.is_owner && (req.visibility === 'PUBLIC' || req.visibility === 'UNLISTED')"
+          icon-only
+          variant="ghost"
+        />
         <Button
-          v-if="req && req.is_owner && reproduceRoute"
+          v-if="req.is_owner && reproduceRoute"
           variant="outline"
           size="sm"
           class="gap-2"
+          :title="t('request.reproduce')"
+          data-testid="request-reproduce"
           @click="reproduce"
         >
-          <SlidersHorizontal class="size-4" /> Reproduce in playground
+          <SlidersHorizontal class="size-4" />
+          <span class="hidden sm:inline">{{ t('request.reproduce') }}</span>
         </Button>
-
-        <AlertDialog v-if="req && req.is_owner">
-        <AlertDialogTrigger as-child>
-          <Button variant="outline" size="sm" class="text-destructive hover:text-destructive">
-            <Trash2 class="size-4" /> Delete
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this inference request?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes this request and its stored prompt and
-              response. This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              class="bg-destructive text-white hover:bg-destructive/90"
-              @click="remove"
+        <AlertDialog v-if="req.is_owner">
+          <AlertDialogTrigger as-child>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="size-8 text-muted-foreground hover:text-destructive"
+              :title="t('request.delete')"
+              :aria-label="t('request.delete')"
             >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      </div>
-    </div>
-
-    <!-- Loading -->
-    <div v-if="store.loading && !req" class="space-y-4">
-      <div class="h-8 w-64 bg-muted rounded animate-pulse" />
-      <Card class="p-4 animate-pulse h-40" />
-      <Card class="p-4 animate-pulse h-64" />
-    </div>
-
-    <div v-else-if="store.error" class="text-destructive text-center py-12">
-      {{ store.error }}
-    </div>
-
-    <template v-else-if="req">
-      <!-- Title + status badges -->
-      <div class="mb-4">
-        <h1 class="text-2xl font-bold">
-          Request
-          <code v-if="req.public_id" class="ml-1 align-middle text-sm font-normal text-muted-foreground">{{ req.public_id }}</code>
-        </h1>
-        <div class="flex items-center gap-2 flex-wrap mt-2">
-          <Badge variant="outline">{{ req.inference_type }}</Badge>
-          <Badge :variant="statusVariant(req.status)">{{ req.status }}</Badge>
-          <VisibilityBadge v-if="req.visibility" :visibility="req.visibility" />
-          <Badge v-if="req.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">
-            <Radio class="size-3" /> streamed
-          </Badge>
-          <Badge v-if="finishReason" variant="secondary">finish: {{ finishReason }}</Badge>
-          <a
-            v-if="req.github_login"
-            :href="`https://github.com/${req.github_login}`"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md border font-mono hover:bg-accent hover:text-accent-foreground transition-colors"
-            @click.stop
-          >
-            <Github class="h-3 w-3" /> {{ req.github_login }}
-          </a>
-          <Badge v-else-if="req.owner" variant="outline" class="font-mono">
-            <Github class="size-3" /> {{ req.owner }}
-          </Badge>
-        </div>
-      </div>
-
-      <!-- Metadata grid -->
-      <Card class="p-4 mb-4">
-        <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-sm">
-          <div>
-            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-              <Cpu class="size-3" /> Model
-            </dt>
-            <dd class="font-mono mt-0.5 break-all">{{ req.model_name || '—' }}</dd>
-          </div>
-          <div>
-            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-              <Server class="size-3" /> Node
-            </dt>
-            <dd class="mt-0.5 flex items-center gap-1.5">
-              <template v-if="req.provider">
-                <NuxtLink
-                  v-if="req.provider.owner_handle"
-                  :to="`/${req.provider.owner_handle}`"
-                  class="underline-offset-2 hover:underline"
-                >{{ req.provider.name }}</NuxtLink>
-                <span v-else>{{ req.provider.name }}</span>
-                <ReadinessDot v-if="req.provider.is_online" :online="true" />
-              </template>
-              <template v-else>—</template>
-            </dd>
-          </div>
-          <div v-if="req.host?.host_id || req.host?.gpus?.length">
-            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-              <HardDrive class="size-3" /> Ran on
-            </dt>
-            <dd class="mt-0.5 flex flex-wrap items-center gap-1.5">
-              <component
-                :is="reqNodeUrl ? 'NuxtLink' : 'span'"
-                v-if="req.host?.host_id"
-                :to="reqNodeUrl || undefined"
-                class="font-mono text-xs"
-                :class="reqNodeUrl ? 'underline-offset-2 hover:underline' : ''"
-              >{{ req.host.hostname || req.host.host_id }}</component>
-              <component
-                :is="reqNodeUrl ? 'NuxtLink' : 'span'"
-                v-for="g in (req.host?.gpus || [])"
-                :key="g.index"
-                :to="reqNodeUrl ? `${reqNodeUrl}#gpu-${g.index}` : undefined"
-                class="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-2xs"
-                :class="reqNodeUrl ? 'hover:bg-accent' : ''"
-              >
-                <Cpu class="size-3" /> {{ prettyGpuModel(g.model || '') || g.model }}
-              </component>
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-              <Clock class="size-3" /> Latency
-            </dt>
-            <dd class="mt-0.5">{{ formatLatency(req.latency_ms) }}</dd>
-          </div>
-          <div v-if="req.ttft_ms != null">
-            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-              <Clock class="size-3" /> TTFT
-            </dt>
-            <dd class="mt-0.5">{{ req.ttft_ms }} ms</dd>
-          </div>
-          <div v-if="req.tokens_per_second != null">
-            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-              <Gauge class="size-3" /> Throughput
-            </dt>
-            <dd class="mt-0.5">{{ req.tokens_per_second }} tok/s</dd>
-          </div>
-          <div>
-            <dt class="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-              <Zap class="size-3" /> Tokens
-            </dt>
-            <dd class="mt-0.5">
-              <template v-if="totalTokens(req) !== null">
-                {{ totalTokens(req) }} total
-                <span class="text-muted-foreground">
-                  ({{ req.usage?.prompt_tokens ?? '?' }} in / {{ req.usage?.completion_tokens ?? '?' }} out)
-                </span>
-              </template>
-              <template v-else>—</template>
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs uppercase tracking-wide text-muted-foreground">Created</dt>
-            <dd class="mt-0.5">{{ formatAbsolute(req.created_on) }}</dd>
-          </div>
-          <div>
-            <dt class="text-xs uppercase tracking-wide text-muted-foreground">Last updated</dt>
-            <dd class="mt-0.5">{{ formatAbsolute(req.modified_on) }}</dd>
-          </div>
-        </dl>
-
-        <template v-if="params.length">
-          <Separator class="my-4" />
-          <p class="text-xs uppercase tracking-wide text-muted-foreground mb-2">Request parameters</p>
-          <div class="flex flex-wrap gap-2">
-            <span
-              v-for="p in params"
-              :key="p.key"
-              class="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-0.5 text-xs font-mono"
-            >
-              <span class="text-muted-foreground">{{ p.key }}:</span> {{ p.value }}
-            </span>
-          </div>
-        </template>
-      </Card>
-
-      <!-- Transcription (STT) -->
-      <Card v-if="isStt" class="p-4 mb-4">
-        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
-          Transcription
-          <Badge v-if="req.audio_seconds != null" variant="outline">
-            {{ req.audio_seconds.toFixed(1) }}s audio
-          </Badge>
-        </h2>
-        <TranscriptView
-          :text="req.response_text || ''"
-          :src="req.audio_url"
-          :words="req.transcription?.words"
-          :segments="req.transcription?.segments"
-          :language="req.transcription?.language"
-        />
-      </Card>
-
-      <!-- Text to speech -->
-      <Card v-if="isTts" class="p-4 mb-4">
-        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
-          Speech
-          <Badge v-if="req.audio_seconds != null" variant="outline">{{ req.audio_seconds.toFixed(1) }}s</Badge>
-        </h2>
-        <div v-if="req.payload?.input" class="text-sm mb-3">
-          <span class="text-muted-foreground">Text:</span> {{ req.payload.input }}
-        </div>
-        <audio v-if="req.output_audio_url" :src="req.output_audio_url" controls class="w-full h-10" />
-        <div v-else class="text-sm text-muted-foreground">No audio stored for this request.</div>
-      </Card>
-
-      <!-- Audio enhancement (StudioVoice): original → cleaned -->
-      <Card v-if="isEnhance" class="p-4 mb-4">
-        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
-          <Waves class="size-5 text-cyan-500" /> Audio enhancement
-          <Badge v-if="req.audio_seconds != null" variant="outline">{{ req.audio_seconds.toFixed(1) }}s</Badge>
-        </h2>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div class="min-w-0">
-            <p class="text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Original</p>
-            <audio v-if="req.audio_url" :src="req.audio_url" controls preload="metadata" class="w-full h-10" />
-            <div v-else class="text-sm text-muted-foreground">Original audio wasn't stored.</div>
-          </div>
-          <div class="min-w-0">
-            <p class="text-xs uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
-              <Waves class="size-3.5 text-cyan-500" /> Enhanced
-            </p>
-            <audio v-if="req.output_audio_url" :src="req.output_audio_url" controls preload="metadata" class="w-full h-10" />
-            <div v-else class="text-sm text-muted-foreground">No enhanced audio stored for this request.</div>
-          </div>
-        </div>
-        <a
-          v-if="req.output_audio_url"
-          :href="req.output_audio_url"
-          download
-          class="mt-3 inline-flex items-center gap-1.5 text-sm text-cyan-600 hover:underline dark:text-cyan-400"
-        >
-          <Download class="size-4" /> Download enhanced audio
-        </a>
-      </Card>
-
-      <!-- Image generation -->
-      <Card v-if="isImage" class="p-4 mb-4">
-        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
-          Images
-          <Badge v-if="req.image_count != null" variant="outline">{{ req.image_count }}</Badge>
-        </h2>
-        <div v-if="req.payload?.prompt" class="text-sm mb-3">
-          <span class="text-muted-foreground">Prompt:</span> {{ req.payload.prompt }}
-        </div>
-        <ImageRevisedPrompt :meta="req.image" class="mb-3" />
-        <ImageGenMedia :inputs="imageInputs" :outputs="req.image_urls" />
-        <div v-if="!imageInputs.length && !req.image_urls?.length" class="text-sm text-muted-foreground">
-          No images stored for this request.
-        </div>
-      </Card>
-
-      <!-- Image to 3D -->
-      <Card v-if="isMesh" class="p-4 mb-4">
-        <div class="mb-3 flex items-center justify-between gap-2">
-          <h2 class="text-lg font-semibold flex items-center gap-2">
-            3D model
-            <Badge v-if="req.mesh?.resolution" variant="outline">{{ req.mesh.resolution }}</Badge>
-          </h2>
-          <Button
-            v-if="req.model_url"
-            variant="outline"
-            size="sm"
-            class="gap-2"
-            :disabled="downloadingModel"
-            @click="download(req.model_url, `inference-club-${req.id}.glb`)"
-          >
-            <component :is="downloadingModel ? Loader2 : Download" class="size-4" :class="downloadingModel ? 'animate-spin' : ''" />
-            Download .glb
-          </Button>
-        </div>
-        <ModelViewer
-          v-if="req.model_url"
-          :src="req.model_url"
-          :poster-src="req.input_image_url"
-          alt="Generated 3D model"
-          :download-name="`inference-club-${req.id}.glb`"
-          class="max-w-2xl"
-        />
-        <div v-else class="text-sm text-muted-foreground">No 3D model stored for this request.</div>
-        <div v-if="req.mesh" class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span v-if="req.mesh.vertices != null">{{ req.mesh.vertices.toLocaleString() }} vertices</span>
-          <span v-if="req.mesh.faces != null">{{ req.mesh.faces.toLocaleString() }} faces</span>
-          <span v-if="req.mesh.seed != null">seed {{ req.mesh.seed }}</span>
-        </div>
-      </Card>
-
-      <!-- Music generation -->
-      <Card v-if="isMusic" class="p-4 mb-4">
-        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
-          Song
-          <Badge v-if="req.audio_seconds != null" variant="outline">{{ req.audio_seconds.toFixed(1) }}s</Badge>
-        </h2>
-        <div v-if="req.payload?.prompt" class="text-sm mb-3">
-          <span class="text-muted-foreground">Prompt:</span> {{ req.payload.prompt }}
-        </div>
-        <div v-if="req.payload?.lyrics" class="text-sm mb-3">
-          <span class="text-muted-foreground">Lyrics:</span>
-          <pre class="mt-1 whitespace-pre-wrap font-sans text-sm">{{ req.payload.lyrics }}</pre>
-        </div>
-        <img
-          v-if="req.cover_image_url"
-          :src="req.cover_image_url"
-          :alt="req.payload?.prompt || 'Song cover'"
-          class="mb-3 aspect-square w-full max-w-xs rounded-lg border object-cover"
-        />
-        <audio
-          v-if="req.output_audio_url"
-          :src="req.output_audio_url"
-          controls
-          preload="metadata"
-          class="w-full h-10"
-        />
-        <div v-else class="text-sm text-muted-foreground">No audio stored for this request.</div>
-      </Card>
-
-      <!-- Video generation -->
-      <Card v-if="isVideo" class="p-4 mb-4">
-        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
-          Video
-          <Badge v-if="req.video?.seconds != null" variant="outline">{{ req.video.seconds.toFixed(1) }}s</Badge>
-          <Badge v-if="req.video?.width && req.video?.height" variant="outline">
-            {{ req.video.width }}×{{ req.video.height }}
-          </Badge>
-        </h2>
-        <div v-if="req.payload?.prompt" class="text-sm mb-3">
-          <span class="text-muted-foreground">Prompt:</span> {{ req.payload.prompt }}
-        </div>
-        <video
-          v-if="req.video_url"
-          :src="req.video_url"
-          :poster="req.input_image_url || undefined"
-          controls
-          loop
-          playsinline
-          preload="metadata"
-          class="max-h-[75vh] w-full rounded-lg border bg-black object-contain"
-        />
-        <div v-else class="text-sm text-muted-foreground">No video stored for this request.</div>
-        <div v-if="req.video" class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span v-if="req.video.fps != null">{{ req.video.fps }} fps</span>
-          <span v-if="req.video.num_frames != null">{{ req.video.num_frames }} frames</span>
-          <span v-if="req.video.seed != null">seed {{ req.video.seed }}</span>
-        </div>
-        <div v-if="req.input_image_url" class="mt-3">
-          <p class="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">First frame</p>
-          <img
-            :src="req.input_image_url"
-            class="max-h-48 w-auto cursor-zoom-in rounded-lg border object-contain"
-            @click="lightbox.open(req.input_image_url)"
-          />
-        </div>
-      </Card>
-
-      <!-- Conversation -->
-      <Card v-if="!isStt && !isImage && !isTts && !isMesh && !isMusic && !isVideo && !isEnhance" class="p-4 mb-4">
-        <h2 class="text-lg font-semibold mb-3">
-          Conversation
-          <span class="text-sm font-normal text-muted-foreground">
-            ({{ req.messages?.length ?? 0 }} message{{ (req.messages?.length ?? 0) === 1 ? '' : 's' }})
-          </span>
-        </h2>
-        <div v-if="!req.messages?.length" class="text-sm text-muted-foreground">
-          No messages recorded for this request.
-        </div>
-        <div v-else class="space-y-3">
-          <div
-            v-for="(m, i) in req.messages"
-            :key="i"
-            class="rounded-lg border p-3"
-          >
-            <div class="mb-2">
-              <span
-                class="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium capitalize"
-                :class="roleClasses(m.role)"
-              >
-                {{ m.role || 'message' }}
-              </span>
-            </div>
-            <div v-if="m.media?.length" class="mb-2 flex flex-wrap gap-2">
-              <template v-for="(media, mi) in m.media" :key="`media-${mi}`">
-                <img v-if="media.kind === 'image'" :src="media.url" alt="attachment" class="max-h-56 rounded-md border" />
-                <video v-else-if="media.kind === 'video'" :src="media.url" controls class="max-h-56 rounded-md border" />
-                <audio v-else :src="media.url" controls class="w-full" />
-              </template>
-            </div>
-            <MarkdownRenderer :content="m.content" />
-          </div>
-        </div>
-      </Card>
-
-      <!-- Thinking / reasoning trace -->
-      <Card v-if="req.reasoning" class="p-4 mb-4">
-        <Collapsible :default-open="true">
-          <CollapsibleTrigger class="flex w-full items-center justify-between gap-2 text-lg font-semibold">
-            <span class="flex items-center gap-2">
-              <Brain class="size-4 text-amber-500" /> Thinking
-              <Badge variant="outline" class="text-amber-600 dark:text-amber-400 font-normal">
-                reasoning trace
-              </Badge>
-            </span>
-            <ChevronDown class="size-4 shrink-0" />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div class="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-muted-foreground">
-              <MarkdownRenderer :content="req.reasoning" />
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      </Card>
-
-      <!-- Response -->
-      <Card v-if="!isStt && !isImage && !isTts && !isMusic && !isVideo && !isEnhance" class="p-4 mb-4">
-        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
-          Response
-          <Badge v-if="req.streamed" variant="outline" class="text-sky-600 dark:text-sky-400">
-            <Radio class="size-3" /> streamed
-          </Badge>
-        </h2>
-        <div
-          v-if="req.response_text"
-          class="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3"
-        >
-          <MarkdownRenderer :content="req.response_text" />
-        </div>
-        <div v-else class="text-sm text-muted-foreground">
-          No response content stored
-          <template v-if="req.status === 'REQUESTED'">— the upstream request failed.</template>
-        </div>
-      </Card>
-
-      <!-- Raw JSON -->
-      <div class="space-y-3">
-        <Collapsible>
-          <CollapsibleTrigger
-            class="flex w-full items-center justify-between rounded-md border bg-muted/40 px-4 py-2 text-sm font-medium hover:bg-muted/60"
-          >
-            Raw request payload
-            <ChevronDown class="size-4" />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <pre class="mt-2 overflow-x-auto rounded-md bg-zinc-950 p-4 text-xs text-zinc-100">{{ prettyPayload }}</pre>
-          </CollapsibleContent>
-        </Collapsible>
-
-        <Collapsible>
-          <CollapsibleTrigger
-            class="flex w-full items-center justify-between rounded-md border bg-muted/40 px-4 py-2 text-sm font-medium hover:bg-muted/60"
-          >
-            Raw result
-            <ChevronDown class="size-4" />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <pre class="mt-2 overflow-x-auto rounded-md bg-zinc-950 p-4 text-xs text-zinc-100">{{ prettyResults }}</pre>
-          </CollapsibleContent>
-        </Collapsible>
-      </div>
-    </template>
+              <Trash2 class="size-4" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{{ t('request.deleteTitle') }}</AlertDialogTitle>
+              <AlertDialogDescription>{{ t('request.deleteBody') }}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{{ t('common.cancel') }}</AlertDialogCancel>
+              <AlertDialogAction class="bg-destructive text-white hover:bg-destructive/90" @click="remove">
+                {{ t('request.delete') }}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </template>
+    </RequestView>
   </div>
 </template>
