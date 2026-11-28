@@ -101,7 +101,7 @@ const playPause = () => {
 
       <!-- MESH: interactive 3D viewer -->
       <div v-else-if="type === 'MESH' && item.model_url" class="size-full" @click.prevent.stop>
-        <ModelViewer
+        <LazyModelViewer
           :src="item.model_url"
           :poster-src="item.input_image_url"
           :lazy="true"

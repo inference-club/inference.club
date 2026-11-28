@@ -1404,6 +1404,8 @@ def _asset_url(request, asset) -> str:
 # `transparent-background`, `custom-size`, `prompt-upsampling`,
 # `layout-boxes`) — see the Qwen-Image 2.1 and FLUX 3 Image Klein services in
 # the agent docs. Unknown keys are dropped rather than forwarded blindly.
+from .seeds import pick_seed  # noqa: E402
+
 IMAGE_EXTRA_PARAMS = ("seed", "steps", "negative_prompt", "guidance", "background", "upsample", "boxes")
 MAX_LAYOUT_BOXES = 32
 
@@ -1435,6 +1437,24 @@ def _image_extras(data):
         except (TypeError, ValueError):
             continue
     return out
+
+
+def _model_takes_seed(provider_model) -> bool:
+    """The deployment declares the ``seed`` feature (see _model_caps)."""
+    try:
+        return "seed" in (_model_caps(provider_model).get("supported_features") or [])
+    except Exception:  # noqa: BLE001 - a placeholder/offline model has no service
+        return False
+
+
+def _image_extras_seeded(data, provider_model):
+    """``_image_extras`` plus a concrete seed when the model takes one and the
+    caller left it out, so every image can be made again. Call once per
+    request and reuse the result: each call draws a new seed."""
+    extras = _image_extras(data)
+    if _model_takes_seed(provider_model):
+        extras["seed"] = pick_seed(extras.get("seed"))
+    return extras
 
 
 class _ImageProxyBase(_RateLimitHeadersMixin, APIView):
@@ -2291,10 +2311,7 @@ class VoiceGenerationsView(_RateLimitHeadersMixin, APIView):
         cfg_filter_top_k = int(_clamp(body.get("cfg_filter_top_k"), 1, 100, 45))
         speed_factor = _clamp(body.get("speed_factor"), 0.5, 2.0, 1.0)
         max_new_tokens = int(_clamp(body.get("max_new_tokens"), 256, 4096, 3072))
-        try:
-            seed = int(body.get("seed"))
-        except (TypeError, ValueError):
-            seed = -1
+        seed = pick_seed(body.get("seed"))
 
         # Assemble the cloning prompt: one tagged transcript line per speaker,
         # and a single audio prompt (the clip, or two clips concatenated). Each
@@ -2537,12 +2554,12 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
         out_ct_fallback, ext = _MUSIC_FORMATS[audio_format]
         steps = int(_num(body.get("inference_steps"), 1, 200, 8))
         guidance = _num(body.get("guidance_scale"), 0, 30, 7.0)
+        # "Randomize" means we draw the seed here, not the model server, so
+        # the number is stored and the song can be made again.
         randomize = body.get("use_random_seed")
         randomize = True if randomize is None else bool(randomize)
-        try:
-            seed = int(body.get("seed"))
-        except (TypeError, ValueError):
-            seed = -1
+        seed = pick_seed(None if randomize else body.get("seed"))
+        randomize = False
         duration = body.get("audio_duration")
         duration = _num(duration, 5, 300, None) if duration is not None else None
 
@@ -3068,10 +3085,7 @@ class VideoGenerationsView(_RateLimitHeadersMixin, APIView):
             else None
         )
         enhance_prompt = bool(body.get("enhance_prompt"))
-        try:
-            seed = int(body.get("seed"))
-        except (TypeError, ValueError):
-            seed = None
+        seed = pick_seed(None if body.get("use_random_seed") else body.get("seed"))
 
         # The LTX /generate request shape. The agent forwards this body verbatim
         # to the upstream server's POST /generate and streams the MP4 back.
@@ -3355,6 +3369,7 @@ class ImageGenerationsView(_ImageProxyBase):
         n_in = body.get("n")
         if isinstance(n_in, int) and n_in > settings.IMAGE_MAX_N:
             n_in = settings.IMAGE_MAX_N
+        extras = _image_extras_seeded(body, provider_model)
         stored_payload = {
             "model": canonical or model_name or "",
             "prompt": prompt,
@@ -3362,7 +3377,7 @@ class ImageGenerationsView(_ImageProxyBase):
             "size": body.get("size"),
             "quality": body.get("quality"),
             "response_format": requested_format,
-            **_image_extras(body),
+            **extras,
         }
         if go_async:
             return _enqueue_async(
@@ -3375,7 +3390,7 @@ class ImageGenerationsView(_ImageProxyBase):
         # knobs go out exactly as stored (coerced; unparseable ones dropped),
         # so a live call and a retry/replay send the same thing.
         forward = {k: v for k, v in body.items() if k not in IMAGE_EXTRA_PARAMS}
-        forward.update(_image_extras(body))
+        forward.update(extras)
         forward["response_format"] = "b64_json"
         if served_name:
             forward["model"] = served_name
@@ -3486,6 +3501,7 @@ class ImageEditsView(_ImageProxyBase):
         mask = request.FILES.get("mask")
         mask_bytes = mask.read() if mask is not None else None
 
+        extras = _image_extras_seeded(request.data, provider_model)
         ir, _overflow = _admit_sync(
             request, provider_model,
             user=request.user,
@@ -3501,7 +3517,7 @@ class ImageEditsView(_ImageProxyBase):
                 "response_format": requested_format,
                 "edit": True,
                 "image_count": len(sources),
-                **_image_extras(request.data),
+                **extras,
             },
             status="PROCESSING",
             visibility=visibility or "",
@@ -3551,7 +3567,7 @@ class ImageEditsView(_ImageProxyBase):
                     except (TypeError, ValueError):
                         continue
                 data_fields.append((key, v))
-        for key, v in _image_extras(request.data).items():
+        for key, v in extras.items():
             data_fields.append((key, str(v)))
 
         endpoint = provider.tailnet_base_url.rstrip("/") + self.upstream_path
@@ -3744,13 +3760,15 @@ def _coerce_mesh_options(raw):
         if res not in MESH_RESOLUTIONS:
             return None, f"resolution must be one of {sorted(MESH_RESOLUTIONS)}."
         opts["resolution"] = res
-    if raw.get("randomize_seed"):
-        opts["randomize_seed"] = True
-    if "seed" in raw and raw["seed"] is not None:
+    # Always a concrete seed (drawn here when randomized or left out), so the
+    # stored options can rebuild the same mesh.
+    seed_in = None
+    if not raw.get("randomize_seed") and raw.get("seed") is not None:
         try:
-            opts["seed"] = int(raw["seed"])
+            seed_in = int(raw["seed"])
         except (TypeError, ValueError):
             return None, "seed must be an integer."
+    opts["seed"] = pick_seed(seed_in)
     if "texture_size" in raw and raw["texture_size"] is not None:
         try:
             ts = int(raw["texture_size"])
@@ -4282,7 +4300,7 @@ def _rerun_voice(ir, provider_model):
         "speed_factor": (None, _f("speed_factor", 1.0)),
         # A real (non-negative) seed makes Dia's voice reproducible; the workflow
         # passes the SAME seed to every section so all narration shares a voice.
-        "seed": (None, _f("seed", -1)),
+        "seed": (None, str(pick_seed(p.get("seed")))),
     }
     endpoint = provider.tailnet_base_url.rstrip("/") + "/voice/generations"
     started = time.monotonic()
@@ -4488,14 +4506,20 @@ def _rerun_music(ir, provider_model):
     p = ir.payload or {}
     audio_format = str(p.get("audio_format") or "mp3").lower()
     out_ct_fallback, ext = _MUSIC_FORMATS.get(audio_format, _MUSIC_FORMATS["mp3"])
+    # Rows queued before seeds were always concrete carry -1: settle one now
+    # and keep it, so the finished song records the seed that made it.
+    seed = pick_seed(None if p.get("use_random_seed") else p.get("seed"))
+    if seed != p.get("seed") or p.get("use_random_seed"):
+        ir.payload = {**p, "seed": seed, "use_random_seed": False}
+        ir.save(update_fields=["payload", "modified_on"])
     forward = {
         "model": provider_model.name or p.get("model") or ir.model_name,
         "prompt": p.get("prompt") or "",
         "lyrics": p.get("lyrics") or "",
         "inference_steps": p.get("inference_steps") or 8,
         "guidance_scale": p.get("guidance_scale") if p.get("guidance_scale") is not None else 7.0,
-        "use_random_seed": p.get("use_random_seed", True),
-        "seed": p.get("seed", -1),
+        "use_random_seed": False,
+        "seed": seed,
         "audio_format": audio_format,
         "task_type": "text2music",
     }

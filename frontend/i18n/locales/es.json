@@ -458,5 +458,152 @@
     "stopped": "Se dejó de compartir",
     "failed": "No se pudo actualizar la compartición",
     "note": "Quienes tengan el enlace solo ven los elementos públicos o compartidos por enlace."
+  },
+  "landing": {
+    "kinds": {
+      "chat": "Chat",
+      "image": "Imágenes",
+      "music": "Música",
+      "video": "Vídeo",
+      "speech": "Voz",
+      "listen": "Transcripción"
+    },
+    "hero": {
+      "badge": "Funcionando ahora mismo en GPU caseras",
+      "titleLead": "IA hecha en",
+      "titleHighlight": "las GPU de tus vecinos",
+      "subtitle": "inference.club es una red de tarjetas gráficas en casas particulares. Los miembros comparten modelos abiertos de chat, imágenes, música, vídeo y voz tras una sola dirección, para personas y para agentes.",
+      "primary": "Empieza a crear",
+      "primaryMember": "Abrir el panel",
+      "secondary": "Mira cómo funciona",
+      "madeOn": "Hecho en {gpu}",
+      "points": [
+        "Funciona con el SDK de OpenAI",
+        "Servidor MCP incluido",
+        "Cada resultado se puede repetir"
+      ]
+    },
+    "gallery": {
+      "eyebrow": "Hecho aquí",
+      "title": "Todo lo que ves en esta página lo generó el club",
+      "subtitle": "Imágenes, canciones y voces de modelos abiertos en las máquinas de los miembros. Cada una guarda su prompt, su modelo y su semilla, así que la misma llamada vuelve a dar el mismo resultado.",
+      "pictures": "Imágenes",
+      "songs": "Canciones",
+      "voice": "Una voz",
+      "words": "Y palabras",
+      "seed": "semilla {seed}",
+      "seconds": "{n} s",
+      "open": "Abrir imagen",
+      "promptLabel": "Prompt",
+      "videoNote": "El vídeo también forma parte del club. El servicio de vídeo estaba fuera de línea cuando se hizo esta página, así que todavía no hay ninguno aquí."
+    },
+    "picked": {
+      "eyebrow": "Elegido por el club",
+      "title": "Generaciones destacadas",
+      "subtitle": "Solicitudes reales de miembros, elegidas a mano."
+    },
+    "how": {
+      "eyebrow": "Cómo funciona",
+      "title": "Un vecindario de GPU, una sola dirección",
+      "subtitle": "Desplázate para seguir una solicitud desde quien la pide hasta la máquina que responde.",
+      "steps": [
+        {
+          "title": "Los hogares ponen el hardware",
+          "body": "Un PC de juegos en un garaje, una estación de trabajo en un estudio, un portátil en un piso. Cada miembro ejecuta un pequeño agente junto a los modelos que ya tiene. Nada queda abierto a internet."
+        },
+        {
+          "title": "Cada máquina sirve lo que mejor se le da",
+          "body": "Una ejecuta un modelo de imágenes, otra de música, otra de voz. El agente le dice al club qué modelos están cargados y lo ocupada que está la máquina."
+        },
+        {
+          "title": "Una dirección encuentra la máquina adecuada",
+          "body": "Envías una solicitud a inference.club. Comprueba quién eres, elige una máquina que tenga el modelo y esté libre, y te devuelve el resultado. Si la máquina está ocupada, la solicitud espera en una cola."
+        },
+        {
+          "title": "Privado o compartido, tú decides",
+          "body": "Un miembro puede reservar una máquina solo para miembros, o para sí mismo. Todo lo que creas empieza con la visibilidad que elijas: secreto, miembros, por enlace o público en la galería."
+        },
+        {
+          "title": "Para personas, aplicaciones y agentes",
+          "body": "Usa la web, llama a la API desde tu código o conecta un agente por MCP. La misma dirección y la misma clave sirven para los tres."
+        }
+      ],
+      "scene": {
+        "gallery": "Galería",
+        "membersOnly": "Solo miembros",
+        "households": [
+          "El garaje",
+          "El estudio",
+          "El piso",
+          "El laboratorio"
+        ],
+        "requesters": [
+          "Tú",
+          "Tu app",
+          "Tu agente"
+        ]
+      }
+    },
+    "ways": {
+      "eyebrow": "Tres formas de entrar",
+      "title": "Dilo, llámalo o déjaselo a un agente",
+      "ask": {
+        "title": "Dilo",
+        "body": "Abre el Asistente en cualquier página y pide lo que quieras con tus palabras, escritas o habladas. Crea la canción, la guarda en una colección, cambia quién puede verla y te cuenta lo que ha hecho.",
+        "example": "Haz una canción de dos minutos sobre la primera nevada, con tres imágenes que la acompañen."
+      },
+      "api": {
+        "title": "Llámalo",
+        "body": "Una sola API para todo tipo de modelos, compatible con el SDK de OpenAI. Cambia la URL base y la clave; el resto de tu código se queda igual."
+      },
+      "agent": {
+        "title": "Déjaselo a un agente",
+        "body": "El club es un servidor MCP con 33 herramientas: generar, buscar en tu biblioteca, ajustar la visibilidad, gestionar colecciones. También hay una skill y una pequeña CLI para los agentes que prefieren una terminal."
+      }
+    },
+    "host": {
+      "eyebrow": "Trae una GPU",
+      "title": "Mete tu propia máquina en el club",
+      "body": "¿Ya usas vLLM, llama.cpp, Ollama o un modelo multimedia? Ejecuta el agente a su lado. Se une a la red privada del club, anuncia tus modelos y empieza a recibir solicitudes. Tú decides quién puede usarlos.",
+      "points": [
+        "Sin abrir puertos ni montar túneles",
+        "Funciona como contenedor, como binario o en Kubernetes",
+        "Compártela con todos, con los miembros o quédatela para ti"
+      ],
+      "cta": "Leer la guía para proveedores"
+    },
+    "status": {
+      "eyebrow": "Cómo vamos",
+      "title": "Lo que funciona hoy y lo que viene",
+      "now": "Ya funciona",
+      "soon": "En curso",
+      "next": "Después",
+      "nowItems": [
+        "Chat, imágenes, música, voz, transcripción y clonación de voz",
+        "El Asistente: maneja tu cuenta con lenguaje corriente, escrito o hablado",
+        "Servidor MCP, API compatible con OpenAI, skill y CLI",
+        "Páginas para compartir resultados sueltos y colecciones enteras",
+        "Una semilla guardada en cada generación, para poder repetir los resultados"
+      ],
+      "soonItems": [
+        "Los modelos de vídeo y 3D de vuelta en el clúster doméstico",
+        "Un sitio como es debido para álbumes y listas de reproducción",
+        "Un visor ampliado y un único reproductor allí donde haya contenido multimedia"
+      ],
+      "nextItems": [
+        "Nuevos modelos abiertos a medida que se publican",
+        "Configuración más rápida para agentes: un solo comando para conectarse",
+        "Más hogares, y un enrutado que elige la máquina libre más cercana"
+      ]
+    },
+    "blog": {
+      "title": "Del blog"
+    },
+    "cta": {
+      "title": "Crea algo",
+      "body": "Inicia sesión, elige un modelo y el primer resultado suele llegar en segundos.",
+      "primary": "Empezar",
+      "secondary": "Leer la documentación"
+    }
   }
 }
