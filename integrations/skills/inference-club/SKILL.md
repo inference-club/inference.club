@@ -1,7 +1,7 @@
 ---
 name: inference-club
-description: Generate images, video, music, speech, and text — or transcribe audio, scrape web pages, and run multi-step media workflows — with inference.club, a community network of self-hosted GPUs. Use whenever the user says "inference club"/"inference.club", or asks to generate/create/render media with their own or community GPUs.
-version: 1.0.0
+description: Operate an inference.club account by request — generate images, video, music, speech and text; make a song with matching pictures in one step; find, rename, share, hide, collect and delete things in the library; change account settings and who may use hosted services; play music; call any API endpoint. Use whenever the user says "inference club"/"inference.club" (or a self-hosted instance of it), asks to generate media with their own or community GPUs, or asks to change something in their inference.club account.
+version: 2.0.0
 author: inference.club
 license: MIT
 platforms: [linux, macos]
@@ -20,6 +20,11 @@ required_environment_variables:
     prompt: "inference.club API base URL"
     help: "Default https://api.inference.club — only set for self-hosted / local dev (e.g. http://localhost:8101)"
     required_for: "non-default deployments"
+    optional: true
+  - name: INFERENCE_CLUB_INSTANCE
+    prompt: "Saved inference.club instance name"
+    help: "A name saved with `ic.py instance add` — picks that deployment's URL and key"
+    required_for: "choosing between several deployments"
     optional: true
 ---
 
@@ -71,6 +76,70 @@ the result), `--timeout SECONDS` (default 900), `--set key=value` (any extra
 model-specific field, repeatable), `--visibility PUBLIC|UNLISTED|PRIVATE|SECRET`,
 `--collection NAME`.
 
+## Doing things to the account
+
+Three ways, from least to most effort. All act as the key's owner, and every
+result has a `summary` (or `did`) sentence — **tell the user that sentence**.
+
+**1. Just say it.** Hand the request to the account's own assistant, which picks
+the tools, acts, and reports. Best when the request is one sentence and you
+don't need to control the details.
+
+```bash
+$IC do "make my newest song public and add it to the Favourites collection"
+$IC do "make a 2 minute 30 second song about the ocean with 5 pictures"
+$IC do "set my default visibility to private"
+```
+
+`did` lists what was actually done; `reply` is the assistant's wording;
+`job_ids` are generations still running (`$IC job <id> --wait`).
+
+**2. Call a tool yourself.** Same tools, you choose the arguments.
+`$IC tools` lists them; `$IC tools NAME` shows one schema.
+
+```bash
+$IC tool search_library kind=song query=rain          # → items with ids
+$IC tool update_item id=1115 title="Urban Rainfall" visibility=PUBLIC
+$IC tool set_visibility_many visibility=PRIVATE kind=image query=portrait
+$IC tool save_collection name="Road trip" visibility=UNLISTED
+$IC tool collection_items collection="Road trip" item_ids='[1115,1105]'
+$IC tool get_settings
+$IC tool update_settings default_visibility=PRIVATE default_collection="Road trip"
+$IC tool services                                      # hosted services + access
+$IC tool make_song topic="first snow" duration_seconds=150 images=5
+$IC tool play_music query=rain                         # returns audio URLs
+```
+
+| Tool | What it does |
+| --- | --- |
+| `search_library`, `get_item` | Find songs, images, videos, speech, chats; read one in full |
+| `update_item` | Rename, set visibility, star, bookmark, set cover |
+| `set_visibility_many` | One visibility for many items (ids or a search) |
+| `delete_item`, `delete_collection` | Two calls: the first describes, the second (`confirm=true`) deletes. **Ask the user between them.** |
+| `list_collections`, `get_collection`, `save_collection`, `collection_items` | Playlists and albums |
+| `cover_art` | Count songs without covers; `generate=true` queues them |
+| `get_settings`, `update_settings` | Default visibility and collection, fallback model, routing, public profile, alias |
+| `services` | Hosted services and who may use them |
+| `make_song` | Lyrics (written for you unless you pass `lyrics`), the song, and one image per `image_prompts` entry, all filed in one collection |
+| `play_music`, `open_page` | Audio URLs / page URLs (the web app plays and navigates) |
+| `find_api`, `api_request` | Look up and call anything else |
+
+Visibility values: `PUBLIC` (listed), `UNLISTED` (anyone with the link),
+`PRIVATE` (signed-in members), `SECRET` (owner only).
+
+**3. The raw API.** `$IC api METHOD /path [--data JSON] [-q k=v]` reaches every
+endpoint; `$IC tool find_api query="voice samples"` finds one.
+
+### Which deployment
+
+`$IC doctor` shows the instance in use. To keep several (hosted, home lab,
+local dev) and pick by name:
+
+```bash
+INFERENCE_CLUB_API_KEY=… $IC instance add homelab --base-url https://club.example --default
+$IC -I homelab do "what's in my queue?"
+```
+
 ## How to work
 
 1. **Pick the model by `service_type`** (`ic.py models --type image`). Omitting `-m`
@@ -114,5 +183,12 @@ means poll `GET /v1/jobs/<id>` until `status` is `PROCESSED` and read `media[].u
 `output_text`. Full spec: `$INFERENCE_CLUB_BASE_URL/openapi.json`. See
 `references/api.md` for the cheat sheet.
 
-There is also a remote MCP server at `$INFERENCE_CLUB_BASE_URL/mcp` (same Bearer key)
-for clients that prefer MCP tools over a shell.
+## MCP
+
+The same tools are a remote MCP server at `$INFERENCE_CLUB_BASE_URL/mcp`
+(Streamable HTTP, same Bearer key) for clients that prefer MCP over a shell:
+
+```bash
+claude mcp add --transport http inference-club "$INFERENCE_CLUB_BASE_URL/mcp" \
+  --header "Authorization: Bearer $INFERENCE_CLUB_API_KEY"
+```

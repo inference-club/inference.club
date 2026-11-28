@@ -123,6 +123,13 @@ def _dispatch_one(user, model_name):
     }, None
 
 
+def _wire(messages) -> list:
+    """Messages as sent upstream. ``reasoning_content`` is kept in the stored
+    conversation for the UI, but strict OpenAI-compatible providers reject it
+    on the way back in."""
+    return [{k: v for k, v in m.items() if k != "reasoning_content"} for m in messages]
+
+
 def _call_model(user, model_name, messages, specs) -> tuple[Optional[dict], dict, Optional[str]]:
     """One non-streaming chat completion. Records an InferenceRequest (LLM) for
     metering. Returns ``(assistant_message, usage, error)``. When ``specs`` is
@@ -135,7 +142,7 @@ def _call_model(user, model_name, messages, specs) -> tuple[Optional[dict], dict
         return None, {}, err
 
     provider = disp["provider"]
-    body = {"model": disp["model"], "messages": messages, "stream": False}
+    body = {"model": disp["model"], "messages": _wire(messages), "stream": False}
     if specs:
         body["tools"] = specs
         body["tool_choice"] = "auto"
@@ -223,7 +230,7 @@ def _stream_model(user, model_name, messages, specs) -> Iterator[dict]:
     provider = disp["provider"]
     body = {
         "model": disp["model"],
-        "messages": messages,
+        "messages": _wire(messages),
         "stream": True,
         "stream_options": {"include_usage": True},
     }
@@ -269,6 +276,9 @@ def _stream_model(user, model_name, messages, specs) -> Iterator[dict]:
     reasoning_parts: list = []
     tool_calls: dict = {}  # index → {id, type, function:{name, arguments}}
     usage: dict = {}
+    # SSE is UTF-8; without this, a response with no charset is decoded as
+    # Latin-1 and every curly quote or accent turns into mojibake.
+    upstream.encoding = "utf-8"
     try:
         for line in upstream.iter_lines(decode_unicode=True):
             if not line:
@@ -424,6 +434,8 @@ def run_agent(
     tools=None,
     skill=None,
     registry: Optional[ToolRegistry] = None,
+    max_iterations: Optional[int] = None,
+    wall_clock_seconds: Optional[float] = None,
 ) -> Iterator[dict]:
     """Run the agent loop, yielding event dicts (see PRD 14 §4.3):
     ``tool_call`` / ``tool_result`` / ``reasoning`` / ``token`` / ``error`` /
@@ -435,7 +447,7 @@ def run_agent(
     from .agent_skills import get_skill
 
     registry = registry or get_registry()
-    deadline = time.monotonic() + settings.AGENT_WALL_CLOCK_SECONDS
+    deadline = time.monotonic() + (wall_clock_seconds or settings.AGENT_WALL_CLOCK_SECONDS)
     skill_obj = get_skill(skill)
 
     convo = [dict(m) for m in (messages or []) if isinstance(m, dict)]
@@ -456,7 +468,7 @@ def run_agent(
     total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     ctx = ToolContext(user=user, request=request)
 
-    for _step in range(max(1, settings.AGENT_MAX_ITERATIONS)):
+    for _step in range(max(1, max_iterations or settings.AGENT_MAX_ITERATIONS)):
         offer_tools = specs if (specs and time.monotonic() < deadline) else None
         msg = usage = err = None
         for ev in _model_turn(user, model, convo, offer_tools):

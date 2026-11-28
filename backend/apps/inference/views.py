@@ -143,6 +143,7 @@ def _apply_request_filters(qs, params, user=None):
     if search:
         qs = qs.filter(
             Q(payload__prompt__icontains=search)
+            | Q(title__icontains=search)
             | Q(model_name__icontains=search)
         )
 

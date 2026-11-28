@@ -267,5 +267,73 @@
     "runWorkflow": "Run workflow",
     "workerStalled": "Jobs are queued but the worker isn't processing them. Make sure the celery-worker and celery-beat services are running.",
     "asyncDisabled": "Async processing isn't enabled on this server (no Redis broker configured), so workflows can't run."
+  },
+  "assistant": {
+    "title": "Assistant",
+    "open": "Ouvrir l'assistant",
+    "intro": "Dites ou écrivez ce que vous voulez faire. L'assistant peut créer des chansons, des images, des vidéos et de la voix, organiser votre bibliothèque, changer qui peut voir quoi et modifier vos réglages.",
+    "placeholder": "Demandez quelque chose…",
+    "send": "Envoyer",
+    "stop": "Arrêter",
+    "talk": "Parler",
+    "stopListening": "Arrêter et envoyer",
+    "clear": "Effacer la conversation",
+    "speakReplies": "Lire les réponses à voix haute",
+    "model": "Modèle",
+    "modelAuto": "Modèle automatique",
+    "micDenied": "Le micro n'est pas disponible. Vérifiez l'autorisation du navigateur.",
+    "noStt": "Aucun modèle de transcription n'est en ligne, la saisie vocale est donc indisponible. Vous pouvez écrire.",
+    "status": {
+      "listening": "Écoute…",
+      "transcribing": "Transcription…",
+      "working": "En cours…",
+      "speaking": "Lecture…"
+    },
+    "job": {
+      "QUEUED": "en attente",
+      "PROCESSING": "en cours",
+      "PROCESSED": "terminé",
+      "FAILED": "échec",
+      "CANCELED": "annulé",
+      "REQUESTED": "démarrage"
+    },
+    "suggestions": {
+      "s1": "Crée une chanson lofi de 90 secondes sur la pluie avec 3 images",
+      "s2": "Rends ma dernière chanson publique",
+      "s3": "Joue mes chansons en aléatoire",
+      "s4": "Quels sont mes réglages pour les nouvelles générations ?"
+    },
+    "tools": {
+      "search_library": "Recherche dans la bibliothèque",
+      "get_item": "Élément consulté",
+      "update_item": "Élément modifié",
+      "set_visibility_many": "Visibilité modifiée",
+      "delete_item": "Supprimer",
+      "cover_art": "Pochettes",
+      "list_collections": "Collections",
+      "get_collection": "Collection",
+      "save_collection": "Collection enregistrée",
+      "collection_items": "Collection modifiée",
+      "delete_collection": "Supprimer la collection",
+      "get_settings": "Réglages lus",
+      "update_settings": "Réglages modifiés",
+      "services": "Services",
+      "play_music": "Lecture",
+      "open_page": "Page ouverte",
+      "make_song": "Chanson avec images",
+      "find_api": "Recherche dans l'API",
+      "api_request": "Requête à l'API",
+      "generate_image": "Image",
+      "generate_video": "Vidéo",
+      "generate_music": "Chanson",
+      "generate_speech": "Voix",
+      "list_models": "Modèles",
+      "get_capacity": "Capacité GPU",
+      "scrape_url": "Page web lue",
+      "get_job": "Tâche consultée",
+      "list_jobs": "Tâches",
+      "cancel_job": "Tâche annulée",
+      "web_search": "Recherche web"
+    }
   }
 }

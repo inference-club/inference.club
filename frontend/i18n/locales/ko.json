@@ -267,5 +267,73 @@
     "runWorkflow": "Run workflow",
     "workerStalled": "Jobs are queued but the worker isn't processing them. Make sure the celery-worker and celery-beat services are running.",
     "asyncDisabled": "Async processing isn't enabled on this server (no Redis broker configured), so workflows can't run."
+  },
+  "assistant": {
+    "title": "어시스턴트",
+    "open": "어시스턴트 열기",
+    "intro": "원하는 작업을 말하거나 입력하세요. 노래, 이미지, 영상, 음성을 만들고 라이브러리를 정리하며 공개 범위와 설정을 바꿀 수 있습니다.",
+    "placeholder": "무엇이든 요청하세요…",
+    "send": "보내기",
+    "stop": "중지",
+    "talk": "말하기",
+    "stopListening": "중지 후 보내기",
+    "clear": "대화 지우기",
+    "speakReplies": "답변 읽어주기",
+    "model": "모델",
+    "modelAuto": "자동 모델",
+    "micDenied": "마이크를 사용할 수 없습니다. 브라우저 권한을 확인하세요.",
+    "noStt": "음성 인식 모델이 온라인이 아니어서 음성 입력을 사용할 수 없습니다. 입력은 가능합니다.",
+    "status": {
+      "listening": "듣는 중…",
+      "transcribing": "받아쓰는 중…",
+      "working": "작업 중…",
+      "speaking": "말하는 중…"
+    },
+    "job": {
+      "QUEUED": "대기 중",
+      "PROCESSING": "작업 중",
+      "PROCESSED": "완료",
+      "FAILED": "실패",
+      "CANCELED": "취소됨",
+      "REQUESTED": "시작 중"
+    },
+    "suggestions": {
+      "s1": "비에 관한 90초 로파이 노래를 이미지 3장과 함께 만들어 줘",
+      "s2": "가장 최근 노래를 공개로 바꿔 줘",
+      "s3": "내 노래를 셔플로 재생해 줘",
+      "s4": "새 생성물의 기본 설정이 뭐야?"
+    },
+    "tools": {
+      "search_library": "라이브러리 검색",
+      "get_item": "항목 확인",
+      "update_item": "항목 수정",
+      "set_visibility_many": "공개 범위 변경",
+      "delete_item": "삭제",
+      "cover_art": "커버 아트",
+      "list_collections": "컬렉션 목록",
+      "get_collection": "컬렉션",
+      "save_collection": "컬렉션 저장",
+      "collection_items": "컬렉션 수정",
+      "delete_collection": "컬렉션 삭제",
+      "get_settings": "설정 확인",
+      "update_settings": "설정 변경",
+      "services": "서비스",
+      "play_music": "재생",
+      "open_page": "페이지 열기",
+      "make_song": "이미지가 있는 노래",
+      "find_api": "API 검색",
+      "api_request": "API 요청",
+      "generate_image": "이미지",
+      "generate_video": "영상",
+      "generate_music": "노래",
+      "generate_speech": "음성",
+      "list_models": "모델",
+      "get_capacity": "GPU 여유",
+      "scrape_url": "웹 페이지 읽기",
+      "get_job": "작업 확인",
+      "list_jobs": "작업 목록",
+      "cancel_job": "작업 취소",
+      "web_search": "웹 검색"
+    }
   }
 }

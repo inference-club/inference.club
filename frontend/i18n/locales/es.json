@@ -267,5 +267,73 @@
     "runWorkflow": "Run workflow",
     "workerStalled": "Jobs are queued but the worker isn't processing them. Make sure the celery-worker and celery-beat services are running.",
     "asyncDisabled": "Async processing isn't enabled on this server (no Redis broker configured), so workflows can't run."
+  },
+  "assistant": {
+    "title": "Asistente",
+    "open": "Abrir el asistente",
+    "intro": "Di o escribe lo que quieres hacer. El asistente puede crear canciones, imágenes, vídeo y voz, organizar tu biblioteca, cambiar quién puede ver cada cosa y cambiar tus ajustes.",
+    "placeholder": "Pide algo…",
+    "send": "Enviar",
+    "stop": "Detener",
+    "talk": "Hablar",
+    "stopListening": "Parar y enviar",
+    "clear": "Borrar conversación",
+    "speakReplies": "Leer respuestas en voz alta",
+    "model": "Modelo",
+    "modelAuto": "Modelo automático",
+    "micDenied": "El micrófono no está disponible. Revisa el permiso del navegador.",
+    "noStt": "No hay ningún modelo de voz a texto en línea, así que la entrada por voz no está disponible. Puedes escribir.",
+    "status": {
+      "listening": "Escuchando…",
+      "transcribing": "Transcribiendo…",
+      "working": "Trabajando…",
+      "speaking": "Hablando…"
+    },
+    "job": {
+      "QUEUED": "en cola",
+      "PROCESSING": "en curso",
+      "PROCESSED": "listo",
+      "FAILED": "falló",
+      "CANCELED": "cancelado",
+      "REQUESTED": "iniciando"
+    },
+    "suggestions": {
+      "s1": "Haz una canción lofi de 90 segundos sobre la lluvia con 3 imágenes",
+      "s2": "Haz pública mi canción más reciente",
+      "s3": "Reproduce mis canciones en modo aleatorio",
+      "s4": "¿Cuáles son mis ajustes para nuevas generaciones?"
+    },
+    "tools": {
+      "search_library": "Búsqueda en la biblioteca",
+      "get_item": "Elemento consultado",
+      "update_item": "Elemento actualizado",
+      "set_visibility_many": "Visibilidad cambiada",
+      "delete_item": "Eliminar",
+      "cover_art": "Portadas",
+      "list_collections": "Colecciones",
+      "get_collection": "Colección",
+      "save_collection": "Colección guardada",
+      "collection_items": "Colección actualizada",
+      "delete_collection": "Eliminar colección",
+      "get_settings": "Ajustes leídos",
+      "update_settings": "Ajustes cambiados",
+      "services": "Servicios",
+      "play_music": "Reproducir",
+      "open_page": "Página abierta",
+      "make_song": "Canción con imágenes",
+      "find_api": "Consulta de la API",
+      "api_request": "Petición a la API",
+      "generate_image": "Imagen",
+      "generate_video": "Vídeo",
+      "generate_music": "Canción",
+      "generate_speech": "Voz",
+      "list_models": "Modelos",
+      "get_capacity": "Capacidad de GPU",
+      "scrape_url": "Página web leída",
+      "get_job": "Trabajo consultado",
+      "list_jobs": "Trabajos",
+      "cancel_job": "Trabajo cancelado",
+      "web_search": "Búsqueda web"
+    }
   }
 }

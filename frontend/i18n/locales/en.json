@@ -361,5 +361,73 @@
     "otherOptions": "or explore other sign-in options",
     "dismiss": "Dismiss"
   },
-  "signInToCreatePrompt": "Sign in to make your own"
+  "signInToCreatePrompt": "Sign in to make your own",
+  "assistant": {
+    "title": "Assistant",
+    "open": "Open the assistant",
+    "intro": "Say or type what you want done. The assistant can make songs, images, video and speech, organise your library, change who can see things, and change your settings.",
+    "placeholder": "Ask for something…",
+    "send": "Send",
+    "stop": "Stop",
+    "talk": "Talk",
+    "stopListening": "Stop and send",
+    "clear": "Clear conversation",
+    "speakReplies": "Read answers aloud",
+    "model": "Model",
+    "modelAuto": "Automatic model",
+    "micDenied": "The microphone is not available. Check the browser permission.",
+    "noStt": "No speech-to-text model is online, so voice input is unavailable. You can still type.",
+    "status": {
+      "listening": "Listening…",
+      "transcribing": "Transcribing…",
+      "working": "Working…",
+      "speaking": "Speaking…"
+    },
+    "job": {
+      "QUEUED": "queued",
+      "PROCESSING": "working",
+      "PROCESSED": "done",
+      "FAILED": "failed",
+      "CANCELED": "canceled",
+      "REQUESTED": "starting"
+    },
+    "suggestions": {
+      "s1": "Make a 90 second lofi song about rain with 3 pictures",
+      "s2": "Make my newest song public",
+      "s3": "Play my songs on shuffle",
+      "s4": "What are my settings for new generations?"
+    },
+    "tools": {
+      "search_library": "Searched the library",
+      "get_item": "Looked up an item",
+      "update_item": "Updated an item",
+      "set_visibility_many": "Changed visibility",
+      "delete_item": "Delete",
+      "cover_art": "Cover art",
+      "list_collections": "Listed collections",
+      "get_collection": "Opened a collection",
+      "save_collection": "Saved a collection",
+      "collection_items": "Updated a collection",
+      "delete_collection": "Delete collection",
+      "get_settings": "Read settings",
+      "update_settings": "Changed settings",
+      "services": "Services",
+      "play_music": "Play",
+      "open_page": "Opened a page",
+      "make_song": "Song with pictures",
+      "find_api": "Looked up the API",
+      "api_request": "API request",
+      "generate_image": "Image",
+      "generate_video": "Video",
+      "generate_music": "Song",
+      "generate_speech": "Speech",
+      "list_models": "Models",
+      "get_capacity": "GPU capacity",
+      "scrape_url": "Read a web page",
+      "get_job": "Checked a job",
+      "list_jobs": "Listed jobs",
+      "cancel_job": "Canceled a job",
+      "web_search": "Web search"
+    }
+  }
 }

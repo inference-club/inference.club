@@ -267,5 +267,73 @@
     "runWorkflow": "Run workflow",
     "workerStalled": "Jobs are queued but the worker isn't processing them. Make sure the celery-worker and celery-beat services are running.",
     "asyncDisabled": "Async processing isn't enabled on this server (no Redis broker configured), so workflows can't run."
+  },
+  "assistant": {
+    "title": "助手",
+    "open": "打开助手",
+    "intro": "说出或输入你想做的事。助手可以创作歌曲、图片、视频和语音，整理你的媒体库，更改可见范围和设置。",
+    "placeholder": "想做什么，尽管说…",
+    "send": "发送",
+    "stop": "停止",
+    "talk": "说话",
+    "stopListening": "停止并发送",
+    "clear": "清空对话",
+    "speakReplies": "朗读回答",
+    "model": "模型",
+    "modelAuto": "自动选择模型",
+    "micDenied": "无法使用麦克风，请检查浏览器权限。",
+    "noStt": "没有在线的语音识别模型，暂时无法语音输入，仍可打字。",
+    "status": {
+      "listening": "正在聆听…",
+      "transcribing": "正在转写…",
+      "working": "处理中…",
+      "speaking": "正在朗读…"
+    },
+    "job": {
+      "QUEUED": "排队中",
+      "PROCESSING": "处理中",
+      "PROCESSED": "完成",
+      "FAILED": "失败",
+      "CANCELED": "已取消",
+      "REQUESTED": "启动中"
+    },
+    "suggestions": {
+      "s1": "做一首90秒关于雨的lofi歌曲，配3张图片",
+      "s2": "把我最新的歌曲设为公开",
+      "s3": "随机播放我的歌曲",
+      "s4": "我的新生成内容默认设置是什么？"
+    },
+    "tools": {
+      "search_library": "搜索媒体库",
+      "get_item": "查看项目",
+      "update_item": "更新项目",
+      "set_visibility_many": "更改可见范围",
+      "delete_item": "删除",
+      "cover_art": "封面",
+      "list_collections": "合集列表",
+      "get_collection": "合集",
+      "save_collection": "保存合集",
+      "collection_items": "更新合集",
+      "delete_collection": "删除合集",
+      "get_settings": "读取设置",
+      "update_settings": "更改设置",
+      "services": "服务",
+      "play_music": "播放",
+      "open_page": "打开页面",
+      "make_song": "配图歌曲",
+      "find_api": "查找 API",
+      "api_request": "API 请求",
+      "generate_image": "图片",
+      "generate_video": "视频",
+      "generate_music": "歌曲",
+      "generate_speech": "语音",
+      "list_models": "模型",
+      "get_capacity": "GPU 容量",
+      "scrape_url": "读取网页",
+      "get_job": "查看任务",
+      "list_jobs": "任务列表",
+      "cancel_job": "取消任务",
+      "web_search": "网页搜索"
+    }
   }
 }

@@ -90,7 +90,9 @@ info:
 
     An MCP (Model Context Protocol) server is also available at `POST /mcp`
     (outside `/v1`; JSON-RPC 2.0, same Bearer auth). It exposes these
-    capabilities as MCP tools.
+    capabilities as MCP tools, plus tools to manage the account: library
+    search and edits, visibility, collections, settings, service access, and
+    a guarded `api_request` for everything else.
 
     > **Try it out** makes real calls against a live provider's GPU using your
     > API key (click **Authorize**). They count against your rate limit.
@@ -973,6 +975,15 @@ paths:
         `data: <AgentEvent JSON>` lines. Send `stream: false` to get a single
         JSON object. Use this when you want inference.club to orchestrate
         tools. Use `/chat/completions` for plain chat.
+
+        **The assistant.** Send `skill: "assistant"` to have the loop operate
+        the caller's own account in plain language: generate media, find and
+        edit library items, change visibility, manage collections and settings,
+        play music, or call any endpoint. It uses the same tools as the MCP
+        server at `/mcp`. `model` is then optional (a default `llm` is chosen),
+        and the `stream: false` result gains `actions`: one sentence per tool
+        that ran, saying what was done. Deleting needs the person's yes in a
+        later turn.
       requestBody:
         required: true
         content:
@@ -991,7 +1002,15 @@ paths:
                   type: array
                   items: { type: string }
                   description: "Tool names to enable (from /agent/tools). Omit for all available (or the skill's set)."
-                skill: { type: string, description: "Optional skill preset name (from /agent/tools `skills`)." }
+                skill: { type: string, description: "Optional skill preset name (from /agent/tools `skills`), or `assistant` to operate the account." }
+                context:
+                  type: object
+                  description: "`skill: assistant` only. Where the person is, so 'this' resolves."
+                  properties:
+                    path: { type: string, description: "Page of the web app they are on." }
+                    item: { type: string, description: "Id of the library item open on that page." }
+                    playing_id: { type: integer, description: "Id of the song now playing." }
+                    spoken: { type: boolean, description: "They are using voice; answer in a sentence or two." }
                 stream: { type: boolean, default: true }
             example:
               model: qwen/qwen3-30b-a3b

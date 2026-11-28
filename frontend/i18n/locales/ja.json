@@ -267,5 +267,73 @@
     "runWorkflow": "Run workflow",
     "workerStalled": "Jobs are queued but the worker isn't processing them. Make sure the celery-worker and celery-beat services are running.",
     "asyncDisabled": "Async processing isn't enabled on this server (no Redis broker configured), so workflows can't run."
+  },
+  "assistant": {
+    "title": "アシスタント",
+    "open": "アシスタントを開く",
+    "intro": "やりたいことを話すか入力してください。曲・画像・動画・音声の作成、ライブラリの整理、公開範囲や設定の変更ができます。",
+    "placeholder": "何でも頼んでください…",
+    "send": "送信",
+    "stop": "停止",
+    "talk": "話す",
+    "stopListening": "停止して送信",
+    "clear": "会話を消去",
+    "speakReplies": "回答を読み上げる",
+    "model": "モデル",
+    "modelAuto": "自動選択",
+    "micDenied": "マイクを使用できません。ブラウザの権限を確認してください。",
+    "noStt": "音声認識モデルがオンラインでないため、音声入力は使えません。文字入力は使えます。",
+    "status": {
+      "listening": "聞いています…",
+      "transcribing": "文字起こし中…",
+      "working": "処理中…",
+      "speaking": "読み上げ中…"
+    },
+    "job": {
+      "QUEUED": "待機中",
+      "PROCESSING": "処理中",
+      "PROCESSED": "完了",
+      "FAILED": "失敗",
+      "CANCELED": "キャンセル",
+      "REQUESTED": "開始中"
+    },
+    "suggestions": {
+      "s1": "雨をテーマにした90秒のローファイ曲を画像3枚付きで作って",
+      "s2": "最新の曲を公開にして",
+      "s3": "自分の曲をシャッフル再生して",
+      "s4": "新しい生成の設定はどうなっている？"
+    },
+    "tools": {
+      "search_library": "ライブラリを検索",
+      "get_item": "アイテムを確認",
+      "update_item": "アイテムを更新",
+      "set_visibility_many": "公開範囲を変更",
+      "delete_item": "削除",
+      "cover_art": "カバーアート",
+      "list_collections": "コレクション一覧",
+      "get_collection": "コレクション",
+      "save_collection": "コレクションを保存",
+      "collection_items": "コレクションを更新",
+      "delete_collection": "コレクションを削除",
+      "get_settings": "設定を確認",
+      "update_settings": "設定を変更",
+      "services": "サービス",
+      "play_music": "再生",
+      "open_page": "ページを開く",
+      "make_song": "画像付きの曲",
+      "find_api": "APIを検索",
+      "api_request": "APIリクエスト",
+      "generate_image": "画像",
+      "generate_video": "動画",
+      "generate_music": "曲",
+      "generate_speech": "音声",
+      "list_models": "モデル",
+      "get_capacity": "GPUの空き",
+      "scrape_url": "ウェブページを読む",
+      "get_job": "ジョブを確認",
+      "list_jobs": "ジョブ一覧",
+      "cancel_job": "ジョブをキャンセル",
+      "web_search": "ウェブ検索"
+    }
   }
 }

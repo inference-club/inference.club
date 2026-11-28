@@ -267,5 +267,73 @@
     "runWorkflow": "Run workflow",
     "workerStalled": "Jobs are queued but the worker isn't processing them. Make sure the celery-worker and celery-beat services are running.",
     "asyncDisabled": "Async processing isn't enabled on this server (no Redis broker configured), so workflows can't run."
+  },
+  "assistant": {
+    "title": "Ассистент",
+    "open": "Открыть ассистента",
+    "intro": "Скажите или напишите, что нужно сделать. Ассистент создаёт песни, изображения, видео и речь, наводит порядок в библиотеке, меняет доступ и настройки.",
+    "placeholder": "Попросите о чём-нибудь…",
+    "send": "Отправить",
+    "stop": "Стоп",
+    "talk": "Говорить",
+    "stopListening": "Остановить и отправить",
+    "clear": "Очистить разговор",
+    "speakReplies": "Читать ответы вслух",
+    "model": "Модель",
+    "modelAuto": "Автоматический выбор",
+    "micDenied": "Микрофон недоступен. Проверьте разрешение в браузере.",
+    "noStt": "Нет доступной модели распознавания речи, поэтому голосовой ввод не работает. Можно печатать.",
+    "status": {
+      "listening": "Слушаю…",
+      "transcribing": "Распознаю…",
+      "working": "Работаю…",
+      "speaking": "Говорю…"
+    },
+    "job": {
+      "QUEUED": "в очереди",
+      "PROCESSING": "в работе",
+      "PROCESSED": "готово",
+      "FAILED": "ошибка",
+      "CANCELED": "отменено",
+      "REQUESTED": "запуск"
+    },
+    "suggestions": {
+      "s1": "Сделай 90-секундную лоу-фай песню о дожде с 3 картинками",
+      "s2": "Сделай мою последнюю песню публичной",
+      "s3": "Включи мои песни вперемешку",
+      "s4": "Какие у меня настройки для новых генераций?"
+    },
+    "tools": {
+      "search_library": "Поиск в библиотеке",
+      "get_item": "Просмотр элемента",
+      "update_item": "Элемент изменён",
+      "set_visibility_many": "Доступ изменён",
+      "delete_item": "Удаление",
+      "cover_art": "Обложки",
+      "list_collections": "Коллекции",
+      "get_collection": "Коллекция",
+      "save_collection": "Коллекция сохранена",
+      "collection_items": "Коллекция изменена",
+      "delete_collection": "Удаление коллекции",
+      "get_settings": "Настройки прочитаны",
+      "update_settings": "Настройки изменены",
+      "services": "Сервисы",
+      "play_music": "Воспроизведение",
+      "open_page": "Страница открыта",
+      "make_song": "Песня с картинками",
+      "find_api": "Поиск по API",
+      "api_request": "Запрос к API",
+      "generate_image": "Изображение",
+      "generate_video": "Видео",
+      "generate_music": "Песня",
+      "generate_speech": "Речь",
+      "list_models": "Модели",
+      "get_capacity": "Загрузка GPU",
+      "scrape_url": "Чтение страницы",
+      "get_job": "Проверка задачи",
+      "list_jobs": "Задачи",
+      "cancel_job": "Задача отменена",
+      "web_search": "Поиск в интернете"
+    }
   }
 }

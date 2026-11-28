@@ -22,17 +22,19 @@ import logging
 import time
 
 from django.conf import settings
-from django.test import RequestFactory
-from django.urls import resolve
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .control_tools import CONTROL_HANDLERS, CONTROL_TOOLS, ToolError
+from .control_tools import err_text as _err_text
+from .control_tools import internal as _internal
+
 logger = logging.getLogger("django")
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "2.0.0"
 
 INSTRUCTIONS = """\
 inference.club runs open models on community GPUs (often a single home GPU per
@@ -46,8 +48,14 @@ pages, and run multi-step workflows.
 - Devices have limited concurrency. If a tool returns status QUEUED, the request
   is safely waiting its turn — call get_job(job_id) later (wait ~10-30s between
   checks for images, 30-90s for video/music) instead of resubmitting.
-- Don't fire many generations at once. Prefer one at a time per model, and use
-  run_workflow or several sequential calls for batches.
+- Don't fire many generations at once. Prefer one at a time per model. For "a
+  song about X with pictures", call make_song once instead of many tools.
+- Pass wait: false to a generation tool to get a job id back immediately.
+- The same account can be managed here: search_library, update_item,
+  set_visibility_many, collections, get_settings / update_settings, services,
+  play_music, open_page. Anything else: find_api then api_request.
+- After acting, tell the person what happened using the tool's `summary`.
+  delete_* tools need the person's yes before confirm: true.
 """
 
 
@@ -71,6 +79,8 @@ _SHARE = {
     "collection": {"type": "string", "description": "Optional collection name to file it into."},
 }
 _MODEL = {"type": "string", "description": "Model id from list_models. Omit for a default."}
+_WAIT = {"type": "boolean", "description": "false returns a job id immediately instead "
+                                           "of waiting for the result."}
 
 
 TOOLS = [
@@ -98,7 +108,7 @@ TOOLS = [
             "n": {**_I, "minimum": 1, "maximum": 4},
             "seed": _I, "negative_prompt": _S,
             "background": {"type": "string", "enum": ["opaque", "transparent"]},
-            "options": _OPTS, **_SHARE,
+            "options": _OPTS, "wait": _WAIT, **_SHARE,
         }, ["prompt"]),
     },
     {
@@ -109,7 +119,7 @@ TOOLS = [
             "prompt": _S, "model": _MODEL,
             "image_url": {**_S, "description": "Optional first frame (http(s) URL or data: URI)."},
             "width": _I, "height": _I, "num_frames": _I, "fps": _I, "seed": _I,
-            "options": _OPTS, **_SHARE,
+            "options": _OPTS, "wait": _WAIT, **_SHARE,
         }, ["prompt"]),
     },
     {
@@ -119,8 +129,9 @@ TOOLS = [
             "prompt": {**_S, "description": "Style/genre/mood tags."},
             "lyrics": {**_S, "description": "Optional lyrics with [verse]/[chorus] tags; "
                                             "use [instrumental] for none."},
-            "duration": {**_N, "description": "Seconds (e.g. 30-240)."},
-            "model": _MODEL, "seed": _I, "options": _OPTS, **_SHARE,
+            "duration": {**_N, "description": "Seconds (5-300)."},
+            "title": {**_S, "description": "Song title (one is written if omitted)."},
+            "model": _MODEL, "seed": _I, "options": _OPTS, "wait": _WAIT, **_SHARE,
         }, ["prompt"]),
     },
     {
@@ -129,7 +140,7 @@ TOOLS = [
         "inputSchema": _obj({
             "input": {**_S, "description": "Text to speak."},
             "voice": {**_S, "description": "Voice id (see the model's voices)."},
-            "model": _MODEL, "options": _OPTS, **_SHARE,
+            "model": _MODEL, "options": _OPTS, "wait": _WAIT, **_SHARE,
         }, ["input"]),
     },
     {
@@ -190,7 +201,7 @@ TOOLS = [
         "inputSchema": _obj({"run_id": _S}, ["run_id"]),
         "annotations": {"readOnlyHint": True},
     },
-]
+] + CONTROL_TOOLS
 _TOOL_NAMES = {t["name"] for t in TOOLS}
 
 _GEN_ENDPOINT = {
@@ -201,59 +212,6 @@ _GEN_ENDPOINT = {
 }
 
 
-class ToolError(Exception):
-    pass
-
-
-# --- internal dispatch to the real /v1 views ---------------------------------
-
-
-def _internal(outer, method, path, body=None, query=None):
-    """Call a /v1 view in-process with the caller's own credentials. Returns
-    ``(status_code, data, headers)``."""
-    rf = RequestFactory()
-    # Carry the caller's credentials AND its host/scheme (incl. proxy headers),
-    # so absolute media URLs built by the views point at the real public host.
-    meta = {k: v for k, v in outer.META.items() if k in (
-        "HTTP_AUTHORIZATION", "HTTP_HOST", "HTTP_X_FORWARDED_HOST",
-        "HTTP_X_FORWARDED_PROTO", "HTTP_X_FORWARDED_FOR", "REMOTE_ADDR", "SERVER_NAME",
-        "SERVER_PORT",
-    )}
-    secure = outer.is_secure()
-    if method == "GET":
-        req = rf.get(path, data=query or {}, secure=secure, **meta)
-    else:
-        req = rf.post(path, data=json.dumps(body or {}), content_type="application/json",
-                      secure=secure, **meta)
-    match = resolve(path)
-    resp = match.func(req, *match.args, **match.kwargs)
-    if hasattr(resp, "render") and not getattr(resp, "is_rendered", True):
-        resp.render()
-    data = None
-    ctype = resp.get("Content-Type", "") if hasattr(resp, "get") else ""
-    if "json" in ctype:
-        try:
-            data = json.loads(resp.content or b"null")
-        except ValueError:
-            data = None
-    return resp.status_code, data, resp
-
-
-def _err_text(code, data):
-    if isinstance(data, dict):
-        e = data.get("error")
-        if isinstance(e, dict):
-            msg = e.get("message") or json.dumps(e)
-            if e.get("type") == "at_capacity":
-                msg += f" (retry after ~{e.get('retry_after')}s)"
-            return f"{code} {e.get('type', '')}: {msg}".strip()
-        if isinstance(e, str):
-            return f"{code}: {e}"
-        if data.get("detail"):
-            return f"{code}: {data['detail']}"
-    return f"HTTP {code}"
-
-
 def _job_summary(job: dict) -> dict:
     st = job.get("status")
     out = {
@@ -262,6 +220,12 @@ def _job_summary(job: dict) -> dict:
         "inference_type": job.get("inference_type"),
         "model": job.get("model_name"),
     }
+    kind = (job.get("inference_type") or "job").lower()
+    out["summary"] = {
+        "PROCESSED": f"The {kind} job finished.",
+        "FAILED": f"The {kind} job failed.",
+        "CANCELED": f"The {kind} job was canceled.",
+    }.get(st, f"The {kind} job is {str(st).lower()}; check again shortly.")
     if st == "PROCESSED":
         out["media"] = job.get("media") or []
         if job.get("output_text"):
@@ -272,6 +236,12 @@ def _job_summary(job: dict) -> dict:
         out["hint"] = ("Still working — call get_job with this job_id later. "
                        "Do not resubmit the request.")
     return out
+
+
+def _wait_seconds(outer):
+    """How long a tool may block on a job. The in-app assistant sets a short
+    wait on the request so a voice turn never hangs on a slow generation."""
+    return getattr(outer, "_ic_tool_wait", settings.MCP_TOOL_WAIT_SECONDS)
 
 
 def _wait_for_job(outer, job_id, wait_s):
@@ -328,8 +298,9 @@ def _tool_get_capacity(outer, args):
 def _generate(outer, name, args):
     path, stype = _GEN_ENDPOINT[name]
     body = dict(args.get("options") or {})
+    wait = args.get("wait") is not False
     for k, v in args.items():
-        if k in ("options",) or v is None:
+        if k in ("options", "wait") or v is None:
             continue
         body[k] = v
     if name == "generate_video" and body.get("image_url"):
@@ -343,11 +314,11 @@ def _generate(outer, name, args):
         path, body = _speech_route(outer, body)
     elif not body["model"]:
         body["model"] = _default_model(outer.user, stype)
-    body["async"] = "auto"
+    body["async"] = "auto" if wait else True
     body["delivery"] = "url"
     code, data, _ = _internal(outer, "POST", path, body)
     if code == 202 and isinstance(data, dict):
-        job = _wait_for_job(outer, data["id"], settings.MCP_TOOL_WAIT_SECONDS)
+        job = _wait_for_job(outer, data["id"], _wait_seconds(outer) if wait else 0)
         out = _job_summary(job)
         if data.get("queued_reason") and out["status"] not in ("PROCESSED",):
             out["queued_reason"] = data["queued_reason"]
@@ -363,7 +334,10 @@ def _generate(outer, name, args):
                                                    "duration_seconds", "seed")
                           if item.get(k) is not None} | ({"kind": "image"} if
                                                           name == "generate_image" else {}))
-    return {"status": "PROCESSED", "model": body["model"],
+    noun = name.replace("generate_", "")
+    return {"summary": f"Generated {len(media)} {noun} result{'' if len(media) == 1 else 's'} "
+                       f"with {body['model']}.",
+            "status": "PROCESSED", "model": body["model"],
             "request_id": data.get("id") or data.get("request_id"), "media": media}
 
 
@@ -410,7 +384,7 @@ def _tool_chat(outer, args):
     body["async"] = "auto"
     code, data, _ = _internal(outer, "POST", "/v1/chat/completions", body)
     if code == 202:
-        return _job_summary(_wait_for_job(outer, data["id"], settings.MCP_TOOL_WAIT_SECONDS))
+        return _job_summary(_wait_for_job(outer, data["id"], _wait_seconds(outer)))
     if code != 200 or not isinstance(data, dict):
         raise ToolError(_err_text(code, data))
     from .serializers import _extract_response_text
@@ -424,7 +398,7 @@ def _tool_scrape(outer, args):
             "model": args.get("model") or _default_model(outer.user, "scrape")}
     code, data, _ = _internal(outer, "POST", "/v1/scrape", body)
     if code == 202:
-        return _job_summary(_wait_for_job(outer, data["id"], settings.MCP_TOOL_WAIT_SECONDS))
+        return _job_summary(_wait_for_job(outer, data["id"], _wait_seconds(outer)))
     if code != 200:
         raise ToolError(_err_text(code, data))
     md = (data or {}).get("markdown") or ""
@@ -518,6 +492,8 @@ _HANDLERS = {
 def call_tool(outer, name, args):
     if name in _GEN_ENDPOINT:
         return _generate(outer, name, args)
+    if name in CONTROL_HANDLERS:
+        return CONTROL_HANDLERS[name](outer, args)
     return _HANDLERS[name](outer, args)
 
 
