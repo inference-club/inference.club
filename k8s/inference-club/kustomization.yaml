@@ -31,6 +31,6 @@ configMapGenerator:
 # sha-<commit> tag and push.
 images:
   - name: ghcr.io/inference-club/inference-club-backend
-    newTag: sha-70ff8e8
+    newTag: sha-79d9eed
   - name: ghcr.io/inference-club/inference-club-frontend
-    newTag: sha-70ff8e8
+    newTag: sha-79d9eed
