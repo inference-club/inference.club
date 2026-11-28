@@ -5,7 +5,8 @@
 
 import { defineStore } from 'pinia'
 import type { PlayerTrack } from '@/utils/player'
-import { rememberPlayed } from '@/utils/player'
+import { rememberPlayed, forgetPlayed } from '@/utils/player'
+import { resumeSharedAudioContext } from '@/utils/audio'
 
 export type RepeatMode = 'off' | 'all' | 'one'
 
@@ -24,7 +25,29 @@ interface PlayerState {
   volume: number
   /** Bumped on queue replacement so the queue popover can reset scroll. */
   queueVersion: number
+  /** Waiting on the network for the current track. */
+  buffering: boolean
+  /** Ids of tracks that failed to load this session; lists mark them. */
+  failedIds: string[]
+  /** The current track failed and nothing else is playing. */
+  error: boolean
 }
+
+type CorsMode = 'anonymous' | 'use-credentials'
+
+// Public and unlisted audio may redirect to the public bucket, which answers
+// CORS without credentials, so those must be requested anonymously. Private
+// and secret audio is streamed by the API behind the session cookie, so those
+// need credentials. Tracks restored from older storage carry no visibility:
+// start anonymous and let the error handler try the other mode.
+const corsModeFor = (track: PlayerTrack): CorsMode =>
+  track.visibility === 'PRIVATE' || track.visibility === 'SECRET'
+    ? 'use-credentials'
+    : 'anonymous'
+
+// Per-load bookkeeping, module-level like the element itself.
+let triedOtherMode = false
+let consecutiveFailures = 0
 
 // The audio element is module-level (not state): it must never be serialized,
 // and there is exactly one for the whole app.
@@ -51,6 +74,9 @@ export const usePlayerStore = defineStore('player', {
     duration: 0,
     volume: 1,
     queueVersion: 0,
+    buffering: false,
+    failedIds: [],
+    error: false,
   }),
 
   getters: {
@@ -81,9 +107,28 @@ export const usePlayerStore = defineStore('player', {
       if (!audio) {
         audio = new Audio()
         audio.preload = 'metadata'
-        // The OUTPUT_AUDIO asset is a public CORS-served kind; anonymous mode
-        // keeps the element analyzable (visualizer) without tainting.
+        // A CORS mode is always set (per track, in _load) so the element stays
+        // analysable by the visualizer without tainting.
         audio.crossOrigin = 'anonymous'
+        audio.addEventListener('error', () => this._onError())
+        audio.addEventListener('waiting', () => {
+          this.buffering = true
+        })
+        audio.addEventListener('loadstart', () => {
+          this.buffering = true
+        })
+        for (const ev of ['canplay', 'playing', 'pause', 'ended'] as const) {
+          audio.addEventListener(ev, () => {
+            this.buffering = false
+          })
+        }
+        audio.addEventListener('playing', () => {
+          consecutiveFailures = 0
+          this.error = false
+          // If the visualizer has routed this element through Web Audio, a
+          // suspended context would make this silent.
+          void resumeSharedAudioContext()
+        })
         audio.addEventListener('timeupdate', () => {
           this.currentTime = audio?.currentTime ?? 0
         })
@@ -116,16 +161,51 @@ export const usePlayerStore = defineStore('player', {
       this.index = index
       this.currentTime = 0
       this.duration = track.duration ?? 0
-      el.src = track.url
+      this.error = false
+      triedOtherMode = false
+      this._start(el, track.url, corsModeFor(track), autoplay)
+      rememberPlayed(track)
+      this._mediaSessionMetadata(track)
+    },
+
+    _start(el: HTMLAudioElement, url: string, mode: CorsMode, autoplay: boolean) {
+      // crossOrigin must be set before src for the new request to use it.
+      el.crossOrigin = mode
+      el.src = url
       if (autoplay) {
         void el.play().catch(() => {
           // Autoplay can be blocked until a user gesture; the bar shows the
-          // paused state and the next tap starts playback.
+          // paused state and the next tap starts playback. A real load
+          // failure arrives as an `error` event and is handled there.
           this.playing = false
         })
       }
-      rememberPlayed(track)
-      this._mediaSessionMetadata(track)
+    },
+
+    /** The current track would not load. Try the other CORS mode once (the
+     * track's visibility may be unknown or have changed), then mark it failed
+     * and move on so one bad track never stalls a queue. */
+    _onError() {
+      const el = this._el()
+      const track = this.current
+      if (!el || !track || !el.getAttribute('src')) return
+      if (!triedOtherMode) {
+        triedOtherMode = true
+        const other: CorsMode =
+          el.crossOrigin === 'use-credentials' ? 'anonymous' : 'use-credentials'
+        this._start(el, track.url, other, true)
+        return
+      }
+      this.buffering = false
+      this.playing = false
+      if (!this.failedIds.includes(track.id)) this.failedIds.push(track.id)
+      forgetPlayed(track.id)
+      consecutiveFailures++
+      const pos = this.orderPos
+      const canAdvance =
+        pos >= 0 && pos < this.order.length - 1 && consecutiveFailures < 3
+      if (canAdvance) this._load(this.order[pos + 1])
+      else this.error = true
     },
 
     /** Replace the queue and start playing at `startIndex`.
@@ -186,8 +266,11 @@ export const usePlayerStore = defineStore('player', {
     toggle() {
       const el = this._el()
       if (!el || this.index === -1) return
-      if (el.paused) void el.play().catch(() => {})
-      else el.pause()
+      if (el.paused) {
+        // A tap on play after a failure retries the track from scratch.
+        if (this.error) this._load(this.index)
+        else void el.play().catch(() => {})
+      } else el.pause()
     },
 
     next() {
@@ -266,6 +349,8 @@ export const usePlayerStore = defineStore('player', {
       this.order = []
       this.index = -1
       this.playing = false
+      this.buffering = false
+      this.error = false
       this.currentTime = 0
       this.duration = 0
       this.queueVersion++

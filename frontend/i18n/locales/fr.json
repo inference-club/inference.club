@@ -178,6 +178,8 @@
     }
   },
   "player": {
+    "loadFailed": "Impossible de charger ce titre",
+    "loading": "Chargement",
     "shuffle": "Aléatoire",
     "previous": "Précédent",
     "play": "Lecture",
@@ -203,6 +205,9 @@
     "moveUp": "Monter",
     "moveDown": "Descendre",
     "generateCover": "Générer une pochette",
+    "missingCovers": "{n} titre n'a pas de pochette | {n} titres n'ont pas de pochette",
+    "makeCovers": "Créer les pochettes",
+    "makingCovers": "Création des pochettes. Elles apparaissent ici dès qu'elles sont prêtes.",
     "collectionNotFound": "Collection introuvable",
     "musicTitle": "Musique",
     "musicSubtitle": "Vos titres et playlists, générés sur le réseau.",

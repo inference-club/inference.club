@@ -25,6 +25,7 @@ from .views import (
     CollectionListCreateView,
     CollectionOrderView,
     FeaturedContentView,
+    MissingCoversView,
     RequestCoverView,
     RequestFeatureView,
     InferenceRequestView,
@@ -89,6 +90,11 @@ urlpatterns = [
         "requests/<int:id>/bookmark/",
         RequestBookmarkView.as_view(),
         name="inference-request-bookmark",
+    ),
+    path(
+        "covers/missing/",
+        MissingCoversView.as_view(),
+        name="inference-covers-missing",
     ),
     path(
         "requests/<int:id>/cover/",
