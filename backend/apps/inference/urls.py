@@ -27,6 +27,7 @@ from .views import (
     FeaturedContentView,
     MissingCoversView,
     RequestCoverView,
+    RequestTitleView,
     RequestFeatureView,
     InferenceRequestView,
     LeaderboardView,
@@ -95,6 +96,11 @@ urlpatterns = [
         "covers/missing/",
         MissingCoversView.as_view(),
         name="inference-covers-missing",
+    ),
+    path(
+        "requests/<int:id>/title/",
+        RequestTitleView.as_view(),
+        name="inference-request-title",
     ),
     path(
         "requests/<int:id>/cover/",

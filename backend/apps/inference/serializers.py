@@ -968,6 +968,7 @@ class InferenceRequestListSerializer(
             "video_url",
             "video",
             "cover_image_url",
+            "title",
             "prompt_preview",
             "response_preview",
             "message_count",
@@ -1119,6 +1120,7 @@ class InferenceRequestDetailSerializer(
             "video_url",
             "video",
             "cover_image_url",
+            "title",
             "messages",
             "response_text",
             "reasoning",
@@ -1358,7 +1360,19 @@ class CollectionSerializer(serializers.ModelSerializer):
         )
 
     def get_cover_image_url(self, obj):
-        return _cover_image_url(obj, self.context.get("request"))
+        request = self.context.get("request")
+        url = _cover_image_url(obj, request)
+        if url:
+            return url
+        # No cover of its own: borrow the first member's, so an album made of
+        # songs with art is never a blank tile. One short query per uncovered
+        # collection; collection lists are small.
+        item = (
+            obj.items.filter(request__cover_request__isnull=False)
+            .select_related("request__cover_request")
+            .first()
+        )
+        return _cover_image_url(item.request, request) if item else None
 
     def get_owner(self, obj) -> str:
         return _user_owner(obj.user)

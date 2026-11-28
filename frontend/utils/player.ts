@@ -25,7 +25,7 @@ export function trackFromRequest(r: InferenceRequest): PlayerTrack | null {
   return {
     id: String(r.id),
     requestId: String(r.id),
-    title: (r.prompt_preview || payloadPrompt || 'Untitled song').trim(),
+    title: (r.title || r.prompt_preview || payloadPrompt || 'Untitled song').trim(),
     url: r.output_audio_url,
     duration: r.audio_seconds ?? null,
     coverUrl: r.cover_image_url ?? null,

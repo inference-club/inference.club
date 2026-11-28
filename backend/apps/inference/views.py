@@ -3029,6 +3029,24 @@ def _resolve_cover_request(request, raw_id):
     return cover, None
 
 
+class RequestTitleView(APIView):
+    """PATCH /api/inference/requests/<id>/title/ — rename a request (owner
+    only). Body: ``{"title": "..."}``; an empty title clears it."""
+
+    permission_classes = [IsFullMember]
+
+    def patch(self, request, id):
+        obj = get_object_or_404(InferenceRequest, id=id, user=request.user)
+        title = request.data.get("title")
+        if not isinstance(title, str):
+            return Response(
+                {"detail": "title must be a string."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        obj.title = " ".join(title.split())[:160]
+        obj.save(update_fields=["title"])
+        return Response({"title": obj.title})
+
+
 class RequestCoverView(APIView):
     """PATCH /api/inference/requests/<id>/cover/ — set or clear a request's
     cover art (owner only). Body: ``{"cover_request_id": <id> | null}``."""

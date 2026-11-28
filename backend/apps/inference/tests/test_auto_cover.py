@@ -124,3 +124,66 @@ def test_prompt_varies_by_song_and_skips_structure_tags(user):  # noqa: F811
     assert "rain on the window" in pa and "[verse]" not in pa
     assert pa != pb
     assert "No text" in pa
+
+
+# --- titles -------------------------------------------------------------------
+
+
+class _Chat:
+    status_code = 200
+
+    def __init__(self, text):
+        self._text = text
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"choices": [{"message": {"content": self._text}}]}
+
+
+def test_client_title_is_used_without_calling_a_model(user):  # noqa: F811
+    song = _song(user, title="  Rain   Window ")
+    with patch("requests.post") as post:
+        assert covers.name_song(song.id) == "Rain Window"
+    post.assert_not_called()
+    song.refresh_from_db()
+    assert song.title == "Rain Window"
+
+
+def test_untitled_song_is_named_by_the_llm(user):  # noqa: F811
+    _service_model(user, "llm", "nemo")
+    song = _song(user)
+    with patch("requests.post", return_value=_Chat('Title: "Quiet Hours."\nextra')):
+        assert covers.name_song(song.id) == "Quiet Hours"
+    song.refresh_from_db()
+    assert song.title == "Quiet Hours"
+
+
+def test_no_llm_leaves_the_song_untitled(user):  # noqa: F811
+    song = _song(user)
+    assert covers.name_song(song.id) == ""
+
+
+def test_existing_title_is_not_replaced(user):  # noqa: F811
+    _service_model(user, "llm", "nemo")
+    song = _song(user)
+    InferenceRequest.objects.filter(id=song.id).update(title="Mine")
+    with patch("requests.post", return_value=_Chat("Other")) as post:
+        assert covers.name_song(song.id) == ""
+    post.assert_not_called()
+
+
+def test_owner_can_rename(user):  # noqa: F811
+    song = _song(user)
+    c = _client(user)
+    resp = c.patch(f"/api/inference/requests/{song.id}/title/", {"title": " New  Name "}, format="json")
+    assert resp.status_code == 200 and resp.json() == {"title": "New Name"}
+    listed = c.get("/api/inference/requests/?type=MUSIC").json()["results"][0]
+    assert listed["title"] == "New Name"
+
+    from django.contrib.auth import get_user_model
+    other = get_user_model().objects.create_user(email="other@example.com", password="x")
+    assert _client(other).patch(
+        f"/api/inference/requests/{song.id}/title/", {"title": "x"}, format="json"
+    ).status_code == 404

@@ -251,6 +251,15 @@ export function useContentSharing() {
       }),
     )
 
+  // Rename a request (owner only). An empty title clears it.
+  const setRequestTitle = (id: string | number, title: string) =>
+    withState(() =>
+      api<{ title: string }>(`/requests/${id}/title/`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title }),
+      }),
+    )
+
   // Cover art is generated automatically when a song finishes. These cover the
   // songs that predate that, or were made while no image model was online.
   const missingCoverCount = () =>
@@ -324,6 +333,7 @@ export function useContentSharing() {
     reorderCollection,
     setRequestCover,
     setCollectionCover,
+    setRequestTitle,
     missingCoverCount,
     generateMissingCovers,
     listPublicCollections,

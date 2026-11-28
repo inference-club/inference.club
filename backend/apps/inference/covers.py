@@ -1,4 +1,4 @@
-"""Automatic album art for songs.
+"""Automatic album art and titles for songs.
 
 When a MUSIC request finishes without a cover, queue one square image for it
 through the normal async image pipeline and link the result as the song's
@@ -11,6 +11,10 @@ Two ``post_save`` receivers do the work:
   ``payload["cover_for"] = <song id>`` (idempotent per song);
 - a finished IMAGE job carrying that tag is linked to the song, unless the
   owner has set a cover in the meantime.
+
+A finished song also gets a title: the one the client sent, or a short one
+written by an LLM (``name_song``, run as a Celery task so the generation
+request never waits on it).
 
 ``enqueue_missing_covers`` backfills songs that predate this.
 """
@@ -66,6 +70,80 @@ def cover_prompt(song) -> str:
         "no faces unless the description names a person. Cohesive colour "
         "palette, rich detail. No text, no letters, no logos, no watermark."
     )
+
+
+_TITLE_SYSTEM = (
+    "You name songs. Given a description of a song's style and its lyrics, "
+    "reply with ONLY a title: 1 to 4 words, in Title Case, evocative and "
+    "specific, with no quotes, no trailing punctuation and no emoji. Do not "
+    "use genre names as the title."
+)
+
+
+def name_song(song_id) -> str:
+    """Give a finished, untitled song a title. Returns the title set, or ''."""
+    import requests
+
+    from .chat_threads import _clean_title
+    from .jobs import auto_model_for
+    from .models import InferenceRequest
+    from .openai_views import _find_provider_for_model, _retry_endpoint
+    from .views import _tailnet_proxies
+
+    song = InferenceRequest.objects.filter(id=song_id).select_related("user").first()
+    if song is None or song.inference_type != "MUSIC" or song.title or song.user is None:
+        return ""
+    p = song.payload or {}
+    title = " ".join(str(p.get("title") or "").split())[:160]
+    if not title:
+        model = auto_model_for(song.user, "llm")
+        pm = _find_provider_for_model(song.user, model) if model else None
+        if pm is None:
+            return ""
+        described = f"Style: {str(p.get('prompt') or '')[:600]}"
+        if p.get("lyrics"):
+            described += f"\n\nLyrics:\n{str(p['lyrics'])[:1200]}"
+        try:
+            resp = requests.post(
+                _retry_endpoint(pm.provider, "/chat/completions"),
+                json={
+                    "model": pm.name or model,
+                    "messages": [
+                        {"role": "system", "content": _TITLE_SYSTEM},
+                        {"role": "user", "content": described + "\n\nTitle:"},
+                    ],
+                    "stream": False,
+                    "max_tokens": 24,
+                    # Warm: forty songs prompted "edm" should not share a name.
+                    "temperature": 1.0,
+                    "chat_template_kwargs": {"enable_thinking": False},
+                },
+                timeout=60, verify=False, proxies=_tailnet_proxies(),
+            )
+            resp.raise_for_status()
+            raw = (resp.json().get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        except Exception:
+            logger.warning("song title generation failed for %s", song_id, exc_info=True)
+            return ""
+        title = _clean_title(raw)[:160]
+    if not title:
+        return ""
+    # Only fill a blank: a rename by the owner in the meantime wins.
+    InferenceRequest.objects.filter(id=song_id, title="").update(title=title)
+    return title
+
+
+def _queue_title(song_id):
+    from .jobs import async_enabled
+
+    if not async_enabled():
+        return
+    try:
+        from .tasks import name_song as name_song_task
+
+        name_song_task.delay(song_id)
+    except Exception:
+        logger.warning("could not queue song title for %s", song_id, exc_info=True)
 
 
 def enqueue_cover(song):
@@ -149,6 +227,12 @@ def enqueue_missing_covers(user, limit=25) -> int:
     for song in songs:
         if enqueue_cover(song) is not None:
             queued += 1
+    # Name the untitled ones while we are here.
+    untitled = InferenceRequest.objects.filter(
+        user=user, inference_type="MUSIC", status="PROCESSED", title=""
+    ).order_by("-id").values_list("id", flat=True)[:limit]
+    for song_id in untitled:
+        _queue_title(song_id)
     return queued
 
 
@@ -186,6 +270,16 @@ def _on_request_saved(sender, instance, **kwargs):
 
     if sender is not InferenceRequest or instance.status != "PROCESSED":
         return
+    created = kwargs.get("created")
+    update_fields = kwargs.get("update_fields")
+    # Name the song once, on the save that marks it finished.
+    if (
+        instance.inference_type == "MUSIC"
+        and not instance.title
+        and (created or update_fields is None or "status" in update_fields)
+    ):
+        untitled_id = instance.id
+        transaction.on_commit(lambda: _queue_title(untitled_id))
     if instance.inference_type == "MUSIC" and instance.cover_request_id is None:
         song_id = instance.id
 
