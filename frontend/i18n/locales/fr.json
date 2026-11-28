@@ -458,5 +458,152 @@
     "stopped": "Partage arrêté",
     "failed": "Impossible de mettre à jour le partage",
     "note": "Les personnes disposant du lien ne voient que les éléments publics ou partagés par lien."
+  },
+  "landing": {
+    "kinds": {
+      "chat": "Chat",
+      "image": "Images",
+      "music": "Musique",
+      "video": "Vidéo",
+      "speech": "Voix",
+      "listen": "Transcription"
+    },
+    "hero": {
+      "badge": "En ce moment même sur des GPU à la maison",
+      "titleLead": "L'IA faite sur",
+      "titleHighlight": "les GPU de vos voisins",
+      "subtitle": "inference.club est un réseau de cartes graphiques installées chez des particuliers. Les membres partagent des modèles ouverts de chat, d'images, de musique, de vidéo et de voix derrière une seule adresse, pour les personnes comme pour les agents.",
+      "primary": "Commencer à créer",
+      "primaryMember": "Ouvrir le tableau de bord",
+      "secondary": "Voir comment ça marche",
+      "madeOn": "Fait sur {gpu}",
+      "points": [
+        "Fonctionne avec le SDK OpenAI",
+        "Serveur MCP intégré",
+        "Chaque résultat peut être refait"
+      ]
+    },
+    "gallery": {
+      "eyebrow": "Fait ici",
+      "title": "Tout ce qui figure sur cette page a été généré par le club",
+      "subtitle": "Des images, des chansons et des voix issues de modèles ouverts sur les machines des membres. Chacune garde son prompt, son modèle et son seed : le même appel redonne la même chose.",
+      "pictures": "Images",
+      "songs": "Chansons",
+      "voice": "Une voix",
+      "words": "Et des mots",
+      "seed": "seed {seed}",
+      "seconds": "{n} s",
+      "open": "Ouvrir l'image",
+      "promptLabel": "Prompt",
+      "videoNote": "La vidéo fait aussi partie du club. Le service vidéo était hors ligne quand cette page a été préparée, il n'y en a donc pas encore ici."
+    },
+    "picked": {
+      "eyebrow": "Choisi par le club",
+      "title": "Générations à la une",
+      "subtitle": "De vraies requêtes de membres, choisies à la main."
+    },
+    "how": {
+      "eyebrow": "Comment ça marche",
+      "title": "Un quartier de GPU, une seule adresse",
+      "subtitle": "Faites défiler pour suivre une requête, de la personne qui demande à la machine qui répond.",
+      "steps": [
+        {
+          "title": "Les foyers apportent le matériel",
+          "body": "Un PC de jeu dans un garage, une station de travail dans un atelier, un portable dans un appartement. Chaque membre fait tourner un petit agent à côté des modèles qu'il a déjà. Rien n'est ouvert sur Internet."
+        },
+        {
+          "title": "Chaque machine sert ce qu'elle fait le mieux",
+          "body": "L'une fait tourner un modèle d'images, une autre de musique, une autre de voix. L'agent indique au club quels modèles sont chargés et à quel point la machine est occupée."
+        },
+        {
+          "title": "Une adresse trouve la bonne machine",
+          "body": "Vous envoyez une requête à inference.club. Le service vérifie qui vous êtes, choisit une machine libre qui a le modèle et vous renvoie le résultat. Si la machine est occupée, la requête patiente dans une file d'attente."
+        },
+        {
+          "title": "Privé ou partagé, à vous de choisir",
+          "body": "Un membre peut réserver une machine aux membres, ou à lui seul. Tout ce que vous créez démarre avec la visibilité que vous choisissez : secret, membres, par lien ou public dans la galerie."
+        },
+        {
+          "title": "Pour les personnes, les applications et les agents",
+          "body": "Utilisez le site, appelez l'API depuis votre code ou connectez un agent via MCP. La même adresse et la même clé servent aux trois."
+        }
+      ],
+      "scene": {
+        "gallery": "Galerie",
+        "membersOnly": "Membres",
+        "households": [
+          "Le garage",
+          "L'atelier",
+          "L'appartement",
+          "Le labo"
+        ],
+        "requesters": [
+          "Vous",
+          "Votre appli",
+          "Votre agent"
+        ]
+      }
+    },
+    "ways": {
+      "eyebrow": "Trois façons d'entrer",
+      "title": "Dites-le, appelez-le ou confiez-le à un agent",
+      "ask": {
+        "title": "Dites-le",
+        "body": "Ouvrez l'Assistant sur n'importe quelle page et demandez avec vos mots, à l'écrit ou à l'oral. Il crée la chanson, la range dans une collection, change qui peut la voir et vous dit ce qu'il a fait.",
+        "example": "Fais une chanson de deux minutes sur la première neige, avec trois images pour l'accompagner."
+      },
+      "api": {
+        "title": "Appelez-le",
+        "body": "Une seule API pour tous les types de modèles, compatible avec le SDK OpenAI. Changez l'URL de base et la clé ; le reste de votre code ne bouge pas."
+      },
+      "agent": {
+        "title": "Confiez-le à un agent",
+        "body": "Le club est un serveur MCP doté de 33 outils : générer, chercher dans votre bibliothèque, régler la visibilité, gérer les collections. Il existe aussi une skill et une petite CLI pour les agents qui préfèrent un terminal."
+      }
+    },
+    "host": {
+      "eyebrow": "Apportez un GPU",
+      "title": "Faites entrer votre machine dans le club",
+      "body": "Vous faites déjà tourner vLLM, llama.cpp, Ollama ou un modèle média ? Lancez l'agent à côté. Il rejoint le réseau privé du club, annonce vos modèles et commence à recevoir des requêtes. C'est vous qui décidez qui peut les utiliser.",
+      "points": [
+        "Aucun port à ouvrir, aucun tunnel à configurer",
+        "Fonctionne en conteneur, en binaire ou dans Kubernetes",
+        "Partagez avec tout le monde, avec les membres, ou gardez-la pour vous"
+      ],
+      "cta": "Lire le guide des fournisseurs"
+    },
+    "status": {
+      "eyebrow": "Où on en est",
+      "title": "Ce qui marche aujourd'hui, et la suite",
+      "now": "Ça marche déjà",
+      "soon": "En cours",
+      "next": "Ensuite",
+      "nowItems": [
+        "Chat, images, musique, voix, transcription et clonage de voix",
+        "L'Assistant : pilotez votre compte en langage courant, à l'écrit ou à l'oral",
+        "Serveur MCP, API compatible OpenAI, skill et CLI",
+        "Des pages de partage pour un résultat seul ou une collection entière",
+        "Un seed enregistré à chaque génération, pour pouvoir refaire les résultats"
+      ],
+      "soonItems": [
+        "Les modèles vidéo et 3D de retour sur le cluster domestique",
+        "Un vrai espace pour les albums et les playlists",
+        "Une visionneuse et un lecteur unique partout où il y a des médias"
+      ],
+      "nextItems": [
+        "De nouveaux modèles ouverts ajoutés dès leur sortie",
+        "Une mise en route plus rapide pour les agents : une commande pour se connecter",
+        "Plus de foyers, et un routage qui choisit la machine libre la plus proche"
+      ]
+    },
+    "blog": {
+      "title": "Sur le blog"
+    },
+    "cta": {
+      "title": "Créez quelque chose",
+      "body": "Connectez-vous, choisissez un modèle : le premier résultat arrive en général en quelques secondes.",
+      "primary": "Démarrer",
+      "secondary": "Lire la doc"
+    }
   }
 }

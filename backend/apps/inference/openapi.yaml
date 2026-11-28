@@ -45,6 +45,12 @@ info:
       `/audio/speech`, `/scrape`. Multipart endpoints are always synchronous.
       Send an `Idempotency-Key` header to make queued submissions safe to
       retry (a repeat returns the existing job).
+    - `seed` (images on models that declare `seed`, music, video, 3D, voice
+      cloning): leave it out and the club draws a random one, sends it to the
+      model and stores it with the request (`payload.seed`), so any result can
+      be made again by repeating the call with that seed. Values below zero
+      mean "draw one for me". Chat `seed` stays opt-in; speech from Magpie
+      has no seed.
     - `delivery` (binary endpoints only: `/audio/speech`, `/audio/enhance`,
       `/music/generations`, `/videos/generations`, `/voice/generations`):
       `"bytes"` (default, the raw media body) or `"url"` (a JSON
