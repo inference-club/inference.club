@@ -1,12 +1,13 @@
-// One palette for every scene: "porch lights". Night is deep indigo and the
-// things that matter are small warm lights; in the light theme the same
-// drawing is printed in indigo ink on cream paper. The generated artwork on
-// the homepage uses the same four colours (see scripts/showcase/showcase.json).
+// One palette for every scene. At night the ground is a deep blue-black and
+// everything that matters is a bright, saturated light; lights add up where
+// they cross. In the light theme the same drawing is made in strong inks on
+// warm white paper. The generated artwork on the homepage is deliberately in
+// every style going, so the scenes carry the page's colour on their own.
 
 export interface Palette {
   /** Panel background (also used by SceneStage for its CSS background). */
   ground: string
-  /** Primary marks: text-like things, people, outlines. */
+  /** Primary marks: people, outlines, anything neutral. */
   ink: string
   /** Secondary marks. */
   dim: string
@@ -17,33 +18,39 @@ export interface Palette {
   violet: string
   teal: string
   sky: string
+  pink: string
+  lime: string
   /** Lights add up on a dark ground; ink does not on paper. */
   additive: boolean
 }
 
 export const NIGHT: Palette = {
-  ground: '#0c1230',
-  ink: '#fff3d6',
-  dim: '#8b93c7',
-  line: '#343d7a',
-  amber: '#ffb44a',
-  coral: '#ff7a66',
-  violet: '#a99bff',
-  teal: '#6fd6c9',
-  sky: '#86b6ff',
+  ground: '#070a1c',
+  ink: '#f3f5ff',
+  dim: '#8c97d6',
+  line: '#283070',
+  amber: '#ffb52e',
+  coral: '#ff5a6e',
+  violet: '#a487ff',
+  teal: '#27e3c4',
+  sky: '#45bfff',
+  pink: '#ff66d4',
+  lime: '#b4f04a',
   additive: true,
 }
 
 export const PAPER: Palette = {
-  ground: '#f6efe1',
-  ink: '#1b2350',
-  dim: '#6b7299',
-  line: '#cfc6ae',
-  amber: '#d9831f',
-  coral: '#d9523f',
-  violet: '#6a5ae0',
-  teal: '#17897c',
-  sky: '#3a76d6',
+  ground: '#fbf8f1',
+  ink: '#171b3d',
+  dim: '#6c7397',
+  line: '#ded7c7',
+  amber: '#e58a00',
+  coral: '#e2334d',
+  violet: '#6843ee',
+  teal: '#009a80',
+  sky: '#0c84d8',
+  pink: '#d4219c',
+  lime: '#5c9a00',
   additive: false,
 }
 
@@ -53,4 +60,8 @@ export const paletteFor = (dark: boolean): Palette => (dark ? NIGHT : PAPER)
 export type Signal = 'text' | 'image' | 'speech' | 'music' | 'video' | 'shape'
 export const SIGNALS: Signal[] = ['text', 'image', 'speech', 'music', 'video', 'shape']
 export const signalColor = (p: Palette, s: Signal): string =>
-  ({ text: p.ink, image: p.amber, speech: p.teal, music: p.violet, video: p.coral, shape: p.sky })[s]
+  ({ text: p.sky, image: p.amber, speech: p.teal, music: p.violet, video: p.coral, shape: p.pink })[s]
+
+/** Who and what appears in the scenes; keep these meanings in new scenes. */
+export const roleColor = (p: Palette, r: 'person' | 'agent' | 'machine' | 'private'): string =>
+  ({ person: p.ink, agent: p.lime, machine: p.amber, private: p.violet })[r]

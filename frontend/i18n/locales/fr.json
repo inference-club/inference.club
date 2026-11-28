@@ -570,8 +570,8 @@
       "signals": {
         "eyebrow": "Ce qu'il crée",
         "title": "Toutes sortes de signaux",
-        "body": "Mots, images, voix, chansons, vidéo et formes 3D voyagent tous de la même façon : une requête part, une machine chez quelqu'un répond.",
-        "label": "Six couloirs en mouvement : des mots, une image qui s'assemble à partir de carreaux, la forme d'onde d'une voix, des barres de musique, une bande d'images vidéo et des formes 3D qui tournent."
+        "body": "Mots, images, voix, chansons, vidéo et formes 3D voyagent tous de la même façon : une requête part, une machine chez quelqu'un répond. À gauche de la ligne lumineuse, la matière brute ; à droite, le résultat fini.",
+        "label": "Six couloirs en mouvement qui traversent une ligne lumineuse : des tokens épars deviennent des mots, du bruit devient une image, une rangée de points devient la forme d'onde d'une voix, une pulsation discrète devient des barres de musique, une pellicule vierge devient des images vidéo et un nuage de points devient un modèle 3D."
       },
       "thinking": {
         "eyebrow": "Regardez à l'intérieur",
@@ -582,11 +582,19 @@
         "hint": "Touchez un mot pour voir ce qu'il a envisagé d'autre.",
         "replay": "Rejouer"
       },
+      "assemble": {
+        "eyebrow": "En trois dimensions",
+        "title": "Une image plate devient un objet que l'on peut faire tourner",
+        "body": "Donnez une seule image au club et la machine d'un membre en construit un modèle 3D complet. Ce sont de vrais résultats, dessinés ici en points pour se charger en un instant.",
+        "label": "Des points se détachent d'une image plate, traversent l'espace et se posent pour former son modèle 3D qui tourne ; puis l'image suivante arrive.",
+        "caption": "{triangles} triangles en {seconds} s sur {gpu}",
+        "note": "Affiché ici en {points} points."
+      },
       "exchange": {
         "eyebrow": "Qui s'en sert",
         "title": "Les personnes et les agents demandent. Les machines des membres répondent.",
         "body": "Chaque requête passe par le club, qui vérifie qui demande et trouve une machine libre. La réponse revient par le même chemin.",
-        "label": "Un cercle de personnes et d'agents qui envoient de petites lumières à travers un anneau central vers des machines, et des lumières plus grandes qui reviennent.",
+        "label": "Un cercle de personnes et d'agents qui envoient de petites lumières à traîne à travers un anneau central vers des machines, qui s'allument pendant qu'elles travaillent ; les réponses reviennent sous forme de petits dessins de ce qu'elles sont.",
         "person": "Une personne",
         "agent": "Un agent",
         "machine": "La machine d'un membre",
@@ -596,7 +604,7 @@
         "eyebrow": "Où ça va",
         "title": "Une fenêtre éclairée, puis une rue, puis une ville",
         "body": "Aujourd'hui, le club, c'est une poignée de foyers. Chaque membre qui ajoute une machine le rend plus utile pour tous les autres.",
-        "label": "Des lumières qui apparaissent une à une et se relient à leurs voisines jusqu'à former un grand réseau.",
+        "label": "Des lumières qui apparaissent une à une, chacune rejointe par un lien venu d'une voisine, avec de petites lumières qui parcourent les liens et de longs arcs qui relient des zones éloignées, jusqu'à former un grand réseau qui se replie ensuite vers la première lumière.",
         "count": "foyer | foyers",
         "note": "Une illustration de la croissance, pas un décompte en direct."
       }

@@ -191,6 +191,242 @@ export const smooth = (x: number) => {
 /** 0→1 as `x` passes from `a` to `b`. */
 export const ramp = (x: number, a: number, b: number) => clamp01((x - a) / (b - a))
 
+/** Ease out: fast, then settling. */
+export const easeOut = (x: number) => 1 - (1 - clamp01(x)) ** 3
+/** Ease in and out, stronger than `smooth`. */
+export const easeInOut = (x: number) => {
+  const t = clamp01(x)
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2
+}
+/** Ease out with a small overshoot: things that pop into place. */
+export const easeBack = (x: number) => {
+  const t = clamp01(x) - 1
+  return 1 + 2.70158 * t * t * t + 1.70158 * t * t
+}
+/** A fixed pseudo-random number in 0..1 for `n` (the same on every frame). */
+export const hash = (n: number) => {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453
+  return x - Math.floor(x)
+}
+
+/**
+ * A cloud of round lights whose position, colour, size and opacity can each be
+ * set every frame: sparks, trails, halos, nodes. One draw call. Sizes are in
+ * world units and follow the camera (flat or perspective).
+ *
+ * `hard` is where the disc's edge starts to fade: 0 is a soft glow, 0.8 a
+ * crisp dot.
+ */
+export interface Sparks {
+  object: T.Points
+  count: number
+  set(i: number, x: number, y: number, z: number, color: T.Color, size: number, alpha?: number): void
+  hide(i: number): void
+  /** Call once per frame after the last `set`. */
+  commit(): void
+}
+export function sparks(ctx: StageContext, count: number, opts: { hard?: number; depthTest?: boolean } = {}): Sparks {
+  const { THREE } = ctx
+  const pos = new Float32Array(count * 3)
+  const col = new Float32Array(count * 3)
+  const look = new Float32Array(count * 2) // size, alpha
+  const geo = ctx.keep(new THREE.BufferGeometry())
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  geo.setAttribute('look', new THREE.BufferAttribute(look, 2))
+  const mat = ctx.keep(new THREE.ShaderMaterial({
+    uniforms: { uScale: { value: 1 }, uPersp: { value: 0 }, uHard: { value: opts.hard ?? 0 } },
+    vertexShader: `
+      attribute vec3 color; attribute vec2 look;
+      uniform float uScale, uPersp;
+      varying vec3 vColor; varying float vAlpha;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = look.x * uScale * mix(1.0, 1.0 / max(0.001, -mv.z), uPersp);
+        vColor = color; vAlpha = look.y;
+      }`,
+    fragmentShader: `
+      uniform float uHard;
+      varying vec3 vColor; varying float vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        float a = smoothstep(1.0, uHard, d);
+        gl_FragColor = vec4(vColor, a * a * vAlpha);
+        #include <colorspace_fragment>
+      }`,
+    transparent: true,
+    depthWrite: false,
+    depthTest: opts.depthTest ?? false,
+    blending: ctx.palette.additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+  }))
+  const object = new THREE.Points(geo, mat)
+  object.frustumCulled = false
+  const size = new THREE.Vector2()
+  object.onBeforeRender = (renderer, _scene, camera) => {
+    renderer.getDrawingBufferSize(size)
+    const persp = camera as T.PerspectiveCamera
+    const flat = camera as T.OrthographicCamera
+    mat.uniforms.uPersp.value = persp.isPerspectiveCamera ? 1 : 0
+    mat.uniforms.uScale.value = persp.isPerspectiveCamera
+      ? size.y / (2 * Math.tan((persp.fov * Math.PI) / 360))
+      : size.y / (flat.top - flat.bottom)
+  }
+  return {
+    object,
+    count,
+    set(i, x, y, z, color, s, alpha = 1) {
+      pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z
+      col[i * 3] = color.r; col[i * 3 + 1] = color.g; col[i * 3 + 2] = color.b
+      look[i * 2] = s; look[i * 2 + 1] = alpha
+    },
+    hide(i) {
+      look[i * 2 + 1] = 0
+    },
+    commit() {
+      geo.attributes.position.needsUpdate = true
+      geo.attributes.color.needsUpdate = true
+      geo.attributes.look.needsUpdate = true
+    },
+  }
+}
+
+/**
+ * A generated 3D model as a coloured point cloud (see
+ * scripts/showcase/mesh_points.py). Positions span -1..1 on the model's
+ * longest side, Y up; colours are linear RGB. Null if it cannot be loaded.
+ */
+export interface PointModel { count: number; positions: Float32Array; colors: Float32Array }
+export async function loadPoints(url: string, limit = Infinity): Promise<PointModel | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const buf = await res.arrayBuffer()
+    const view = new DataView(buf)
+    if (view.getUint32(0, true) !== 0x54504349) return null // "ICPT"
+    const total = view.getUint32(4, true)
+    const count = Math.min(total, limit)
+    const positions = new Float32Array(count * 3)
+    const colors = new Float32Array(count * 3)
+    for (let i = 0; i < count * 3; i++) {
+      positions[i] = view.getInt16(8 + i * 2, true) / 32767
+      const c = view.getUint8(8 + total * 6 + i) / 255
+      colors[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    }
+    return { count, positions, colors }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A point model that can build itself and fall apart. Every point has a place
+ * in the model and a place in a loose "raw" cloud (a shell around the model,
+ * or a flat sheet somewhere else); `build` moves points from one to the other,
+ * lowest first. Place and size it with `object.position` and `object.scale`.
+ */
+export interface ModelCloud {
+  object: T.Points
+  /** 0 = all raw, 1 = fully built. */
+  build(v: number): void
+  /** 0 = whole, 1 = blown away. */
+  dissolve(v: number): void
+  /** Turn about the vertical axis (radians). */
+  turn(angle: number): void
+  /** Seconds, to keep the raw cloud drifting. */
+  time(t: number): void
+  /** The raw cloud as a flat sheet centred at `x,y,z` (model units), `w` by `h`. */
+  sheet(x: number, y: number, z: number, w: number, h: number): void
+}
+export function modelCloud(
+  ctx: StageContext,
+  model: PointModel,
+  /** `tint` colours raw points; pass null to keep each point's own colour. */
+  opts: { size?: number; tint?: string | null; seed?: number } = {},
+): ModelCloud {
+  const { THREE } = ctx
+  const rnd = seeded(opts.seed ?? 11)
+  const seeds = new Float32Array(model.count * 3)
+  for (let i = 0; i < seeds.length; i++) seeds[i] = rnd()
+  const geo = ctx.keep(new THREE.BufferGeometry())
+  geo.setAttribute('position', new THREE.BufferAttribute(model.positions, 3))
+  geo.setAttribute('color', new THREE.BufferAttribute(model.colors, 3))
+  geo.setAttribute('seed', new THREE.BufferAttribute(seeds, 3))
+  const u = {
+    uBuild: { value: 1 }, uGone: { value: 0 }, uAngle: { value: 0 }, uTime: { value: 0 },
+    uSize: { value: opts.size ?? 0.03 }, uTint: { value: new THREE.Color(opts.tint ?? ctx.palette.pink) }, uTintAmt: { value: opts.tint === null ? 0 : 1 },
+    uSheet: { value: 0 }, uFrom: { value: new THREE.Vector3() }, uSpread: { value: new THREE.Vector2(1, 1) },
+    uScale: { value: 1 }, uPersp: { value: 0 },
+    // At night, a little light on every point so dark parts of a model still read.
+    uLift: { value: new THREE.Color(ctx.palette.dim).multiplyScalar(ctx.palette.additive ? 0.16 : 0) },
+  }
+  const mat = ctx.keep(new THREE.ShaderMaterial({
+    uniforms: u,
+    vertexShader: `
+      attribute vec3 color; attribute vec3 seed;
+      uniform float uBuild, uGone, uAngle, uTime, uSize, uSheet, uScale, uPersp, uTintAmt;
+      uniform vec3 uTint, uFrom, uLift; uniform vec2 uSpread;
+      varying vec3 vColor; varying float vAlpha;
+      vec3 turnY(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x + s * p.z, p.y, c * p.z - s * p.x); }
+      void main() {
+        // Lower points arrive first, with some shuffle so it is not a hard edge.
+        float order = 0.6 * (position.y * 0.5 + 0.5) + 0.4 * seed.z;
+        float x = clamp((uBuild * 1.45 - order) / 0.45, 0.0, 1.0);
+        float p = 1.0 - pow(1.0 - x, 3.0);                        // leave quickly, land softly
+        vec3 target = turnY(position, uAngle);
+        vec3 shell = turnY(normalize(seed - 0.5 + 0.001) * (0.85 + 0.6 * seed.x), uTime * (0.25 + 0.5 * seed.y));
+        vec3 sheet = uFrom + vec3((seed.x - 0.5) * uSpread.x, (seed.y - 0.5) * uSpread.y, 0.0);
+        vec3 raw = mix(shell, sheet, uSheet);
+        vec3 pos = mix(raw, target, p);
+        pos.z += sin(p * 3.14159) * 0.35 * uSheet;                 // fly in an arc towards the viewer
+        float gone = smoothstep(0.0, 1.0, uGone * 1.5 - seed.y * 0.5);
+        pos += gone * vec3(seed.x - 0.5, 0.25 + seed.z, seed.y - 0.5) * 2.4;
+        vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+        gl_Position = projectionMatrix * mv;
+        float world = uSize * length(modelMatrix[0].xyz) * mix(0.6, 1.0, smoothstep(0.6, 1.0, p)) * (1.0 - 0.5 * gone);
+        gl_PointSize = max(1.5, world * uScale * mix(1.0, 1.0 / max(0.001, -mv.z), uPersp));
+        float depth = 0.74 + 0.26 * clamp(target.z * 0.9 + 0.5, 0.0, 1.0); // nearer points a little brighter
+        vColor = mix(mix(color, uTint, uTintAmt), (color + uLift) * depth, smoothstep(0.5, 1.0, p));
+        // On a sheet, a point shows only from just before it lifts off.
+        float lifted = mix(1.0, smoothstep(-0.03, 0.0, uBuild * 1.45 - order), uSheet);
+        vAlpha = mix(0.6, 1.0, p) * (1.0 - gone) * lifted;
+      }`,
+    fragmentShader: `
+      varying vec3 vColor; varying float vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        if (d > 1.0 || vAlpha < 0.02) discard;
+        gl_FragColor = vec4(vColor, vAlpha * smoothstep(1.0, 0.7, d));
+        #include <colorspace_fragment>
+      }`,
+    transparent: true,
+  }))
+  const object = new THREE.Points(geo, mat)
+  object.frustumCulled = false
+  const size = new THREE.Vector2()
+  object.onBeforeRender = (renderer, _scene, camera) => {
+    renderer.getDrawingBufferSize(size)
+    const persp = camera as T.PerspectiveCamera
+    const flat = camera as T.OrthographicCamera
+    u.uPersp.value = persp.isPerspectiveCamera ? 1 : 0
+    u.uScale.value = persp.isPerspectiveCamera
+      ? size.y / (2 * Math.tan((persp.fov * Math.PI) / 360))
+      : size.y / (flat.top - flat.bottom)
+  }
+  return {
+    object,
+    build: (v) => { u.uBuild.value = v },
+    dissolve: (v) => { u.uGone.value = v },
+    turn: (a) => { u.uAngle.value = a },
+    time: (t) => { u.uTime.value = t },
+    sheet: (x, y, z, w, h) => {
+      u.uSheet.value = 1
+      u.uFrom.value.set(x, y, z)
+      u.uSpread.value.set(w, h)
+    },
+  }
+}
+
 /** A soft round light as a texture, for points and sprites. */
 export function softDot(THREE: typeof T, keep: StageContext['keep'], hard = false): T.Texture {
   const size = 64

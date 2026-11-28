@@ -664,8 +664,8 @@
       "signals": {
         "eyebrow": "What it makes",
         "title": "Every kind of signal",
-        "body": "Words, pictures, voices, songs, video and 3D shapes all travel the same way: a request goes out, a machine in someone's home answers.",
-        "label": "Six moving lanes: words, a picture assembling from tiles, a voice waveform, music bars, a strip of video frames and turning 3D shapes."
+        "body": "Words, pictures, voices, songs, video and 3D shapes all travel the same way: a request goes out, a machine in someone's home answers. Left of the bright line is raw material; right of it is the finished thing.",
+        "label": "Six moving lanes crossing a bright line: loose tokens become words, noise becomes a picture, a row of dots becomes a voice's waveform, a quiet pulse becomes music bars, blank film becomes video frames and a cloud of points becomes a 3D model."
       },
       "thinking": {
         "eyebrow": "Look inside",
@@ -676,11 +676,19 @@
         "hint": "Tap a word to see what else it considered.",
         "replay": "Replay"
       },
+      "assemble": {
+        "eyebrow": "In three dimensions",
+        "title": "A flat picture becomes something you can turn",
+        "body": "Give the club one picture and a member's machine builds a whole 3D model from it. These are real results, drawn here as points so they load in a moment.",
+        "label": "Dots lift off a flat picture, fly across and settle into a turning 3D model of it; then the next picture arrives.",
+        "caption": "{triangles} triangles in {seconds}s on {gpu}",
+        "note": "Shown here as {points} points."
+      },
       "exchange": {
         "eyebrow": "Who uses it",
         "title": "People and agents ask. Members' machines answer.",
         "body": "Every request passes through the club, which checks who is asking and finds a machine that is free. The answer comes back the same way.",
-        "label": "A ring of people and agents sending small lights through a central ring to machines, and larger lights coming back.",
+        "label": "A ring of people and agents sending small lights with tails through a central ring to machines, which light up while they work; the answers come back as small pictures of what they are.",
         "person": "A person",
         "agent": "An agent",
         "machine": "A member's machine",
@@ -690,7 +698,7 @@
         "eyebrow": "Where it goes",
         "title": "One lit window, then a street, then a town",
         "body": "Today the club is a handful of households. Each member who adds a machine makes it more useful for everyone else.",
-        "label": "Lights appearing one by one and linking to their neighbours until they form a large network.",
+        "label": "Lights appearing one by one, each reached by a link from a neighbour, with small lights travelling the links and long arcs joining distant parts, until they form a large network that then folds back to the first light.",
         "count": "household | households",
         "note": "An illustration of growth, not a live count."
       }
