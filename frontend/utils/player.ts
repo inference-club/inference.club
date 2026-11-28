@@ -11,6 +11,9 @@ export interface PlayerTrack {
   duration?: number | null
   coverUrl?: string | null
   owner?: string | null
+  /** PUBLIC / UNLISTED / PRIVATE / SECRET. Decides whether the audio request
+   * carries the session cookie (see the player store). */
+  visibility?: string | null
   /** Detail-page link target; lets the player bar jump to the request. */
   requestId: string
 }
@@ -22,11 +25,12 @@ export function trackFromRequest(r: InferenceRequest): PlayerTrack | null {
   return {
     id: String(r.id),
     requestId: String(r.id),
-    title: (r.prompt_preview || payloadPrompt || 'Untitled song').trim(),
+    title: (r.title || r.prompt_preview || payloadPrompt || 'Untitled song').trim(),
     url: r.output_audio_url,
     duration: r.audio_seconds ?? null,
     coverUrl: r.cover_image_url ?? null,
     owner: r.github_login || r.owner || null,
+    visibility: r.visibility ?? null,
   }
 }
 
@@ -79,5 +83,19 @@ export function rememberPlayed(track: PlayerTrack): void {
     )
   } catch {
     /* storage full/blocked — recently-played is best-effort */
+  }
+}
+
+/** Drop a track from recently-played (it no longer loads: deleted, or made
+ * private by its owner). */
+export function forgetPlayed(trackId: string): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(
+      RECENT_KEY,
+      JSON.stringify(recentlyPlayed().filter((t) => t.id !== trackId)),
+    )
+  } catch {
+    /* storage unavailable */
   }
 }

@@ -178,6 +178,8 @@
     }
   },
   "player": {
+    "loadFailed": "No se pudo cargar esta pista",
+    "loading": "Cargando",
     "shuffle": "Aleatorio",
     "previous": "Anterior",
     "play": "Reproducir",
@@ -203,6 +205,9 @@
     "moveUp": "Subir",
     "moveDown": "Bajar",
     "generateCover": "Generar portada",
+    "missingCovers": "{n} canción no tiene portada | {n} canciones no tienen portada",
+    "makeCovers": "Crear portadas",
+    "makingCovers": "Pintando portadas. Aparecerán aquí a medida que estén listas.",
     "collectionNotFound": "Colección no encontrada",
     "musicTitle": "Música",
     "musicSubtitle": "Tus canciones y listas, generadas en la red.",

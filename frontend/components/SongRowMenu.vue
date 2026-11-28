@@ -8,7 +8,7 @@ import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   MoreVertical, ListPlus, ImagePlus, RefreshCw, Link2, Star,
-  Globe, Eye, Lock, Check,
+  Globe, Eye, Lock, Check, Pencil,
 } from 'lucide-vue-next'
 import type { InferenceRequest, Visibility } from '@/types'
 import { useContentSharing } from '@/composables/useContentSharing'
@@ -23,13 +23,33 @@ import {
 
 const props = defineProps<{ request: InferenceRequest }>()
 
-const { updateVisibility, toggleFeatured, shareUrl } = useContentSharing()
+const { updateVisibility, toggleFeatured, shareUrl, setRequestTitle } = useContentSharing()
 const { getInferenceRequest } = useInferenceRequest()
 const prefill = usePlaygroundPrefill()
 const { user } = useAuth()
 
 const showAddToPlaylist = ref(false)
 const showCover = ref(false)
+
+// Rename. The list derives its track titles from the request objects it was
+// given, so the saved title is written back onto the request to update the
+// row (and anything else showing it) without a reload.
+const showRename = ref(false)
+const draftTitle = ref('')
+const openRename = () => {
+  draftTitle.value = props.request.title || ''
+  showRename.value = true
+}
+const saveTitle = async () => {
+  try {
+    const res = await setRequestTitle(props.request.id, draftTitle.value)
+    // eslint-disable-next-line vue/no-mutating-props
+    props.request.title = res.title
+    showRename.value = false
+  } catch {
+    toast.error('Could not rename')
+  }
+}
 const busy = ref(false)
 
 // Local, optimistic state seeded from the request (resynced when the row swaps),
@@ -137,6 +157,9 @@ const regenerate = async () => {
         </DropdownMenuItem>
 
         <template v-if="request.is_owner">
+          <DropdownMenuItem @select="openRename">
+            <Pencil class="mr-2 size-4" /> Rename
+          </DropdownMenuItem>
           <DropdownMenuItem @select="showCover = true">
             <ImagePlus class="mr-2 size-4" />
             {{ request.cover_image_url ? 'Change cover art' : 'Add cover art' }}
@@ -190,6 +213,25 @@ const regenerate = async () => {
       v-model:open="showAddToPlaylist"
       :request="request"
     />
+    <Dialog v-model:open="showRename">
+      <DialogContent class="sm:max-w-md" @click.stop>
+        <DialogHeader>
+          <DialogTitle>Rename</DialogTitle>
+        </DialogHeader>
+        <form class="space-y-4" @submit.prevent="saveTitle">
+          <Input
+            v-model="draftTitle"
+            maxlength="160"
+            :placeholder="request.prompt_preview"
+            autofocus
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" @click="showRename = false">Cancel</Button>
+            <Button type="submit">Save</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
     <GenerateCoverDialog
       v-model:open="showCover"
       :target="{ kind: 'request', id: request.id }"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Copy, RefreshCw } from 'lucide-vue-next'
+import { Copy, RefreshCw, Eye, EyeOff } from 'lucide-vue-next'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useToken } from '@/composables/useToken'
 import { useAuth } from '@/composables/useAuth'
@@ -9,6 +9,7 @@ const { token, isLoading, error, createToken } = useToken()
 const { user, checkAuth, isAnonymous } = useAuth()
 const config = useRuntimeConfig()
 const showCopied = ref(false)
+const revealed = ref(false)
 
 // The key is auto-minted on signup and returned on /api/account/. After a
 // regenerate, the composable holds the fresh value; otherwise fall back to the
@@ -52,7 +53,7 @@ definePageMeta({
         description="Guest and passcode accounts can use the playground, but API keys (for SDKs, CLIs, and other clients) are reserved for full members."
       />
 
-      <Card v-else class="p-6">
+      <Card v-else>
         <CardHeader>
           <CardTitle>Your API Token</CardTitle>
           <CardDescription>
@@ -69,10 +70,28 @@ definePageMeta({
 
           <div class="space-y-4">
             <div class="flex items-center gap-2">
-              <Input :model-value="apiKey" readonly class="font-mono" />
+              <!-- Hidden until asked for: this page gets opened on shared
+                   screens and in screenshots. Copy works either way. -->
+              <Input
+                :model-value="apiKey"
+                :type="revealed ? 'text' : 'password'"
+                readonly
+                class="min-w-0 font-mono"
+                aria-label="API token"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                class="shrink-0"
+                :title="revealed ? 'Hide token' : 'Show token'"
+                :aria-pressed="revealed"
+                @click="revealed = !revealed"
+              >
+                <component :is="revealed ? EyeOff : Eye" class="h-4 w-4" />
+              </Button>
               <Popover :open="showCopied">
                 <PopoverTrigger as-child>
-                  <Button variant="outline" size="icon" @click="copyToClipboard">
+                  <Button variant="outline" size="icon" class="shrink-0" title="Copy token" @click="copyToClipboard">
                     <Copy class="h-4 w-4" />
                   </Button>
                 </PopoverTrigger>

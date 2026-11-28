@@ -32,6 +32,16 @@ def generate_chat_title(thread_id):
         logger.exception("generate_chat_title failed for thread %s", thread_id)
 
 
+@shared_task(name="apps.inference.tasks.name_song")
+def name_song(song_id):
+    """Title a finished song (client-supplied title, else one LLM call)."""
+    from . import covers
+    try:
+        covers.name_song(song_id)
+    except Exception:
+        logger.exception("name_song failed for %s", song_id)
+
+
 @shared_task(name="apps.inference.tasks.dispatch_queued")
 def dispatch_queued(limit=50):
     """Claim queued jobs that can start now and fan a ``run_job`` task out for

@@ -317,13 +317,13 @@ onBeforeUnmount(() => {
           <div class="rounded-lg border bg-muted/30">
             <button
               type="button"
-              class="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+              class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
               @click="showSuggestions = !showSuggestions"
             >
-              <Lightbulb class="size-3.5" />
-              Need inspiration? {{ SUGGESTED_IMAGE_PROMPTS.length }} suggested prompts
+              <Lightbulb class="size-3.5 shrink-0" />
+              <span class="min-w-0 flex-1">Need inspiration? {{ SUGGESTED_IMAGE_PROMPTS.length }} suggested prompts</span>
               <ChevronDown
-                class="ml-auto size-4 transition-transform"
+                class="ml-auto size-4 shrink-0 transition-transform"
                 :class="showSuggestions ? 'rotate-180' : ''"
               />
             </button>
@@ -413,13 +413,15 @@ onBeforeUnmount(() => {
           <div v-if="hasLayout" class="rounded-lg border">
             <button
               type="button"
-              class="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+              class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
               @click="showLayout = !showLayout"
             >
-              <LayoutGrid class="size-3.5" />
-              Layout{{ layoutBoxes.length ? ` · ${layoutBoxes.length} box${layoutBoxes.length > 1 ? 'es' : ''}` : '' }}
-              <span class="font-normal">— place elements by drawing boxes</span>
-              <ChevronDown class="ml-auto size-4 transition-transform" :class="showLayout ? 'rotate-180' : ''" />
+              <LayoutGrid class="size-3.5 shrink-0" />
+              <span class="min-w-0 flex-1">
+                Layout{{ layoutBoxes.length ? ` · ${layoutBoxes.length} box${layoutBoxes.length > 1 ? 'es' : ''}` : '' }}
+                <span class="font-normal">— place elements by drawing boxes</span>
+              </span>
+              <ChevronDown class="ml-auto size-4 shrink-0 transition-transform" :class="showLayout ? 'rotate-180' : ''" />
             </button>
             <div v-if="showLayout" class="px-3 pb-3">
               <LayoutBoxEditor v-model="layoutBoxes" :width="currentPreset.w" :height="currentPreset.h" />
@@ -553,11 +555,11 @@ onBeforeUnmount(() => {
         <div v-if="hasAdvanced" class="rounded-lg border">
           <button
             type="button"
-            class="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
             @click="showAdvanced = !showAdvanced"
           >
             Advanced
-            <ChevronDown class="ml-auto size-4 transition-transform" :class="showAdvanced ? 'rotate-180' : ''" />
+            <ChevronDown class="ml-auto size-4 shrink-0 transition-transform" :class="showAdvanced ? 'rotate-180' : ''" />
           </button>
           <div v-if="showAdvanced" class="space-y-3 px-3 pb-3">
             <div v-if="hasSeed">

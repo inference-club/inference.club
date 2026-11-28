@@ -891,7 +891,8 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p class="text-[11px] text-muted-foreground text-center mt-1.5">
-            Enter to send · Shift+Enter for newline. Image/audio/video support depends on the model + engine.
+            <!-- Keyboard hints mean nothing on a touch screen. -->
+            <span class="pointer-coarse:hidden">Enter to send · Shift+Enter for newline. </span>Image/audio/video support depends on the model + engine.
           </p>
         </div>
       </div>

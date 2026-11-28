@@ -123,7 +123,14 @@ def _apply_request_filters(qs, params, user=None):
     case-insensitive); an unknown collection — or an anonymous caller — yields
     an empty list rather than silently ignoring the filter. All optional and
     composable.
+
+    Automatic song covers (``payload.cover_for``, see covers.py) are left out
+    of every list: they belong to their song, and one per song would bury the
+    images people made on purpose. ``?covers=1`` includes them.
     """
+    if params.get("covers") not in ("1", "true"):
+        qs = qs.exclude(payload__has_key="cover_for")
+
     itype = (params.get("type") or "").upper().strip()
     if itype in _INFERENCE_TYPES:
         qs = qs.filter(inference_type=itype)
@@ -2976,6 +2983,35 @@ def _collection_with_items(col, request) -> dict:
     return data
 
 
+class MissingCoversView(APIView):
+    """``/api/inference/covers/missing/`` — cover art for songs that have none.
+
+    GET returns how many of the caller's finished songs lack a cover and have
+    no cover job yet. POST queues covers for up to ``limit`` of them (default
+    25, max 100) and returns how many were queued.
+    """
+
+    permission_classes = [IsFullMember]
+
+    def get(self, request):
+        from .covers import missing_cover_count
+
+        return Response({"missing": missing_cover_count(request.user)})
+
+    def post(self, request):
+        from .covers import enqueue_missing_covers, missing_cover_count
+
+        try:
+            limit = int(request.data.get("limit", 25))
+        except (TypeError, ValueError):
+            limit = 25
+        queued = enqueue_missing_covers(request.user, limit=max(1, min(limit, 100)))
+        return Response(
+            {"queued": queued, "missing": missing_cover_count(request.user)},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
 def _resolve_cover_request(request, raw_id):
     """Validate a ``cover_request_id`` value: ``None`` clears the cover;
     otherwise it must be the caller's own IMAGE request with a generated
@@ -2998,6 +3034,24 @@ def _resolve_cover_request(request, raw_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
     return cover, None
+
+
+class RequestTitleView(APIView):
+    """PATCH /api/inference/requests/<id>/title/ — rename a request (owner
+    only). Body: ``{"title": "..."}``; an empty title clears it."""
+
+    permission_classes = [IsFullMember]
+
+    def patch(self, request, id):
+        obj = get_object_or_404(InferenceRequest, id=id, user=request.user)
+        title = request.data.get("title")
+        if not isinstance(title, str):
+            return Response(
+                {"detail": "title must be a string."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        obj.title = " ".join(title.split())[:160]
+        obj.save(update_fields=["title"])
+        return Response({"title": obj.title})
 
 
 class RequestCoverView(APIView):
@@ -3433,6 +3487,84 @@ def _lookup_media_asset(ref):
     return get_object_or_404(qs, public_id=ref)
 
 
+def _parse_byte_range(header, size):
+    """Parse a single ``Range: bytes=…`` header against a known ``size``.
+
+    Returns ``(start, end)`` inclusive, ``None`` when there is no usable range
+    (absent, malformed, multi-range — serve the whole file), or ``False`` when
+    the range is syntactically fine but outside the file (answer 416).
+    """
+    if not header or not header.startswith("bytes=") or "," in header:
+        return None
+    first, sep, last = header[6:].strip().partition("-")
+    if not sep:
+        return None
+    try:
+        if first == "":
+            # Suffix form: the final N bytes.
+            n = int(last)
+            if n <= 0:
+                return False
+            return max(size - n, 0), size - 1
+        start = int(first)
+        end = int(last) if last else size - 1
+    except ValueError:
+        return None
+    if start >= size or start > end:
+        return False
+    return start, min(end, size - 1)
+
+
+def _ranged_file_response(request, fh, asset, content_type):
+    """Serve an open file, honouring a single byte range.
+
+    Browsers need 206 responses to seek in audio and video, and Safari (every
+    browser on iOS) will not play a media file at all from a server that
+    ignores Range. Django's ``FileResponse`` does not implement it.
+    """
+    from django.http import FileResponse, HttpResponse, StreamingHttpResponse
+
+    try:
+        size = asset.file.size
+    except Exception:  # storage could not stat the object
+        size = None
+
+    rng = _parse_byte_range(request.headers.get("Range"), size) if size else None
+    if rng is False:
+        fh.close()
+        resp = HttpResponse(status=416)
+        resp["Content-Range"] = f"bytes */{size}"
+        resp["Accept-Ranges"] = "bytes"
+        return resp
+    if rng is None:
+        resp = FileResponse(fh, content_type=content_type)
+        if size:
+            resp["Accept-Ranges"] = "bytes"
+            resp["Content-Length"] = str(size)
+        return resp
+
+    start, end = rng
+    length = end - start + 1
+
+    def chunks(remaining=length, block=64 * 1024):
+        try:
+            fh.seek(start)
+            while remaining > 0:
+                data = fh.read(min(block, remaining))
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+        finally:
+            fh.close()
+
+    resp = StreamingHttpResponse(chunks(), status=206, content_type=content_type)
+    resp["Content-Range"] = f"bytes {start}-{end}/{size}"
+    resp["Content-Length"] = str(length)
+    resp["Accept-Ranges"] = "bytes"
+    return resp
+
+
 def serve_media_asset(request, asset):
     """Audience-gate then serve one asset's bytes — shared by the legacy asset
     route and the ``/v1/files/<ref>/content`` route (PRD 17 §4).
@@ -3463,8 +3595,8 @@ def serve_media_asset(request, asset):
         fh = asset.file.open("rb")
     except (FileNotFoundError, ValueError):
         raise Http404("asset file missing")
-    resp = FileResponse(
-        fh, content_type=asset.content_type or "application/octet-stream"
+    resp = _ranged_file_response(
+        request, fh, asset, asset.content_type or "application/octet-stream"
     )
     resp["Content-Disposition"] = (
         f'inline; filename="{(asset.file.name or "asset").rsplit("/", 1)[-1]}"'

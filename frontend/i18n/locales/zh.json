@@ -178,6 +178,8 @@
     }
   },
   "player": {
+    "loadFailed": "无法加载此曲目",
+    "loading": "加载中",
     "shuffle": "随机播放",
     "previous": "上一首",
     "play": "播放",
@@ -203,6 +205,9 @@
     "moveUp": "上移",
     "moveDown": "下移",
     "generateCover": "生成封面",
+    "missingCovers": "{n} 首歌曲没有封面 | {n} 首歌曲没有封面",
+    "makeCovers": "生成封面",
+    "makingCovers": "正在生成封面，完成后会显示在这里。",
     "collectionNotFound": "未找到收藏集",
     "musicTitle": "音乐",
     "musicSubtitle": "你在网络上生成的歌曲和播放列表。",

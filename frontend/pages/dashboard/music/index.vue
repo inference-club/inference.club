@@ -4,9 +4,9 @@
 // popular albums (collections, ranked by summed song stars), then the full,
 // paginated song library.
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
-  Play, Shuffle, Music, Plus, History, Disc3, LogIn, ImagePlus,
+  Play, Shuffle, Music, Plus, History, Disc3, LogIn, ImagePlus, Sparkles, Loader2,
 } from 'lucide-vue-next'
 import type { Collection, InferenceRequest } from '@/types'
 import { useInferenceRequest } from '@/composables/useInferenceRequest'
@@ -24,7 +24,7 @@ const PAGE_SIZE = 10
 
 const { t } = useI18n()
 const { listInferenceRequests, listAllInferenceRequests } = useInferenceRequest()
-const { listCollections } = useContentSharing()
+const { listCollections, missingCoverCount, generateMissingCovers } = useContentSharing()
 const { isAuthenticated } = useAuth()
 const player = usePlayerStore()
 
@@ -43,8 +43,9 @@ const runtime = computed(() =>
   formatRuntime(tracks.value.reduce((s, tr) => s + (tr.duration ?? 0), 0)),
 )
 
-const loadSongs = async (page: number) => {
-  loading.value = true
+const loadSongs = async (page: number, quiet = false) => {
+  // A quiet reload (cover art arriving) must not flash the skeleton.
+  if (!quiet) loading.value = true
   const offset = (page - 1) * PAGE_SIZE
   try {
     const res = isAuthenticated.value
@@ -62,6 +63,48 @@ const loadSongs = async (page: number) => {
   }
 }
 
+// --- cover art ---------------------------------------------------------------
+// Covers are generated on the server when a song finishes, a few seconds to a
+// minute later. While songs on screen are still waiting for theirs, reload the
+// page of songs quietly so the art appears without a refresh.
+const missingCovers = ref(0)
+const makingCovers = ref(false)
+let coverPoll: ReturnType<typeof setInterval> | null = null
+let coverPollsLeft = 0
+
+const stopCoverPoll = () => {
+  if (coverPoll) clearInterval(coverPoll)
+  coverPoll = null
+  makingCovers.value = false
+}
+
+const watchForCovers = (polls = 30) => {
+  coverPollsLeft = polls
+  if (coverPoll) return
+  coverPoll = setInterval(async () => {
+    await loadSongs(pagination.currentPage.value, true)
+    const waiting = songs.value.some((s) => s.is_owner && !s.cover_image_url)
+    if (!waiting || --coverPollsLeft <= 0) {
+      stopCoverPoll()
+      missingCovers.value = await missingCoverCount().catch(() => 0)
+    }
+  }, 6000)
+}
+
+const makeCovers = async () => {
+  makingCovers.value = true
+  try {
+    const res = await generateMissingCovers(25)
+    missingCovers.value = res.missing
+    if (res.queued > 0) watchForCovers()
+    else makingCovers.value = false
+  } catch {
+    makingCovers.value = false
+  }
+}
+
+onBeforeUnmount(stopCoverPoll)
+
 onMounted(async () => {
   recents.value = recentlyPlayed()
   // Albums are owner-scoped — only signed-in members have collections.
@@ -73,9 +116,21 @@ onMounted(async () => {
       .slice(0, 10)
   }
   await loadSongs(1)
+  if (isAuthenticated.value) {
+    missingCovers.value = await missingCoverCount().catch(() => 0)
+    // A song made in the last few minutes is probably still getting its art.
+    const fresh = songs.value.some(
+      (s) =>
+        s.is_owner &&
+        !s.cover_image_url &&
+        Date.now() - new Date(s.created_on).getTime() < 5 * 60_000,
+    )
+    if (fresh) watchForCovers(15)
+  }
 })
 
 watch(pagination.currentPage, (page) => {
+  stopCoverPoll()
   loadSongs(page)
   songsTop.value?.scrollIntoView({ behavior: 'smooth' })
 })
@@ -187,6 +242,27 @@ const openAlbumCover = (col: Collection) => {
             <Shuffle class="size-4" /> {{ t('media.shuffle') }}
           </Button>
         </div>
+      </div>
+
+      <div
+        v-if="missingCovers > 0 || makingCovers"
+        class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm"
+        data-testid="missing-covers"
+      >
+        <span class="min-w-0 flex-1 text-muted-foreground">
+          {{ makingCovers ? t('media.makingCovers') : t('media.missingCovers', { n: missingCovers }, missingCovers) }}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          class="gap-1.5"
+          :disabled="makingCovers"
+          @click="makeCovers"
+        >
+          <Loader2 v-if="makingCovers" class="size-4 animate-spin" />
+          <Sparkles v-else class="size-4" />
+          {{ t('media.makeCovers') }}
+        </Button>
       </div>
 
       <div v-if="loading" class="space-y-2">

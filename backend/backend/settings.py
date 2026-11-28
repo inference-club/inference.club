@@ -331,6 +331,9 @@ DEVICE_LOCK_DEFAULT_TTL = int(os.environ.get("DEVICE_LOCK_DEFAULT_TTL", "900"))
 # Master switch the API/dispatcher read. True only when a broker exists, unless
 # explicitly forced (e.g. CELERY_TASK_ALWAYS_EAGER in tests).
 ASYNC_ENABLED = _env_bool("ASYNC_ENABLED", default=bool(CELERY_BROKER_URL))
+# Queue square cover art for each finished song that has none (needs async
+# jobs and an image model the song's owner can reach). See apps/inference/covers.py.
+AUTO_COVER_ART = _env_bool("AUTO_COVER_ART", default=True)
 CELERY_TASK_ALWAYS_EAGER = _env_bool("CELERY_TASK_ALWAYS_EAGER", default=False)
 if CELERY_TASK_ALWAYS_EAGER:
     ASYNC_ENABLED = True
