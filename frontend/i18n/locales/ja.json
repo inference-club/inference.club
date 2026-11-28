@@ -25,7 +25,8 @@
     "loading": "読み込み中…",
     "readArticle": "記事を読む",
     "readTheDocs": "ドキュメントを読む",
-    "allPosts": "すべての投稿"
+    "allPosts": "すべての投稿",
+    "new": "新機能"
   },
   "content": {
     "fallbackNotice": "{language}ではまだ利用できません — 英語で表示しています。",
@@ -174,7 +175,8 @@
       "anonAccess": "匿名アクセス",
       "roadmap": "ロードマップ",
       "queue": "Queue & workflows",
-      "chats": "チャット"
+      "chats": "チャット",
+      "narrate": "ナレーション"
     }
   },
   "player": {
@@ -190,7 +192,8 @@
     "removeFromQueue": "キューから削除",
     "mute": "ミュート",
     "unmute": "ミュート解除",
-    "close": "プレーヤーを閉じる"
+    "close": "プレーヤーを閉じる",
+    "speed": "再生速度"
   },
   "media": {
     "play": "再生",
@@ -608,6 +611,122 @@
         "count": "家庭 | 家庭",
         "note": "成長のイメージ図です。リアルタイムの数ではありません。"
       }
+    }
+  },
+  "narrate": {
+    "title": "ナレーション",
+    "subtitle": "記事のリンクか本文を貼り付けてください。あなたの声で読み上げ、パートごとに確認して、1 つの録音にまとめます。",
+    "inputLabel": "読み上げるリンクまたはテキスト",
+    "placeholder": "記事のリンク（Hacker News のリンクでも可）か、本文を貼り付け…",
+    "detectedLink": "リンク：リンク先の記事を探して読み上げます",
+    "detectedText": "テキスト {n} 語 | テキスト {n} 語",
+    "voice": "ボイス",
+    "voiceDefault": "自分の既定のボイス",
+    "voiceNone": "落ち着いたナレーターの声",
+    "go": "読み上げる",
+    "startFailed": "ナレーションを開始できませんでした。",
+    "deleteFailed": "削除できませんでした。",
+    "delete": "削除",
+    "noVoiceModel": "現在オンラインの音声モデルがないため、ナレーションを開始できません。",
+    "noSampleHint": "まだ声のサンプルがないため、ナレーターの声を 1 つ選び、最後まで同じ声で読み上げます。",
+    "addVoice": "自分の声を追加",
+    "steps": {
+      "read": {
+        "title": "読む",
+        "body": "記事と著者、日付を見つけます。"
+      },
+      "plan": {
+        "title": "計画",
+        "body": "パートに分け、読みにくい語をメモします。"
+      },
+      "voice": {
+        "title": "音声",
+        "body": "各パートを読み上げ、整え、確認し、必要なら録り直します。"
+      },
+      "mix": {
+        "title": "結合",
+        "body": "タイトル画像付きの 1 つの録音にします。"
+      }
+    },
+    "yours": "あなたのナレーション",
+    "empty": "まだナレーションはありません。上にリンクを貼り付けて最初の 1 本を作りましょう。",
+    "stage": {
+      "reading": "読み込み中",
+      "planning": "計画中",
+      "voicing": "読み上げ中",
+      "mixing": "結合中",
+      "done": "完了",
+      "error": "問題により停止",
+      "stopped": "停止"
+    },
+    "stageLong": {
+      "reading": "記事を探しています",
+      "planning": "パートに分けています",
+      "voicing": "各パートを読み上げています",
+      "mixing": "パートを 1 つの録音にまとめています",
+      "stopped": "途中で停止しました",
+      "done": "完了"
+    },
+    "voicingCount": "読み上げ：{total} パート中 {done} パート完了",
+    "jobs": {
+      "voice": "音声",
+      "clean": "クリーンアップ",
+      "check": "単語チェック",
+      "judge": "評価",
+      "cover": "タイトル画像",
+      "read": "記事の取得"
+    },
+    "back": "すべてのナレーション",
+    "notFound": "このナレーションは見つかりませんでした。",
+    "original": "オリジナル",
+    "words": "{n} 語",
+    "inVoice": "{name} の声",
+    "openStudio": "スタジオで微調整",
+    "stop": "停止",
+    "stopping": "現在のパートが終わったら停止します",
+    "resume": "続ける",
+    "resumed": "残りのパートを読み上げています",
+    "hideLog": "ログを隠す",
+    "remixed": "録音を更新しました",
+    "remixFailed": "録音を更新できませんでした",
+    "remixing": "録音を更新中…",
+    "toReview": "{n} パートは聞いて確認を | {n} パートは聞いて確認を",
+    "retryThose": "まとめて録り直す",
+    "allGood": "すべてのパートが確認に合格しました",
+    "pieces": "{n} パート | {n} パート",
+    "player": {
+      "left": "残り {time}",
+      "back": "15 秒戻る",
+      "forward": "15 秒進む"
+    },
+    "piece": {
+      "play": "パート {n} を再生",
+      "failed": "うまくいきませんでした。もう一度お試しください。",
+      "revoicing": "録り直し中",
+      "revoice": "録り直す",
+      "saveAndVoice": "保存して録り直す",
+      "words": "テキスト",
+      "noteLabel": "または、気になる点を伝える",
+      "notePlaceholder": "例：SQL は「シークェル」と読む、最後はゆっくり",
+      "record": "ボイスメモを録音",
+      "stopRecording": "録音を停止",
+      "sendNote": "メモを送信",
+      "notHeard": "その録音からは何も聞き取れませんでした。",
+      "micDenied": "マイクを使用できませんでした。",
+      "otherTakes": "テイク",
+      "use": "使う",
+      "inUse": "使用中",
+      "score": "スコア {n}",
+      "takes": "{n} テイク | {n} テイク",
+      "status": {
+        "generating": "読み上げ中",
+        "queued": "待機中",
+        "ready": "良好",
+        "flagged": "要確認",
+        "error": "失敗"
+      },
+      "tailCut": "余分な音を{n}秒カット",
+      "tailCutHint": "最後の言葉の後に入った、声ではない音を取り除きました。"
     }
   }
 }

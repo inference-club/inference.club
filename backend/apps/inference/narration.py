@@ -101,6 +101,10 @@ def _aselect_filter(intervals) -> str:
 TRIM_FADE = 0.008  # seconds of fade at every cut, so joins don't click
 
 
+START_FADE = 0.015     # fade-in at the very start of a take
+END_FADE = 0.045       # fade-out at the very end
+
+
 def _trim_filter(intervals, *, fade=TRIM_FADE, loudness=None) -> str:
     """A filter_complex graph that keeps ``intervals``, fades each piece in and
     out by ``fade`` seconds (a hard cut in the middle of a waveform clicks), joins
@@ -111,9 +115,14 @@ def _trim_filter(intervals, *, fade=TRIM_FADE, loudness=None) -> str:
     for i, (a, b) in enumerate(intervals):
         length = max(0.0, b - a)
         f = min(fade, length / 4) if fade else 0
+        # The take's own start and end get a longer fade than the joins inside
+        # it: a word that stops dead at the end of a clip sounds like a glitch.
+        f_in = min(START_FADE, length / 4) if fade and i == 0 else f
+        f_out = min(END_FADE, length / 3) if fade and i == len(intervals) - 1 else f
         chain = f"[0:a]atrim={a}:{b},asetpts=PTS-STARTPTS"
         if f > 0:
-            chain += f",afade=t=in:d={f:.4f},afade=t=out:st={max(0.0, length - f):.4f}:d={f:.4f}"
+            chain += (f",afade=t=in:d={f_in:.4f}"
+                      f",afade=t=out:st={max(0.0, length - f_out):.4f}:d={f_out:.4f}")
         parts.append(chain + f"[p{i}]")
         labels.append(f"[p{i}]")
     graph = ";".join(parts) + ";" + "".join(labels) + f"concat=n={len(labels)}:v=0:a=1"
@@ -255,6 +264,68 @@ def align_words_to_onset(words, silences):
              "end": round(max(0.05, w["end"] - lag), 3)} for w in words]
 
 
+TAIL_MARGIN = 0.2          # a stray sound must begin this long after the last word starts
+FINE_SILENCE_DB = -40.0    # a finer silence pass, used only to look at the tail
+FINE_SILENCE_MIN = 0.12
+
+
+def tail_artifact_cut(fine_silences, words, duration, *, margin=TAIL_MARGIN, tail_pad=None):
+    """Where a take should end when the voice model kept making sound after
+    the last word (a breath, a click, a half-syllable, a second of babble).
+
+    The take is split into stretches of sound separated by short silences.
+    Speech recognition reports words late, never early, so the last word was
+    really spoken in the stretch that holds its reported start, or an earlier
+    one. Any later stretch of sound is therefore not that word, and is cut.
+    (A word's reported *end* is not used: recognisers stretch it across the
+    silence that follows.) Returns the time to cut at, a little after the
+    speech really ends, or None when the take ends cleanly.
+
+    ``words`` should end with the last word that belongs to the script; pass
+    a shorter list to treat later recognised words as babble."""
+    if not words:
+        return None
+    tail_pad = TAIL_PAD if tail_pad is None else tail_pad
+    last_start = words[-1]["start"]
+    islands, cursor = [], 0.0
+    for a, b in fine_silences:
+        if a > cursor + 0.01:
+            islands.append((cursor, a))
+        cursor = max(cursor, b)
+    if duration > cursor + 0.01:
+        islands.append((cursor, duration))
+    # The stretch holding the last word: the last one that begins at or
+    # before the word's reported start.
+    home = None
+    for k, (a, _b) in enumerate(islands):
+        if a <= last_start + 0.02:
+            home = k
+    if home is None or home == len(islands) - 1:
+        return None
+    speech_end = islands[home][1]
+    stray_start = islands[home + 1][0]
+    if stray_start < last_start + margin:
+        return None  # too close to the word to be sure
+    cut = min(stray_start - 0.02, speech_end + tail_pad)
+    return round(cut, 3) if cut < duration - 0.05 else None
+
+
+def last_script_word(words, script_text):
+    """Index of the last recognised word that is the script's last word,
+    looking only at the final few recognised words; None when the take does
+    not end the way the script does. Words after that index are babble the
+    voice model added after finishing the line."""
+    said = _normalize_for_similarity(strip_speaker_tags(script_text)).split()
+    if not said or not words:
+        return None
+    target = said[-1]
+    for i in range(len(words) - 1, max(-1, len(words) - 5), -1):
+        token = _normalize_for_similarity(words[i]["word"]).split()
+        if token and token[-1] == target:
+            return i
+    return None
+
+
 def plan_energy_trim(silences, duration, *, gap_threshold=TRIM_GAP_THRESHOLD,
                      max_gap=TRIM_MAX_GAP, head_pad=HEAD_PAD, tail_pad=TAIL_PAD):
     """Keep-ranges that remove ONLY silence measured in the waveform: the lead-in
@@ -275,7 +346,8 @@ def plan_energy_trim(silences, duration, *, gap_threshold=TRIM_GAP_THRESHOLD,
 
 
 def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHOLD,
-               max_gap=TRIM_MAX_GAP, inference_request=None, loudness=None):
+               max_gap=TRIM_MAX_GAP, inference_request=None, loudness=None,
+               cut_tail=False, last_word=None, info=None):
     """Trim dead air from ``src`` (a MediaAsset); store the result as a new
     OUTPUT_AUDIO (original untouched) and return ``(asset, remapped_words,
     src_duration, out_duration, keep_intervals)``.
@@ -286,7 +358,16 @@ def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHO
     word of every take. Words are aligned to the speech onset and remapped onto
     the trimmed timeline. ``pad`` is kept for API compatibility (the head and
     tail pads are HEAD_PAD / TAIL_PAD). With no measurable silence the source
-    is returned unchanged."""
+    is returned unchanged.
+
+    ``cut_tail`` additionally removes stray sound after the last word (see
+    ``tail_artifact_cut``); pass it only when the transcript is known to end
+    with the right word, since it trusts the last word's timing. ``last_word``
+    is the index of that word when recognition heard extra words after it;
+    those are then cut too. ``info``, a
+    dict, is filled with ``aligned_words`` (the words on the untrimmed
+    timeline, corrected for recognition lag) and ``tail_cut`` (seconds
+    removed from the end, or 0)."""
     words = normalize_words(words)
     with tempfile.TemporaryDirectory() as td:
         in_path = _download_asset(src, td)
@@ -295,6 +376,17 @@ def trim_asset(user, src, words, *, pad=TRIM_PAD, gap_threshold=TRIM_GAP_THRESHO
         words = align_words_to_onset(words, silences)
         intervals = plan_energy_trim(silences, src_dur, gap_threshold=gap_threshold,
                                      max_gap=max_gap)
+        if info is not None:
+            info.update(aligned_words=words, tail_cut=0.0)
+        if cut_tail:
+            fine = detect_silences(in_path, noise_db=FINE_SILENCE_DB, min_len=FINE_SILENCE_MIN)
+            spoken = words if last_word is None else words[: last_word + 1]
+            cut = tail_artifact_cut(fine, spoken, src_dur)
+            if cut is not None:
+                before = sum(b - a for a, b in intervals)
+                intervals = subtract_intervals(intervals, [(cut, src_dur)])
+                if info is not None:
+                    info["tail_cut"] = round(before - sum(b - a for a, b in intervals), 3)
         full = [(0.0, round(src_dur, 3))]
         if not intervals or intervals == full:
             if loudness is None:
@@ -404,7 +496,11 @@ _QUALITY_PROMPT = (
     "- reason: short reason (max 160 chars)\n\n"
     "Scoring: 9-10 near-perfect; 7-8 minor issues, acceptable; 4-6 noticeable "
     "errors; 0-3 severe mismatch. Ignore punctuation/casing unless meaning "
-    "changes. On major omissions, substitutions, hallucinations, or wrong "
+    "changes. Numbers, dates and money written as digits in the script and as "
+    "words in the transcription are the same thing, and so is an acronym "
+    "written with or without spaces between its letters; never mark those "
+    "down. A proper name spelled differently but sounding the same is a minor "
+    "issue. On major omissions, substitutions, hallucinations, or wrong "
     "names/numbers set should_regenerate=true. Respond with ONLY the JSON."
 )
 
@@ -418,10 +514,66 @@ def strip_speaker_tags(text: str) -> str:
     return re.sub(r"\s+", " ", _SPEAKER_TAG_RE.sub("", text or "")).strip()
 
 
+_ONES = ("zero one two three four five six seven eight nine ten eleven twelve thirteen "
+         "fourteen fifteen sixteen seventeen eighteen nineteen").split()
+_TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+_ORDINALS = {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight",
+             "ninth": "nine", "twelfth": "twelve"}
+
+
+def _number_words(n: int) -> str:
+    """Cardinal number in words, the way speech recognition writes it out."""
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        return _TENS[n // 10 - 2] + ("" if n % 10 == 0 else " " + _ONES[n % 10])
+    if n < 1000:
+        return _ONES[n // 100] + " hundred" + ("" if n % 100 == 0 else " " + _number_words(n % 100))
+    for size, name in ((10**12, "trillion"), (10**9, "billion"), (10**6, "million"), (1000, "thousand")):
+        if n >= size:
+            return _number_words(n // size) + " " + name + ("" if n % size == 0 else " " + _number_words(n % size))
+    return str(n)
+
+
+def _spell_number(m) -> str:
+    raw = m.group(0).replace(",", "")
+    n = int(raw)
+    # A bare four-digit number in this range is almost always a year.
+    if "," not in m.group(0) and 1100 <= n <= 2099 and n % 100:
+        return _number_words(n // 100) + " " + (("oh " if n % 100 < 10 else "") + _number_words(n % 100))
+    return _number_words(n) if n < 10**15 else raw
+
+
 def _normalize_for_similarity(text: str) -> str:
+    """Reduce a line and its transcript to the same plain form, so that
+    writing differences are not counted as speaking mistakes: "$245,000" and
+    "two hundred forty five thousand dollars", "24" and "twenty fourth",
+    "U B I" and "UBI", "20%" and "twenty percent" all compare equal."""
     text = (text or "").lower()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\$\s?([\d,]+)", r"\1 dollars", text)
+    text = text.replace("%", " percent")
+    text = re.sub(r"(\d)(?:st|nd|rd|th)\b", r"\1", text)  # 21st → 21
+    text = re.sub(r"\d{1,3}(?:,\d{3})+|\d+", _spell_number, text)
+    text = re.sub(r"[^a-z\s]", " ", text)
+    words = []
+    for w in text.split():
+        if w == "and":
+            continue  # "two hundred and forty" vs "two hundred forty"
+        w = _ORDINALS.get(w, w)
+        if w.endswith("ieth"):
+            w = w[:-4] + "y"  # twentieth → twenty
+        elif w.endswith("th") and (w[:-2] in _ONES or w[:-2] in ("hundred", "thousand", "million")):
+            w = w[:-2]  # fourth → four
+        words.append(w)
+    # Letters said one at a time are one acronym.
+    out = []
+    for w in words:
+        if out and out[-1][1] and (len(w) == 1 or (len(w) == 2 and w[1] == "s")):
+            # "p m" → "pm"; a plural ("p ms") closes the run.
+            out[-1] = (out[-1][0] + w, len(w) == 1)
+        else:
+            out.append((w, len(w) == 1))
+    return " ".join(w for w, _ in out)
 
 
 def fallback_grade(original: str, transcript: str) -> dict:
@@ -465,6 +617,9 @@ def grade_transcription(user, original: str, transcript: str) -> dict:
                     f"Original text:\n{original.strip()}\n\nTranscription:\n{transcript.strip()}"},
             ],
             "max_tokens": 256, "temperature": 0.1, "stream": False,
+            # A reasoning model spends the whole token budget thinking and
+            # returns no answer; the judge needs the answer, not the thoughts.
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         from .locks import device_lock, provider_device_key
         with device_lock(provider_device_key(pm), ttl=UPSTREAM_TIMEOUT_SECONDS + 60):
@@ -673,10 +828,25 @@ def process_segment(segment):
     enhanced_words = words
     enhanced_dur = cleaned.duration_seconds or 0.0
     cfg = episode_settings(segment.episode)
+    # Stray sound after the last word is cut only when the transcript ends
+    # with the word the script ends with, i.e. the ending was heard correctly.
+    # If recognition heard a few more words after the script's last one, the
+    # voice model babbled on; those go as well.
+    heard_words = normalize_words(words)
+    last_word = last_script_word(heard_words, variant.text or segment.text)
+    ends_right = last_word is not None
+    trim_info = {}
     try:
         final, words_out, _src_dur, out_dur, intervals = trim_asset(
             user, cleaned, words, pad=cfg["trim_pad"], gap_threshold=cfg["trim_gap_threshold"],
-            max_gap=cfg["trim_max_gap"], loudness=cfg["loudness_lufs"])
+            max_gap=cfg["trim_max_gap"], loudness=cfg["loudness_lufs"],
+            cut_tail=ends_right, last_word=last_word, info=trim_info)
+        if ends_right and trim_info.get("tail_cut") and last_word < len(heard_words) - 1:
+            # The babble is no longer in the audio, so it leaves the transcript.
+            text = " ".join(w["word"] for w in heard_words[: last_word + 1])
+        # Keep the lag-corrected words for the untrimmed audio too, so every
+        # view of this take (trimmed or not) lines up with what is heard.
+        enhanced_words = trim_info.get("aligned_words") or enhanced_words
     except Exception:
         logger.exception("process_segment: trim failed for segment %s", segment.id)
         final, words_out, out_dur = cleaned, words, enhanced_dur
@@ -699,7 +869,8 @@ def process_segment(segment):
     variant.grade = grade
     variant.duration_seconds = out_dur
     variant.words = words_out
-    variant.grade = {**grade, **take_score(variant, cfg)}
+    variant.grade = {**grade, **take_score(variant, cfg),
+                     "tail_cut": trim_info.get("tail_cut", 0.0)}
     grade = variant.grade
     variant.save(update_fields=[
         "cleaned_audio", "enhanced_audio", "enhanced_words", "trim_intervals",

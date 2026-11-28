@@ -25,7 +25,8 @@
     "loading": "Chargement…",
     "readArticle": "Lire l'article",
     "readTheDocs": "Lire la documentation",
-    "allPosts": "Tous les articles"
+    "allPosts": "Tous les articles",
+    "new": "Nouveau"
   },
   "content": {
     "fallbackNotice": "Pas encore disponible en {language} — affichage en anglais.",
@@ -174,7 +175,8 @@
       "anonAccess": "Accès anonyme",
       "roadmap": "Feuille de route",
       "queue": "Queue & workflows",
-      "chats": "Discussions"
+      "chats": "Discussions",
+      "narrate": "Narration"
     }
   },
   "player": {
@@ -190,7 +192,8 @@
     "removeFromQueue": "Retirer de la file",
     "mute": "Couper le son",
     "unmute": "Activer le son",
-    "close": "Fermer le lecteur"
+    "close": "Fermer le lecteur",
+    "speed": "Vitesse"
   },
   "media": {
     "play": "Lecture",
@@ -608,6 +611,122 @@
         "count": "foyer | foyers",
         "note": "Une illustration de la croissance, pas un décompte en direct."
       }
+    }
+  },
+  "narrate": {
+    "title": "Narration",
+    "subtitle": "Collez le lien d'un article ou le texte lui-même. Il est lu à voix haute avec votre voix, vérifié passage par passage, puis assemblé en un seul enregistrement.",
+    "inputLabel": "Un lien ou un texte à lire",
+    "placeholder": "Collez le lien d'un article (un lien Hacker News fonctionne aussi) ou collez le texte…",
+    "detectedLink": "Lien : l'article vers lequel il mène sera trouvé et lu",
+    "detectedText": "{n} mot de texte | {n} mots de texte",
+    "voice": "Voix",
+    "voiceDefault": "Ma voix par défaut",
+    "voiceNone": "Une voix de narrateur posée",
+    "go": "Lire à voix haute",
+    "startFailed": "Impossible de lancer la narration.",
+    "deleteFailed": "Impossible de la supprimer.",
+    "delete": "Supprimer",
+    "noVoiceModel": "Aucun modèle de voix n'est en ligne pour le moment, la narration ne peut donc pas démarrer.",
+    "noSampleHint": "Vous n'avez pas encore d'échantillon de voix : une voix de narrateur sera choisie et gardée pour toute la narration.",
+    "addVoice": "Ajouter votre voix",
+    "steps": {
+      "read": {
+        "title": "Lire",
+        "body": "Trouve l'article, son auteur et sa date."
+      },
+      "plan": {
+        "title": "Préparer",
+        "body": "Le découpe en passages et repère les mots délicats."
+      },
+      "voice": {
+        "title": "Voix",
+        "body": "Enregistre, nettoie, vérifie et refait chaque passage."
+      },
+      "mix": {
+        "title": "Assembler",
+        "body": "Un seul enregistrement, avec une image de titre."
+      }
+    },
+    "yours": "Vos narrations",
+    "empty": "Rien n'a encore été lu. Collez un lien ci-dessus pour créer la première narration.",
+    "stage": {
+      "reading": "Lecture",
+      "planning": "Préparation",
+      "voicing": "Mise en voix",
+      "mixing": "Assemblage",
+      "done": "Terminé",
+      "error": "Arrêtée par un problème",
+      "stopped": "Arrêtée"
+    },
+    "stageLong": {
+      "reading": "Recherche de l'article",
+      "planning": "Découpage en passages",
+      "voicing": "Mise en voix des passages",
+      "mixing": "Assemblage des passages en un seul enregistrement",
+      "stopped": "Arrêtée avant la fin",
+      "done": "Terminé"
+    },
+    "voicingCount": "Mise en voix : {done} passages sur {total}",
+    "jobs": {
+      "voice": "Voix",
+      "clean": "Nettoyage",
+      "check": "Vérification des mots",
+      "judge": "Juge",
+      "cover": "Image de titre",
+      "read": "Lecteur"
+    },
+    "back": "Toutes les narrations",
+    "notFound": "Cette narration est introuvable.",
+    "original": "Original",
+    "words": "{n} mots",
+    "inVoice": "Avec la voix de {name}",
+    "openStudio": "Peaufiner dans Studio",
+    "stop": "Arrêter",
+    "stopping": "Arrêt après le passage en cours",
+    "resume": "Continuer",
+    "resumed": "Mise en voix des passages restants",
+    "hideLog": "Masquer le journal",
+    "remixed": "Enregistrement mis à jour",
+    "remixFailed": "Impossible de mettre à jour l'enregistrement",
+    "remixing": "Mise à jour de l'enregistrement…",
+    "toReview": "{n} passage mérite une écoute | {n} passages méritent une écoute",
+    "retryThose": "Refaire leur voix",
+    "allGood": "Tous les passages ont réussi leur vérification",
+    "pieces": "{n} passage | {n} passages",
+    "player": {
+      "left": "{time} restant",
+      "back": "Reculer de 15 secondes",
+      "forward": "Avancer de 15 secondes"
+    },
+    "piece": {
+      "play": "Lire le passage {n}",
+      "failed": "Cela n'a pas fonctionné. Réessayez.",
+      "revoicing": "Nouvelle mise en voix",
+      "revoice": "Refaire la voix",
+      "saveAndVoice": "Enregistrer et refaire la voix",
+      "words": "Texte",
+      "noteLabel": "Ou dites ce qui ne va pas",
+      "notePlaceholder": "ex. : prononcer SQL « sicouel » ; plus lent à la fin",
+      "record": "Enregistrer une note vocale",
+      "stopRecording": "Arrêter l'enregistrement",
+      "sendNote": "Envoyer la note",
+      "notHeard": "Rien n'a été entendu dans cet enregistrement.",
+      "micDenied": "Le micro n'a pas pu être utilisé.",
+      "otherTakes": "Prises",
+      "use": "Utiliser",
+      "inUse": "Utilisée",
+      "score": "score {n}",
+      "takes": "{n} prise | {n} prises",
+      "status": {
+        "generating": "Mise en voix",
+        "queued": "En attente",
+        "ready": "Bon",
+        "flagged": "À écouter",
+        "error": "Échec"
+      },
+      "tailCut": "{n} s de bruit coupé",
+      "tailCutHint": "Un son après le dernier mot, qui n'était pas de la parole, a été retiré."
     }
   }
 }

@@ -88,6 +88,8 @@ export const ROUTES: RouteSpec[] = [
   { name: 'queue-run', path: '/dashboard/queue/runs/:runId', auth: true, dynamic: true },
   { name: 'settings-api-keys', path: '/dashboard/settings/api-keys', auth: true },
   { name: 'settings-fallback', path: '/dashboard/settings/fallback', auth: true },
+  { name: 'narrate', path: '/dashboard/narrate', auth: true },
+  { name: 'narration', path: '/dashboard/narrate/:episodeId', auth: true, dynamic: true },
   { name: 'studio', path: '/dashboard/studio', auth: true },
   { name: 'studio-episode', path: '/dashboard/studio/:episodeId', auth: true, dynamic: true },
   { name: 'workflows', path: '/dashboard/workflows', auth: true },

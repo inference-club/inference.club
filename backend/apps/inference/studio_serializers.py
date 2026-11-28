@@ -74,12 +74,34 @@ class EpisodeListSerializer(serializers.ModelSerializer):
 
     segment_count = serializers.IntegerField(source="segments.count", read_only=True)
 
+    # Present for episodes made by "narrate this" (see narrate.py); empty
+    # objects for ones typed into the Studio.
+    narration = serializers.SerializerMethodField()
+    audio_url = serializers.SerializerMethodField()
+    audio_seconds = serializers.SerializerMethodField()
+    cover_image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Episode
         fields = [
             "id", "title", "description", "workflow_run_id",
-            "segment_count", "created_on", "modified_on",
+            "segment_count", "source", "narration", "audio_url", "audio_seconds",
+            "cover_image_url", "created_on", "modified_on",
         ]
+
+    def get_narration(self, obj):
+        from . import narrate
+        return narrate.summary(obj)
+
+    def get_audio_url(self, obj):
+        return asset_url(obj.audio, self.context.get("request")) if obj.audio_id else None
+
+    def get_audio_seconds(self, obj):
+        return obj.audio.duration_seconds if obj.audio_id else None
+
+    def get_cover_image_url(self, obj):
+        from .serializers import _cover_image_url
+        return _cover_image_url(obj, self.context.get("request"))
 
 
 class EpisodeSerializer(EpisodeListSerializer):

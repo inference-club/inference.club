@@ -14,6 +14,10 @@ import { getSharedAnalyser } from '@/utils/audio'
 
 const { t } = useI18n()
 const player = usePlayerStore()
+// The site-wide playback speed also drives the global player, and is put
+// back on the element whenever a new track loads.
+const { rate: playbackRate } = usePlaybackRate()
+watch([playbackRate, () => player.current?.id], () => player.setRate(playbackRate.value), { immediate: true })
 
 const current = computed(() => player.current)
 
@@ -290,6 +294,7 @@ const toggleMute = () => {
           </Popover>
 
           <div class="hidden items-center gap-2 md:flex">
+            <PlaybackSpeed compact />
             <Button
               variant="ghost"
               size="icon"

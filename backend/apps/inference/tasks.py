@@ -121,3 +121,14 @@ def produce_segment(segment_id, attempts=None, accept=None, explore=False, seeds
             logger.exception("produce_segment task failed for segment %s", segment_id)
             seg.status = Segment.STATUS_ERROR
             seg.save(update_fields=["status", "modified_on"])
+
+
+@shared_task(name="apps.inference.tasks.narrate_episode")
+def narrate_episode(episode_id):
+    """"Narrate this" from start to finish (read, plan, voice, mix)."""
+    from . import narrate
+    from .models import Episode
+
+    ep = Episode.objects.filter(id=episode_id).select_related("user", "voice_sample").first()
+    if ep is not None:
+        narrate.run(ep)

@@ -25,7 +25,8 @@
     "loading": "불러오는 중…",
     "readArticle": "기사 읽기",
     "readTheDocs": "문서 읽기",
-    "allPosts": "모든 게시물"
+    "allPosts": "모든 게시물",
+    "new": "새 기능"
   },
   "content": {
     "fallbackNotice": "아직 {language}로 제공되지 않아 영어로 표시합니다.",
@@ -174,7 +175,8 @@
       "anonAccess": "익명 액세스",
       "roadmap": "로드맵",
       "queue": "Queue & workflows",
-      "chats": "채팅"
+      "chats": "채팅",
+      "narrate": "낭독"
     }
   },
   "player": {
@@ -190,7 +192,8 @@
     "removeFromQueue": "대기열에서 제거",
     "mute": "음소거",
     "unmute": "음소거 해제",
-    "close": "플레이어 닫기"
+    "close": "플레이어 닫기",
+    "speed": "재생 속도"
   },
   "media": {
     "play": "재생",
@@ -608,6 +611,122 @@
         "count": "가정 | 가정",
         "note": "성장을 그린 그림이며 실시간 집계가 아닙니다."
       }
+    }
+  },
+  "narrate": {
+    "title": "낭독",
+    "subtitle": "글의 링크나 본문을 붙여넣으세요. 내 목소리로 읽고, 구간별로 확인한 뒤 하나의 녹음으로 이어 붙입니다.",
+    "inputLabel": "낭독할 링크 또는 텍스트",
+    "placeholder": "글 링크(Hacker News 링크도 가능) 또는 본문을 붙여넣으세요…",
+    "detectedLink": "링크: 연결된 글을 찾아서 읽습니다",
+    "detectedText": "텍스트 {n}단어 | 텍스트 {n}단어",
+    "voice": "목소리",
+    "voiceDefault": "내 기본 목소리",
+    "voiceNone": "차분한 내레이터 목소리",
+    "go": "낭독하기",
+    "startFailed": "낭독을 시작하지 못했습니다.",
+    "deleteFailed": "삭제하지 못했습니다.",
+    "delete": "삭제",
+    "noVoiceModel": "지금 온라인인 음성 모델이 없어 낭독을 시작할 수 없습니다.",
+    "noSampleHint": "아직 목소리 샘플이 없어서 내레이터 목소리를 하나 골라 끝까지 같은 목소리로 읽습니다.",
+    "addVoice": "내 목소리 추가",
+    "steps": {
+      "read": {
+        "title": "읽기",
+        "body": "글과 글쓴이, 날짜를 찾습니다."
+      },
+      "plan": {
+        "title": "계획",
+        "body": "구간으로 나누고 까다로운 단어를 표시합니다."
+      },
+      "voice": {
+        "title": "음성",
+        "body": "구간마다 읽고, 다듬고, 확인하고, 필요하면 다시 녹음합니다."
+      },
+      "mix": {
+        "title": "합치기",
+        "body": "제목 이미지가 있는 하나의 녹음."
+      }
+    },
+    "yours": "내 낭독",
+    "empty": "아직 낭독한 글이 없습니다. 위에 링크를 붙여넣어 첫 낭독을 만들어 보세요.",
+    "stage": {
+      "reading": "읽는 중",
+      "planning": "계획 중",
+      "voicing": "녹음 중",
+      "mixing": "합치는 중",
+      "done": "완료",
+      "error": "문제로 중단됨",
+      "stopped": "중지됨"
+    },
+    "stageLong": {
+      "reading": "글을 찾는 중",
+      "planning": "구간으로 나누는 중",
+      "voicing": "구간을 녹음하는 중",
+      "mixing": "구간을 하나의 녹음으로 합치는 중",
+      "stopped": "끝나기 전에 중지됨",
+      "done": "완료"
+    },
+    "voicingCount": "녹음: {total}개 구간 중 {done}개 완료",
+    "jobs": {
+      "voice": "음성",
+      "clean": "정리",
+      "check": "단어 확인",
+      "judge": "평가",
+      "cover": "제목 이미지",
+      "read": "글 읽기"
+    },
+    "back": "모든 낭독",
+    "notFound": "이 낭독을 찾을 수 없습니다.",
+    "original": "원문",
+    "words": "{n}단어",
+    "inVoice": "{name}의 목소리",
+    "openStudio": "스튜디오에서 다듬기",
+    "stop": "중지",
+    "stopping": "현재 구간을 마친 뒤 중지합니다",
+    "resume": "계속",
+    "resumed": "남은 구간을 녹음하는 중",
+    "hideLog": "로그 숨기기",
+    "remixed": "녹음을 업데이트했습니다",
+    "remixFailed": "녹음을 업데이트하지 못했습니다",
+    "remixing": "녹음 업데이트 중…",
+    "toReview": "{n}개 구간은 들어 보세요 | {n}개 구간은 들어 보세요",
+    "retryThose": "모두 다시 녹음",
+    "allGood": "모든 구간이 확인을 통과했습니다",
+    "pieces": "{n}개 구간 | {n}개 구간",
+    "player": {
+      "left": "{time} 남음",
+      "back": "15초 뒤로",
+      "forward": "15초 앞으로"
+    },
+    "piece": {
+      "play": "{n}번 구간 재생",
+      "failed": "실패했습니다. 다시 시도하세요.",
+      "revoicing": "다시 녹음하는 중",
+      "revoice": "다시 녹음",
+      "saveAndVoice": "저장하고 다시 녹음",
+      "words": "텍스트",
+      "noteLabel": "또는 무엇이 문제인지 알려 주세요",
+      "notePlaceholder": "예: SQL은 '시퀄'로 읽기, 끝부분은 더 천천히",
+      "record": "음성 메모 녹음",
+      "stopRecording": "녹음 중지",
+      "sendNote": "메모 보내기",
+      "notHeard": "녹음에서 아무 소리도 들리지 않았습니다.",
+      "micDenied": "마이크를 사용할 수 없습니다.",
+      "otherTakes": "테이크",
+      "use": "사용",
+      "inUse": "사용 중",
+      "score": "점수 {n}",
+      "takes": "테이크 {n}개 | 테이크 {n}개",
+      "status": {
+        "generating": "녹음 중",
+        "queued": "대기 중",
+        "ready": "좋음",
+        "flagged": "확인 필요",
+        "error": "실패"
+      },
+      "tailCut": "잡음 {n}초 제거",
+      "tailCutHint": "마지막 단어 뒤에 들어간, 말소리가 아닌 소리를 잘라냈습니다."
     }
   }
 }

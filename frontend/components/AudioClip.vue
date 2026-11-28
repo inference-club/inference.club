@@ -2,7 +2,7 @@
 // A small, quiet audio player for one clip (speech, a recording, an enhanced
 // take): play/pause, a scrubber and the time. Songs use the global player
 // instead, so they keep playing across pages.
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Play, Pause, Download } from 'lucide-vue-next'
 import { formatTrackTime } from '@/utils/player'
 
@@ -16,6 +16,9 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const el = ref<HTMLAudioElement | null>(null)
+// Speed is shared across the site; follow it, including while playing.
+const { rate, apply } = usePlaybackRate()
+watch([rate, el], () => apply(el.value))
 const playing = ref(false)
 const now = ref(0)
 const total = ref(props.seconds ?? 0)
@@ -32,6 +35,7 @@ const toggle = () => {
   }
 }
 const onMeta = () => {
+  apply(el.value)
   const d = el.value?.duration
   if (d && Number.isFinite(d)) total.value = d
 }
@@ -83,9 +87,10 @@ onBeforeUnmount(() => el.value?.pause())
         @input="seek"
       />
     </div>
-    <span class="shrink-0 text-xs tabular-nums text-muted-foreground">
+    <span class="hidden shrink-0 text-xs tabular-nums text-muted-foreground min-[380px]:inline">
       {{ formatTrackTime(now) }} / {{ formatTrackTime(total) }}
     </span>
+    <PlaybackSpeed compact />
     <a
       v-if="downloadName"
       :href="src"

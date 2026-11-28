@@ -321,6 +321,15 @@ export const usePlayerStore = defineStore('player', {
       }
     },
 
+    /** Playback speed (0.5–3). Kept on the element across track changes. */
+    setRate(rate: number) {
+      const el = this._el()
+      if (!el) return
+      el.preservesPitch = true
+      el.defaultPlaybackRate = rate
+      el.playbackRate = rate
+    },
+
     setVolume(v: number) {
       this.volume = Math.min(Math.max(v, 0), 1)
       const el = this._el()

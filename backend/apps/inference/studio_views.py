@@ -32,7 +32,7 @@ class EpisodeListCreateView(APIView):
 
     def get(self, request):
         qs = _episodes_for(request.user).prefetch_related("segments")
-        return Response({"data": EpisodeListSerializer(qs, many=True).data})
+        return Response({"data": EpisodeListSerializer(qs, many=True, context={"request": request}).data})
 
     def post(self, request):
         title = (request.data.get("title") or "").strip()
@@ -555,3 +555,135 @@ class EpisodeExportView(APIView):
         name = slugify(ep.title)[:60] or f"episode-{ep.id}"
         resp["Content-Disposition"] = f'attachment; filename="{name}.zip"'
         return resp
+
+
+# --- "Narrate this": a link or text in, a finished narration out -------------
+
+
+class NarrationCreateView(APIView):
+    """POST /v1/narrations — narrate an article or some text.
+
+    Body: ``url`` (any page, or a Hacker News discussion link) or ``text``;
+    optional ``title`` and ``voice_sample_id`` (default: your default voice).
+    Answers 202 with the episode straight away. Read ``GET /v1/episodes/<id>``
+    to follow it: ``narration.stage`` moves through reading, planning, voicing
+    and mixing to ``done``, and ``audio_url`` is the finished file."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request):
+        from . import narrate
+        from .article import ArticleError
+
+        body = request.data if isinstance(request.data, dict) else {}
+        sample = None
+        if body.get("voice_sample_id"):
+            sample = VoiceSample.objects.filter(user=request.user, id=body["voice_sample_id"]).first()
+            if sample is None:
+                return Response({"detail": "No such voice sample."}, status=400)
+        try:
+            ep = narrate.start(
+                request.user, url=str(body.get("url") or ""), text=str(body.get("text") or ""),
+                title=str(body.get("title") or ""), voice_sample=sample,
+            )
+        except ArticleError as e:
+            return Response({"detail": str(e)}, status=400)
+        ep.refresh_from_db()
+        return Response(EpisodeSerializer(ep, context={"request": request}).data,
+                        status=status.HTTP_202_ACCEPTED)
+
+
+class EpisodeMixView(APIView):
+    """POST /v1/episodes/<id>/mix — join the chosen takes into one file again
+    (after an edit, a retake or picking a different take)."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id):
+        from . import narrate
+
+        ep = get_object_or_404(_episodes_for(request.user), id=id)
+        if narrate.mix(ep) is None:
+            return Response({"detail": "Nothing is voiced yet."}, status=409)
+        ep.refresh_from_db()
+        return Response(EpisodeSerializer(ep, context={"request": request}).data)
+
+
+class EpisodeTranscriptView(APIView):
+    """GET /v1/episodes/<id>/transcript — every word of the joined recording
+    with its start and end time in that recording, plus where each piece
+    starts. For captions, follow-along text, or cutting video to the voice."""
+
+    permission_classes = [IsFullMember]
+
+    def get(self, request, id):
+        from . import narrate
+
+        ep = get_object_or_404(_episodes_for(request.user), id=id)
+        return Response(narrate.transcript(ep))
+
+
+class EpisodeCancelView(APIView):
+    """POST /v1/episodes/<id>/cancel — stop a narration after the piece it is
+    on. What is already voiced is kept."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id):
+        from . import narrate
+
+        ep = get_object_or_404(_episodes_for(request.user), id=id)
+        if narrate.is_active(ep):
+            narrate._save(ep, cancel=True)
+        return Response(EpisodeSerializer(ep, context={"request": request}).data)
+
+
+class SegmentProduceView(APIView):
+    """POST /v1/segments/<id>/produce — voice one piece again with the full
+    loop (take, clean, trim, check, retake while the check is poor), keeping
+    the best take."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id):
+        from . import narration
+        from .tasks import produce_segment as produce_task
+
+        seg = get_object_or_404(Segment.objects.select_related("episode"), id=id, episode__user=request.user)
+        seg.status = Segment.STATUS_QUEUED
+        seg.save(update_fields=["status", "modified_on"])
+        if _async_ok():
+            produce_task.delay(seg.id)
+        else:
+            narration.produce_segment(seg)
+        seg.refresh_from_db()
+        return Response(SegmentSerializer(seg, context={"request": request}).data,
+                        status=status.HTTP_202_ACCEPTED)
+
+
+class SegmentFeedbackView(APIView):
+    """POST /v1/segments/<id>/feedback — say what is wrong with a piece in
+    your own words (``note``; a transcribed voice note works) and have it
+    fixed: the line is reworded or a pronunciation is added as the note asks,
+    and the piece is voiced again."""
+
+    permission_classes = [IsFullMember]
+
+    def post(self, request, id):
+        from . import narrate, narration
+        from .tasks import produce_segment as produce_task
+
+        seg = get_object_or_404(Segment.objects.select_related("episode"), id=id, episode__user=request.user)
+        note = str((request.data or {}).get("note") or "").strip()
+        if not note:
+            return Response({"detail": "Say what should change."}, status=400)
+        plan = narrate.apply_feedback(seg, note)
+        seg.status = Segment.STATUS_QUEUED
+        seg.save(update_fields=["status", "modified_on"])
+        if _async_ok():
+            produce_task.delay(seg.id)
+        else:
+            narration.produce_segment(seg)
+        seg.refresh_from_db()
+        return Response({"understood": plan, "segment": SegmentSerializer(seg, context={"request": request}).data},
+                        status=status.HTTP_202_ACCEPTED)

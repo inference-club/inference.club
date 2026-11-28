@@ -1823,6 +1823,22 @@ class Episode(BaseModel):
     # pronunciation lexicon, Dia sampling, retake policy, trim + loudness targets.
     # Stored sparse; ``narration.episode_settings`` merges in the defaults.
     settings = models.JSONField(default=dict, blank=True)
+    # Where the text came from when the episode was made by "narrate this"
+    # (see narrate.py): {url, source_url, title, author, published, site, via,
+    # words}. Empty for episodes typed into the Studio.
+    source = models.JSONField(default=dict, blank=True)
+    # The narration run's state, for showing progress: {stage, error, started,
+    # finished, models: {...}, events: [...], kinds: {segment_id: kind},
+    # mix: {signature, seconds, offsets, at}}. See narrate.py.
+    production = models.JSONField(default=dict, blank=True)
+    # The whole narration as one file (selected takes joined in order).
+    audio = models.ForeignKey(
+        "MediaAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    # Title image, generated alongside the narration.
+    cover_request = models.ForeignKey(
+        InferenceRequest, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
 
     class Meta:
         ordering = ["-modified_on"]

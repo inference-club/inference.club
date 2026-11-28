@@ -18,6 +18,8 @@ export interface Grade {
   accepted?: boolean
   attempt?: number
   seed?: number | null
+  /** Seconds of stray sound removed after the last word. */
+  tail_cut?: number
 }
 
 export interface Variant {

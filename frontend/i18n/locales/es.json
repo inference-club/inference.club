@@ -25,7 +25,8 @@
     "loading": "Cargando…",
     "readArticle": "Leer artículo",
     "readTheDocs": "Leer la documentación",
-    "allPosts": "Todas las entradas"
+    "allPosts": "Todas las entradas",
+    "new": "Nuevo"
   },
   "content": {
     "fallbackNotice": "Aún no disponible en {language} — mostrando en inglés.",
@@ -174,7 +175,8 @@
       "anonAccess": "Acceso anónimo",
       "roadmap": "Hoja de ruta",
       "queue": "Queue & workflows",
-      "chats": "Chats"
+      "chats": "Chats",
+      "narrate": "Narrar"
     }
   },
   "player": {
@@ -190,7 +192,8 @@
     "removeFromQueue": "Quitar de la cola",
     "mute": "Silenciar",
     "unmute": "Activar sonido",
-    "close": "Cerrar reproductor"
+    "close": "Cerrar reproductor",
+    "speed": "Velocidad"
   },
   "media": {
     "play": "Reproducir",
@@ -608,6 +611,122 @@
         "count": "hogar | hogares",
         "note": "Una ilustración del crecimiento, no un recuento en vivo."
       }
+    }
+  },
+  "narrate": {
+    "title": "Narrar",
+    "subtitle": "Pega el enlace de un artículo o el texto. Se lee en voz alta con tu voz, se revisa fragmento a fragmento y se une en una sola grabación.",
+    "inputLabel": "Un enlace o un texto para narrar",
+    "placeholder": "Pega el enlace de un artículo (también vale un enlace de Hacker News) o pega el texto…",
+    "detectedLink": "Enlace: se buscará y se leerá el artículo al que lleva",
+    "detectedText": "{n} palabra de texto | {n} palabras de texto",
+    "voice": "Voz",
+    "voiceDefault": "Mi voz predeterminada",
+    "voiceNone": "Una voz de narrador estable",
+    "go": "Narrar",
+    "startFailed": "No se pudo iniciar la narración.",
+    "deleteFailed": "No se pudo eliminar.",
+    "delete": "Eliminar",
+    "noVoiceModel": "Ahora mismo no hay ningún modelo de voz en línea, así que la narración no puede empezar.",
+    "noSampleHint": "Aún no tienes una muestra de voz, así que se elegirá una voz de narrador y se mantendrá durante toda la narración.",
+    "addVoice": "Añade tu voz",
+    "steps": {
+      "read": {
+        "title": "Leer",
+        "body": "Encuentra el artículo, su autor y su fecha."
+      },
+      "plan": {
+        "title": "Planificar",
+        "body": "Lo divide en fragmentos y anota las palabras difíciles."
+      },
+      "voice": {
+        "title": "Voz",
+        "body": "Graba, limpia, revisa y repite cada fragmento."
+      },
+      "mix": {
+        "title": "Unir",
+        "body": "Una sola grabación, con una imagen de portada."
+      }
+    },
+    "yours": "Tus narraciones",
+    "empty": "Aún no hay nada narrado. Pega un enlace arriba para crear la primera.",
+    "stage": {
+      "reading": "Leyendo",
+      "planning": "Planificando",
+      "voicing": "Grabando",
+      "mixing": "Uniendo",
+      "done": "Listo",
+      "error": "Detenida por un problema",
+      "stopped": "Detenida"
+    },
+    "stageLong": {
+      "reading": "Buscando el artículo",
+      "planning": "Dividiéndolo en fragmentos",
+      "voicing": "Grabando la voz de los fragmentos",
+      "mixing": "Uniendo los fragmentos en una sola grabación",
+      "stopped": "Detenida antes del final",
+      "done": "Listo"
+    },
+    "voicingCount": "Voz: {done} de {total} fragmentos listos",
+    "jobs": {
+      "voice": "Voz",
+      "clean": "Limpieza",
+      "check": "Revisión de palabras",
+      "judge": "Juez",
+      "cover": "Imagen de portada",
+      "read": "Lector"
+    },
+    "back": "Todas las narraciones",
+    "notFound": "No se encontró esta narración.",
+    "original": "Original",
+    "words": "{n} palabras",
+    "inVoice": "Con la voz de {name}",
+    "openStudio": "Afinar en Estudio",
+    "stop": "Detener",
+    "stopping": "Se detendrá tras el fragmento actual",
+    "resume": "Continuar",
+    "resumed": "Grabando los fragmentos restantes",
+    "hideLog": "Ocultar el registro",
+    "remixed": "Grabación actualizada",
+    "remixFailed": "No se pudo actualizar la grabación",
+    "remixing": "Actualizando la grabación…",
+    "toReview": "Conviene escuchar {n} fragmento | Conviene escuchar {n} fragmentos",
+    "retryThose": "Volver a grabarlos",
+    "allGood": "Todos los fragmentos pasaron la revisión",
+    "pieces": "{n} fragmento | {n} fragmentos",
+    "player": {
+      "left": "Quedan {time}",
+      "back": "Retroceder 15 segundos",
+      "forward": "Avanzar 15 segundos"
+    },
+    "piece": {
+      "play": "Reproducir el fragmento {n}",
+      "failed": "No funcionó. Inténtalo de nuevo.",
+      "revoicing": "Grabando de nuevo",
+      "revoice": "Volver a grabar",
+      "saveAndVoice": "Guardar y volver a grabar",
+      "words": "Texto",
+      "noteLabel": "O di qué falla",
+      "notePlaceholder": "p. ej.: di SQL como «sicuel»; más despacio al final",
+      "record": "Grabar una nota de voz",
+      "stopRecording": "Detener la grabación",
+      "sendNote": "Enviar nota",
+      "notHeard": "No se oyó nada en esa grabación.",
+      "micDenied": "No se pudo usar el micrófono.",
+      "otherTakes": "Tomas",
+      "use": "Usar",
+      "inUse": "En uso",
+      "score": "puntuación {n}",
+      "takes": "{n} toma | {n} tomas",
+      "status": {
+        "generating": "Grabando",
+        "queued": "En espera",
+        "ready": "Bien",
+        "flagged": "Conviene escuchar",
+        "error": "Falló"
+      },
+      "tailCut": "{n} s de ruido recortado",
+      "tailCutHint": "Se quitó un sonido tras la última palabra que no era voz."
     }
   }
 }
