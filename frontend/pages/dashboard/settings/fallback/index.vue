@@ -63,12 +63,12 @@ const save = async (id: string) => {
     <div v-if="loading" class="h-24 rounded-lg border bg-muted/30 animate-pulse" />
 
     <div v-else class="rounded-lg border p-4">
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
           <p class="text-sm font-medium">Current fallback</p>
           <p v-if="!choice" class="text-sm text-muted-foreground">None — requests fail if the chosen model is unavailable.</p>
-          <p v-else class="flex items-center gap-2 text-sm">
-            <span class="font-mono truncate">{{ current?.display_name || choice }}</span>
+          <p v-else class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span class="min-w-0 break-words font-mono">{{ current?.display_name || choice }}</span>
             <Badge v-if="current?.external" variant="secondary" class="shrink-0 text-[10px]">
               {{ current?.provider_label }}
             </Badge>
@@ -92,6 +92,7 @@ const save = async (id: string) => {
           :models="models"
           :model-value="choice"
           :loading="saving"
+          block
           @update:model-value="save"
         />
       </div>

@@ -12,7 +12,9 @@
     "test:design": "playwright test overflow baselines",
     "test:overflow": "playwright test overflow",
     "shots": "playwright test screenshots",
-    "review": "node e2e/make-review.mjs"
+    "review": "node e2e/make-review.mjs",
+    "audit": "playwright test audit",
+    "audit:report": "node e2e/audit-report.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",

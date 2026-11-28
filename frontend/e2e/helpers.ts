@@ -1,12 +1,21 @@
 import type { APIRequestContext, Page } from '@playwright/test'
 import { ROUTES, type RouteSpec } from './routes'
 
-const API = process.env.PW_API_URL || 'http://localhost:8001'
+// Default = the docker compose dev stack (backend :8101). Bare-metal: PW_API_URL=http://localhost:8001
+const API = process.env.PW_API_URL || 'http://localhost:8101'
 
 /** Navigate and let the page settle: network quiet + animations disabled. */
 export async function gotoSettled(page: Page, path: string) {
   await page.goto(path, { waitUntil: 'domcontentloaded' })
-  await page.waitForLoadState('networkidle').catch(() => {})
+  // Capped: pages with a live poll, an SSE stream or a WebGL scene never go
+  // network-idle, and an uncapped wait burned the whole test timeout.
+  await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {})
+  // Loading skeletons mean the page is still waiting on auth or data. Under a
+  // loaded machine the network-idle cap above can pass first, and the sweep
+  // then shoots a signed-out skeleton instead of the page.
+  await page
+    .waitForFunction(() => !document.querySelector('.animate-pulse'), null, { timeout: 20_000 })
+    .catch(() => {})
   await page.addStyleTag({
     content:
       '*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }',
@@ -58,10 +67,33 @@ export async function resolveRoutes(
     /* leave null */
   }
 
+  // First id from a list endpoint, whatever its envelope (array, DRF
+  // `results`, or OpenAI-style `data`). null when empty or unreachable.
+  const firstId = async (url: string): Promise<string | null> => {
+    try {
+      const res = await api.get(`${API}${url}`)
+      if (!res.ok()) return null
+      const body = await res.json()
+      const list = Array.isArray(body) ? body : body?.results ?? body?.data ?? []
+      return list?.[0]?.id != null ? String(list[0].id) : null
+    } catch {
+      return null
+    }
+  }
+  const extra: Record<string, string | null> = {
+    ':threadId': await firstId('/api/inference/threads/'),
+    ':workflowId': await firstId('/v1/workflows'),
+    ':runId': await firstId('/v1/workflows/runs'),
+    ':episodeId': await firstId('/v1/episodes'),
+  }
+
   return ROUTES.map((r) => {
     if (!r.dynamic) return { ...r, resolved: r.path }
     let p: string | null = r.path
-    p = p.includes(':videoId') ? (videoRequestId ? p.replace(':videoId', videoRequestId) : null) : p
+    for (const [token, value] of Object.entries(extra)) {
+      if (p && p.includes(token)) p = value ? p.replace(token, value) : null
+    }
+    p = p && p.includes(':videoId') ? (videoRequestId ? p.replace(':videoId', videoRequestId) : null) : p
     p = p && p.includes(':id') ? (requestId ? p.replace(':id', requestId) : null) : p
     p = p && p.includes(':slug') ? (collectionSlug ? p.replace(':slug', collectionSlug) : null) : p
     return { ...r, resolved: p }

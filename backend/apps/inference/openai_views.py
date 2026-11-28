@@ -2572,6 +2572,9 @@ class MusicGenerationsView(_RateLimitHeadersMixin, APIView):
             "model": canonical or model_name or "",
             "prompt": prompt,
             "lyrics": lyrics,
+            # Kept with the payload so the queued path carries it too; it is
+            # never forwarded upstream. Blank means "name it for me".
+            "title": " ".join(str(body.get("title") or "").split())[:160],
             "audio_duration": duration,
             "inference_steps": steps,
             "guidance_scale": guidance,

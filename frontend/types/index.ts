@@ -153,6 +153,8 @@ export interface InferenceRequest {
   // Cover art (docs/prd/06-media-playback-experience.md): square artwork from
   // a linked IMAGE request, shown for MUSIC tracks in the player/playlists.
   cover_image_url?: string | null
+  /** Human name for the result; blank falls back to the prompt. */
+  title?: string
 
   // List (slim) serializer only
   prompt_preview?: string

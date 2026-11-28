@@ -1,4 +1,10 @@
 @import "tailwindcss";
+/* Tailwind scans every file under the project for class names and has Vite
+   full-reload the page when one of them changes. The Playwright suite and its
+   output are not app source; without this, editing a spec or writing a report
+   reloaded every open page. */
+@source not "../../e2e";
+@source not "../../playwright.config.ts";
 @import "tw-animate-css";
 
 /* Typography plugin powers `prose` classes used by docs and blog content. */
@@ -308,4 +314,36 @@
 .docs-content .prose :where(hr) {
   border-color: var(--border);
   margin: 2.5rem 0;
+}
+
+/* Touch targets. Controls keep their visual size, but on touch screens each
+   gets a hit area of at least 44×44px, centred on it, through a transparent
+   pseudo-element. Growing the controls themselves would reflow every dense
+   row (track rows, toolbars); this costs no layout. Positioned controls are
+   left alone because making them `relative` would move them. */
+@media (pointer: coarse) {
+  :where(
+      [data-slot='button'],
+      [data-slot='switch'],
+      [data-slot='checkbox'],
+      [data-slot='select-trigger'],
+      [data-slot='sidebar-trigger']
+    ):where(:not(.absolute, .fixed, .sticky)) {
+    position: relative;
+  }
+  :where(
+      [data-slot='button'],
+      [data-slot='switch'],
+      [data-slot='checkbox'],
+      [data-slot='select-trigger'],
+      [data-slot='sidebar-trigger']
+    ):where(:not(.absolute, .fixed, .sticky))::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 2.75rem);
+    height: max(100%, 2.75rem);
+    transform: translate(-50%, -50%);
+  }
 }

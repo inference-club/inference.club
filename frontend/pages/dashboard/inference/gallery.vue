@@ -103,22 +103,24 @@ onMounted(() => {
         </p>
       </div>
 
-      <form class="flex items-center gap-2" @submit.prevent="submitSearch">
+      <!-- Phones: the select takes a row of its own and the search field fills
+           the next one; from sm up it is a single row again. -->
+      <form class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap" @submit.prevent="submitSearch">
         <select
           v-if="collections.length"
           v-model="collection"
           aria-label="Filter by collection"
-          class="h-9 rounded-md border bg-background px-2 text-sm"
+          class="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm sm:w-auto sm:max-w-48"
         >
           <option value="">All collections</option>
           <option v-for="c in collections" :key="c.slug" :value="c.slug">{{ c.name }}</option>
         </select>
-        <div class="relative">
+        <div class="relative min-w-0 flex-1 sm:flex-initial">
           <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <Input
             v-model="search"
             placeholder="Search prompts…"
-            class="h-9 w-56 pl-8 pr-8 text-sm"
+            class="h-9 w-full pl-8 pr-8 text-sm sm:w-56"
           />
           <button
             v-if="search"

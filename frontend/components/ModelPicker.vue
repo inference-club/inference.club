@@ -12,6 +12,9 @@ const props = defineProps<{
   models: ModelInfo[]
   modelValue: string
   loading?: boolean
+  /** Fill the container like a form field (settings pages), instead of the
+   * compact pill sized for the chat composer. */
+  block?: boolean
 }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
@@ -38,9 +41,12 @@ const pick = (id: string) => {
   <Popover v-model:open="open">
     <PopoverTrigger as-child>
       <Button
-        variant="ghost"
         size="sm"
-        class="h-9 min-w-0 flex-1 gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground hover:text-foreground max-w-[55vw] sm:max-w-[16rem] sm:flex-none"
+        :variant="block ? 'outline' : 'ghost'"
+        class="h-9 min-w-0 gap-1.5 px-3 font-medium"
+        :class="block
+          ? 'w-full justify-start rounded-md text-sm text-foreground'
+          : 'flex-1 rounded-full text-xs text-muted-foreground hover:text-foreground max-w-[55vw] sm:max-w-[16rem] sm:flex-none'"
         :disabled="loading || !models.length"
         :title="modelValue || 'Select a model'"
       >

@@ -941,6 +941,10 @@ class InferenceRequest(BaseModel):
     )
     # Denormalized star total, for cheap "most popular" sorting.
     star_count = models.PositiveIntegerField(default=0, db_index=True)
+    # A human name for the result ("Rain Window"). Supplied by the client, or
+    # written by an LLM when a song finishes (see covers.py). Blank means the
+    # UI falls back to the prompt.
+    title = models.CharField(max_length=160, blank=True, default="")
     # Optional cover art — a linked IMAGE request whose output renders as this
     # request's square artwork (MUSIC tracks, Spotify-style). SET_NULL so
     # deleting the art request only clears the cover, never the track.

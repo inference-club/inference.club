@@ -6,7 +6,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Music, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
-  ListMusic, Volume2, VolumeX, X,
+  ListMusic, Volume2, VolumeX, X, Loader2,
 } from 'lucide-vue-next'
 import { usePlayerStore } from '@/stores/player'
 import { formatTrackTime } from '@/utils/player'
@@ -146,7 +146,10 @@ const toggleMute = () => {
               class="text-sm font-medium"
               :title="current.title"
             />
-            <p v-if="current.owner" class="truncate text-xs text-muted-foreground">
+            <p v-if="player.error" class="truncate text-xs text-destructive" data-testid="player-error">
+              {{ t('player.loadFailed') }}
+            </p>
+            <p v-else-if="current.owner" class="truncate text-xs text-muted-foreground">
               {{ current.owner }}
             </p>
           </div>
@@ -185,7 +188,8 @@ const toggleMute = () => {
               data-testid="player-toggle"
               @click="player.toggle()"
             >
-              <Pause v-if="player.playing" class="size-4" />
+              <Loader2 v-if="player.buffering && !player.playing" class="size-4 animate-spin" />
+              <Pause v-else-if="player.playing" class="size-4" />
               <Play v-else class="size-4" />
             </Button>
             <Button

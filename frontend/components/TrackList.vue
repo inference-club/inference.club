@@ -6,7 +6,7 @@
 // equalizer while playing, a pause glyph while paused).
 
 import { computed, ref } from 'vue'
-import { Music, Play, Pause, Cpu, ImagePlus } from 'lucide-vue-next'
+import { Music, Play, Pause, Cpu, ImagePlus, AlertCircle, Loader2 } from 'lucide-vue-next'
 import type { InferenceRequest } from '@/types'
 import type { PlayerTrack } from '@/utils/player'
 import { formatTrackTime } from '@/utils/player'
@@ -26,7 +26,9 @@ const props = withDefaults(
 )
 
 const player = usePlayerStore()
+const { t } = useI18n()
 const isCurrent = (id: string) => player.current?.id === id
+const isFailed = (id: string) => player.failedIds.includes(id)
 
 const requestsById = computed(() => {
   const m = new Map<string, InferenceRequest>()
@@ -73,8 +75,14 @@ const openCover = (tr: PlayerTrack) => {
     >
       <!-- Index / play-pause / now-playing cue -->
       <div class="flex w-7 shrink-0 items-center justify-center sm:w-8">
-        <template v-if="isCurrent(tr.id)">
-          <div v-if="player.playing" class="eq text-primary" aria-hidden="true" title="Now playing">
+        <AlertCircle
+          v-if="isFailed(tr.id)"
+          class="size-4 text-destructive"
+          :aria-label="t('player.loadFailed')"
+        />
+        <template v-else-if="isCurrent(tr.id)">
+          <Loader2 v-if="player.buffering && !player.playing" class="size-4 animate-spin text-primary" :aria-label="t('player.loading')" />
+          <div v-else-if="player.playing" class="eq text-primary" aria-hidden="true" title="Now playing">
             <span /><span /><span />
           </div>
           <Pause v-else class="size-4 text-primary" />
@@ -124,7 +132,10 @@ const openCover = (tr: PlayerTrack) => {
           <MarqueeText :text="tr.title" />
         </NuxtLink>
         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span v-if="tr.owner" class="truncate">{{ tr.owner }}</span>
+          <!-- Phones: duration lives here; the row has no room for its own column. -->
+          <span class="shrink-0 tabular-nums sm:hidden">{{ formatTrackTime(tr.duration) }}</span>
+          <span v-if="isFailed(tr.id)" class="truncate text-destructive">{{ t('player.loadFailed') }}</span>
+          <span v-else-if="tr.owner" class="truncate">{{ tr.owner }}</span>
           <span
             v-if="requestFor(tr)?.gpu_label"
             class="hidden shrink-0 items-center gap-1 rounded border px-1.5 py-px text-[10px] leading-none sm:inline-flex"
@@ -140,7 +151,7 @@ const openCover = (tr: PlayerTrack) => {
         v-if="requestFor(tr)"
         :request="requestFor(tr)!"
       />
-      <span class="shrink-0 text-xs tabular-nums text-muted-foreground">
+      <span class="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:inline">
         {{ formatTrackTime(tr.duration) }}
       </span>
       <SongRowMenu v-if="requestFor(tr)" :request="requestFor(tr)!" />

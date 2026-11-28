@@ -274,6 +274,8 @@
     }
   },
   "player": {
+    "loadFailed": "Couldn't load this track",
+    "loading": "Loading",
     "shuffle": "Shuffle",
     "previous": "Previous",
     "play": "Play",
@@ -299,6 +301,9 @@
     "moveUp": "Move up",
     "moveDown": "Move down",
     "generateCover": "Generate cover art",
+    "missingCovers": "{n} song has no cover art | {n} songs have no cover art",
+    "makeCovers": "Create covers",
+    "makingCovers": "Painting covers. They appear here as they finish.",
     "collectionNotFound": "Collection not found",
     "musicTitle": "Music",
     "musicSubtitle": "Your songs and playlists, generated on the network.",

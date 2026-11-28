@@ -247,12 +247,15 @@ onBeforeUnmount(() => {
             <Library class="size-4" /> Generated clips
           </Button>
           <ElapsedTimer :running="running" class="text-xs text-muted-foreground" />
-          <div class="ml-auto flex items-center gap-2">
-            <GenerationSharingPicker />
+          <!-- Phones: this group takes the full row under Record / Generated
+               clips, with Transcribe filling it, rather than hanging off the
+               right edge of a second line. -->
+          <div class="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+            <GenerationSharingPicker compact />
             <Button v-if="running" variant="destructive" class="gap-2" @click="stop">
               <Square class="size-4" /> Stop
             </Button>
-            <Button :disabled="!canRun" class="gap-2" @click="run">
+            <Button :disabled="!canRun" class="flex-1 gap-2 sm:flex-none" @click="run">
               <component :is="running ? Loader2 : AudioLines" class="size-4" :class="running ? 'animate-spin' : ''" />
               Transcribe
             </Button>
