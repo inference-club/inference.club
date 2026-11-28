@@ -187,3 +187,16 @@ def test_owner_can_rename(user):  # noqa: F811
     assert _client(other).patch(
         f"/api/inference/requests/{song.id}/title/", {"title": "x"}, format="json"
     ).status_code == 404
+
+
+def test_automatic_covers_stay_out_of_request_lists(user):  # noqa: F811
+    InferenceRequest.objects.create(
+        user=user, inference_type="IMAGE", status="PROCESSED",
+        payload={"prompt": "a cover", "cover_for": 1},
+    )
+    InferenceRequest.objects.create(
+        user=user, inference_type="IMAGE", status="PROCESSED", payload={"prompt": "mine"},
+    )
+    c = _client(user)
+    assert c.get("/api/inference/requests/?type=IMAGE").json()["count"] == 1
+    assert c.get("/api/inference/requests/?type=IMAGE&covers=1").json()["count"] == 2

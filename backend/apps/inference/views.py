@@ -123,7 +123,14 @@ def _apply_request_filters(qs, params, user=None):
     case-insensitive); an unknown collection — or an anonymous caller — yields
     an empty list rather than silently ignoring the filter. All optional and
     composable.
+
+    Automatic song covers (``payload.cover_for``, see covers.py) are left out
+    of every list: they belong to their song, and one per song would bury the
+    images people made on purpose. ``?covers=1`` includes them.
     """
+    if params.get("covers") not in ("1", "true"):
+        qs = qs.exclude(payload__has_key="cover_for")
+
     itype = (params.get("type") or "").upper().strip()
     if itype in _INFERENCE_TYPES:
         qs = qs.filter(inference_type=itype)
