@@ -15,7 +15,7 @@ python3 integrations/skills/inference-club/scripts/ic.py instance add local --ba
 
 scripts/showcase/generate.py --instance local --static        # make everything, refresh the static files
 scripts/showcase/generate.py --instance production            # the same seeds on another deployment
-scripts/showcase/generate.py --instance local --only great-wave --force
+scripts/showcase/generate.py --instance local --only koi-crossing --force
 ```
 
 Because every piece has a fixed seed, a second run should give the same
@@ -25,4 +25,25 @@ Identical bytes are expected on the same hardware and model build; across
 different GPUs they are not guaranteed.
 
 Items whose service is offline fail and are skipped; rerun later to fill them
-in. `--static` needs `cwebp` and `ffmpeg` on `PATH`.
+in. A piece removed from the manifest leaves the collection on the next run
+(the request itself stays in the library). `--static` needs `cwebp` and
+`ffmpeg` on `PATH`.
+
+The pictures are meant to differ: each prompt names its own medium, palette
+and subject, and nothing is appended to all of them. Where a style invites
+lettering (blueprints, neon, woodblock prints) the prompt says "no text".
+
+## 3D models for the scenes
+
+The homepage scenes show real 3D models from the club's 3D service. A model
+is about half a million triangles and 17 MB, so `mesh_points.py` samples it
+down to a coloured point cloud of about 140 KB:
+
+```bash
+scripts/showcase/mesh_points.py --instance local grumpy-cat=670 castle=676
+```
+
+Each argument is `<id>=<request id>` of a finished 3D request. It writes
+`frontend/public/scenes/models/<id>.pts`, the picture the model was made from
+(`<id>.webp`) and `index.json` (model, seed, GPU, seconds, triangle count),
+which the homepage reads. Needs `cwebp` and `dwebp` on `PATH`.

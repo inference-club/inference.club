@@ -1,0 +1,26 @@
+{
+ "models": [
+  {
+   "id": "grumpy-cat",
+   "src": "grumpy-cat.pts",
+   "image": "grumpy-cat.webp",
+   "points": 16000,
+   "triangles": 499219,
+   "model": "trellis-2",
+   "seed": 42,
+   "gpu": "NVIDIA-GB10",
+   "seconds": 63.0
+  },
+  {
+   "id": "castle",
+   "src": "castle.pts",
+   "image": "castle.webp",
+   "points": 16000,
+   "triangles": 486285,
+   "model": "trellis-2",
+   "seed": 42,
+   "gpu": "NVIDIA-GB10",
+   "seconds": 64.7
+  }
+ ]
+}

@@ -6,10 +6,13 @@ import {
 } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
 import { useProviders } from '@/composables/useProviders'
+import { useTheme } from '@/composables/useTheme'
+import { paletteFor, roleColor } from '@/lib/scenes/theme'
 import CodeTabs from '@/components/CodeTabs.vue'
 import SceneStage from '@/components/scenes/SceneStage.vue'
 import { prettyGpuModel } from '@/composables/useMachineForm'
 import showcase from '~/public/showcase/index.json'
+import models from '~/public/scenes/models/index.json'
 
 const { t, tm, rt, locale } = useI18n()
 const localePath = useLocalePath()
@@ -42,6 +45,7 @@ const { data: posts } = await useAsyncData(
 // Hero wall: real generations (static files, see scripts/showcase). Two rows
 // drifting in opposite directions; the gallery further down has the details.
 type Piece = { id: string; kind: string; title: string; thumb?: string; size?: string; gpu?: string | null }
+type Model = { id: string; src: string; image?: string | null; points: number; triangles: number; model: string; gpu?: string | null; seconds?: number | null }
 const pictures = (showcase.items as Piece[]).filter((p) => p.kind === 'image' && p.thumb)
 const half = Math.ceil(pictures.length / 2)
 const rows = [pictures.slice(0, half), pictures.slice(half)]
@@ -50,10 +54,28 @@ const heroGpu = prettyGpuModel(pictures[0]?.gpu || 'RTX 4090')
 const loadSignals = () => import('@/lib/scenes/scenes/signals')
 const loadExchange = () => import('@/lib/scenes/scenes/exchange')
 const loadNetwork = () => import('@/lib/scenes/scenes/network')
+const loadAssemble = () => import('@/lib/scenes/scenes/assemble')
 // Real pictures for the mosaic and film strip. A constant, so the scene is
 // not rebuilt on every render.
-const signalsOptions = { art: pictures.slice(0, 7).map((p) => `/showcase/${p.thumb}`) }
+const signalsOptions = {
+  art: pictures.filter((p) => !p.id.startsWith('cover-')).slice(0, 8).map((p) => `/showcase/${p.thumb}`),
+  models: (models.models as Model[]).map((m) => `/scenes/models/${m.src}`),
+}
 const lanes = ['text', 'image', 'speech', 'music', 'video', 'shape']
+// Real 3D models from the club, sampled to points (scripts/showcase/mesh_points.py).
+const shapes = models.models as Model[]
+const assembleOptions = { models: shapes.map((m) => ({ src: `/scenes/models/${m.src}`, image: m.image ? `/scenes/models/${m.image}` : null })) }
+const shapeOnShow = ref(0)
+const onAssembleState = (name: string, value: unknown) => {
+  if (name === 'model') shapeOnShow.value = Number(value)
+}
+const shape = computed(() => shapes[shapeOnShow.value] ?? shapes[0])
+// The legend under the exchange scene uses the scene's own colours.
+const { isDark } = useTheme()
+const role = computed(() => {
+  const p = paletteFor(isDark.value)
+  return { person: roleColor(p, 'person'), agent: roleColor(p, 'agent'), machine: roleColor(p, 'machine'), private: roleColor(p, 'private') }
+})
 const households = ref(1)
 const onNetworkState = (name: string, value: unknown) => {
   if (name === 'count') households.value = Number(value)
@@ -286,6 +308,32 @@ const status = computed(() => [
       <HomeTokenProbabilities />
     </HomeSceneSection>
 
+    <!-- A picture becomes a 3D model -->
+    <HomeSceneSection
+      v-if="shapes.length"
+      :eyebrow="t('landing.scenes.assemble.eyebrow')"
+      :title="t('landing.scenes.assemble.title')"
+      :body="t('landing.scenes.assemble.body')"
+    >
+      <SceneStage
+        :load="loadAssemble"
+        :options="assembleOptions"
+        :label="t('landing.scenes.assemble.label')"
+        class="h-[32rem] rounded-3xl border sm:h-[34rem]"
+        @state="onAssembleState"
+      >
+        <template #overlay>
+          <p v-if="shape" class="absolute inset-x-4 bottom-3 text-[11px] leading-snug opacity-75 sm:inset-x-6 sm:bottom-5 sm:text-xs" data-testid="assemble-caption">
+            <span class="font-mono uppercase tracking-wider">{{ shape.model }}</span>
+            <span class="mx-1.5">·</span>
+            <span>{{ t('landing.scenes.assemble.caption', { triangles: shape.triangles.toLocaleString(locale), seconds: shape.seconds, gpu: prettyGpuModel(shape.gpu || '') }) }}</span>
+            <span class="mx-1.5">·</span>
+            <span>{{ t('landing.scenes.assemble.note', { points: shape.points.toLocaleString(locale) }) }}</span>
+          </p>
+        </template>
+      </SceneStage>
+    </HomeSceneSection>
+
     <!-- People and agents ask; machines answer -->
     <HomeSceneSection
       :eyebrow="t('landing.scenes.exchange.eyebrow')"
@@ -300,9 +348,9 @@ const status = computed(() => [
       <template #notes>
         <ul class="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
           <li class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-foreground" /> {{ t('landing.scenes.exchange.person') }}</li>
-          <li class="inline-flex items-center gap-2"><span class="size-2.5 rotate-45 bg-[#ff7a66]" /> {{ t('landing.scenes.exchange.agent') }}</li>
-          <li class="inline-flex items-center gap-2"><span class="size-3 rounded-[2px] border-2 border-[#ffb44a]" /> {{ t('landing.scenes.exchange.machine') }}</li>
-          <li class="inline-flex items-center gap-2"><span class="size-3.5 rounded-full border-2 border-dashed border-[#a99bff]" /> {{ t('landing.scenes.exchange.private') }}</li>
+          <li class="inline-flex items-center gap-2"><span class="size-2.5 rotate-45" :style="{ background: role.agent }" /> {{ t('landing.scenes.exchange.agent') }}</li>
+          <li class="inline-flex items-center gap-2"><span class="size-3 rounded-[2px] border-2" :style="{ borderColor: role.machine }" /> {{ t('landing.scenes.exchange.machine') }}</li>
+          <li class="inline-flex items-center gap-2"><span class="size-3.5 rounded-full border-2 border-dashed" :style="{ borderColor: role.private }" /> {{ t('landing.scenes.exchange.private') }}</li>
         </ul>
       </template>
     </HomeSceneSection>

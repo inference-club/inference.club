@@ -1,11 +1,11 @@
 ---
 title: "Made here, and makeable again: a self-generated showcase and seeds you can replay"
-description: "The inference.club homepage now shows work the club generated on its own GPUs: ten pictures, three songs with covers, a spoken welcome and a four-line poem. Every piece comes from a manifest of model, prompt and seed, because every generation now gets a concrete seed that is stored with the request. What has been verified about reproducibility, what has not, the redesigned request and share pages, and what is next."
+description: "The inference.club homepage now shows work the club generated on its own GPUs: twelve pictures, three songs with covers, a spoken welcome and a four-line poem. Every piece comes from a manifest of model, prompt and seed, because every generation now gets a concrete seed that is stored with the request. What has been verified about reproducibility, what has not, the redesigned request and share pages, and what is next."
 publishedAt: "2026-11-28T12:00:00Z"
 author: briancaffey
 tags: [reproducibility, image-generation, music, engineering]
-image: /showcase/neighbourhood.webp
-image_prompt: "Isometric miniature diorama of a quiet neighbourhood at dusk, five small houses each with one softly glowing window, thin threads of warm light running between the rooftops like a constellation, tilt-shift photograph of a handmade paper and balsa model, deep indigo background, cosy and precise"
+image: /showcase/couriers.webp
+image_prompt: "Stop-motion claymation still, three small round clay robots carrying glowing parcels along a miniature street between cardboard houses, visible fingerprints in the clay, soft studio lighting, shallow depth of field, cheerful"
 ---
 
 For most of its life the inference.club homepage described what the network does and showed none of it. That is a strange way to introduce a place whose whole purpose is making pictures, songs and speech on GPUs in people's houses. The obvious fix was a gallery. The obvious way to build a gallery is to scroll through the library, pick the ten best-looking results anyone ever made, and paste them in.
@@ -32,32 +32,34 @@ The homepage shows what the manifest made. The manifest can be run again, here o
 
 ## What is on the homepage
 
-Eighteen pieces, all generated through the club's own API on home hardware. The index file records the model, prompt, seed, GPU and wall-clock seconds for each.
+Twenty pieces, all generated through the club's own API on home hardware. The index file records the model, prompt, seed, GPU and wall-clock seconds for each.
 
-**Ten pictures**, FLUX 3 Image Klein (`flux-3-image-klein-fp8`) on an RTX 4090 in the home cluster:
+**Twelve pictures**, FLUX 3 Image Klein (`flux-3-image-klein-fp8`) on an RTX 4090 in the home cluster:
 
 | Title | Seed | Seconds |
 | --- | --- | --- |
-| The neighbourhood | 41201 | 8.1 |
-| The machine by the window | 77310 | 8.4 |
-| Keeper's light | 27015 | 8.1 |
-| Night market | 8842 | 8.0 |
-| Fireflies | 61078 | 6.0 |
-| Star chart | 18310 | 8.2 |
-| Radio hill | 5512 | 5.5 |
-| Greenhouse | 90417 | 8.2 |
-| Night train | 3344 | 7.9 |
-| Harbour lamps | 20261 | 8.1 |
+| Cathedral of compute | 27015 | 6.2 |
+| Couriers | 8842 | 8.5 |
+| Rush hour on the motherboard | 41201 | 8.4 |
+| Koi crossing | 61078 | 8.1 |
+| The rig in the garage | 18310 | 8.1 |
+| Still life with graphics card | 77310 | 8.3 |
+| Rooftop, 16 bits | 5512 | 7.8 |
+| Stitched fox | 90417 | 8.2 |
+| Plans for a teapot automaton | 3344 | 5.4 |
+| Neon jellyfish | 20261 | 5.7 |
+| Paper forest | 12031 | 8.5 |
+| Infrared orchard | 64007 | 7.9 |
 
-The set was remade later the same day in a single style, so that the pictures and the animated scenes on the homepage read as one thing: night scenes lit by small warm lights, printed in indigo, amber, coral and cream. The table above is that second set. The shared style lives in the manifest as one phrase appended to every prompt.
+This is the third set. The first was a mixed bag. The second, made later the same day, put every picture in one print style so the gallery would match the animated scenes on the homepage, and I changed my mind about that: a gallery is a better place to show range than restraint. So the set above goes the other way: twelve pictures in twelve different media, from stained glass and claymation to pixel art, embroidery and infrared film, with nothing shared between the prompts. The table is the current set, and the manifest no longer appends a style to anything.
 
-The picture at the top of this post is the first row. Here is the fifth, with its whole recipe:
+The picture at the top of this post is the second row. Here is the first, with its whole recipe:
 
-![A print of a glass jar of fireflies on a porch step, the fireflies drifting out into a dark garden](/showcase/fireflies.webp)
+![A tall gothic stained glass window in a dim chapel, showing a haloed figure standing on a server rack, with coloured light on the stone floor](/showcase/cathedral-of-compute.webp)
 
-*"Fireflies". Prompt: "A glass jar of fireflies left on a wooden porch step, its lid off, the fireflies drifting up and out toward the dark garden, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters". 768×1024, seed 61078, 6.0 seconds.*
+*"Cathedral of compute". Prompt: "A tall gothic stained glass window depicting a server rack as a saintly figure, rays of coloured light falling across a stone floor, deep cobalt, ruby and amber glass with thick lead lines, photographed from inside a dim chapel". 768×1024, seed 27015, 6.2 seconds.*
 
-**Three songs with covers**, ACE-Step 1.5 Turbo (`acestep-v15-turbo`) on a DGX Spark. The covers are three more FLUX images (seeds 12021, 12022 and 12023, between 8.3 and 8.8 seconds each).
+**Three songs with covers**, ACE-Step 1.5 Turbo (`acestep-v15-turbo`) on a DGX Spark. The covers are three more FLUX images (seeds 12021, 12022 and 12023, between 7.8 and 8.1 seconds each).
 
 | Title | Style prompt | Seed | Length | Seconds to make |
 | --- | --- | --- | --- | --- |
@@ -89,7 +91,7 @@ And "Tailnet Drive", for anyone who read [the Tailscale post](/blog/tailscale-an
 The last line does not scan. I left it in. A showcase that only keeps the takes that flatter the model is the hand-picked gallery again.
 
 ::blog-note{type="disclaimer"}
-There is no video and no 3D in the showcase yet. The manifest has two five-second LTX 2.5 clips written and seeded, but the video and 3D services were offline on the home cluster when the set was made. They will be added when those services are back, not faked in the meantime.
+There is no video in the showcase yet, and no 3D piece in the manifest. The manifest has two five-second LTX 2.5 clips written and seeded, but the video and 3D services were offline on the home cluster when the set was made. They will be added when those services are back, not faked in the meantime. The two 3D models that turn on the homepage are real, but older: TRELLIS.2 results from the library, made on a DGX Spark in June, each about half a million triangles, drawn on the page as 16,000 sampled points.
 ::
 
 ## The seed problem
@@ -149,7 +151,7 @@ The generator records a SHA-256 of each raw output in the index, and a later run
 
 **Not guaranteed, and I do not expect it everywhere:** identical output across different GPUs or driver versions. A seed fixes the starting noise. It does not fix the order of floating-point operations, and different GPU architectures, CUDA and cuDNN versions, and kernel-selection heuristics can all produce results that differ in the low bits and then diverge over a diffusion run. An RTX 4090 and a DGX Spark are not obliged to agree with each other. Whether two deployments of the same model on similar cards produce the same bytes, a visually identical picture with a different hash, or a visibly different one is exactly what the production run is going to tell me, and I will write up whichever it is.
 
-**Update, the same day.** The manifest has now been run against the production deployment. All thirteen images of the first set (ten pictures and three covers) came back byte-identical to the local run: same SHA-256, piece for piece. Both deployments route to the same RTX 4090s, so this confirms the seed travels intact through a second control plane; it does not yet say anything about different hardware.
+**Update, the same day.** The manifest has now been run against the production deployment. All thirteen images of the first set (ten pictures and three covers) came back byte-identical to the local run: same SHA-256, piece for piece. Both deployments route to the same RTX 4090s, so this confirms the seed travels intact through a second control plane; it does not yet say anything about different hardware. The current set of twelve pictures has so far only been made on the local deployment; the same check against production is still to do.
 
 The songs did not match, and a follow-up test showed why that is not a deployment difference: two songs made on the *same* deployment with the same seed are different songs. The seed is stored and sent, but the music model has a second source of randomness that it does not cover. Until that is fixed, a song's seed is a record, not a replay button. The spoken clip has no seed to set, and the poem differed too, which is expected for chat without stricter sampling settings.
 
