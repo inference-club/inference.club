@@ -119,7 +119,7 @@
       "model": "flux-3-image-klein-fp8",
       "seed": 12021,
       "size": "1024x1024",
-      "prompt": "Square album cover, a pale sun just rising behind layered hills, one lit window in a tiny house in the foreground, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "prompt": "Square album cover, marbled paper made by floating inks on water, slow swirling veins of peach, soft gold and pale blue around one bright unbroken circle like a rising sun, fine combed patterns, visible paper fibres, calm and luminous, no text, no letters"
     },
     {
       "id": "cover-tailnet",
@@ -128,7 +128,7 @@
       "model": "flux-3-image-klein-fp8",
       "seed": 12022,
       "size": "1024x1024",
-      "prompt": "Square album cover, an empty coastal road at night seen through a windscreen, tail lights of one car far ahead, stars, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "prompt": "Square album cover, low-poly 3D render of an empty coastal highway at night curving between faceted mountains and a flat teal sea, the red tail lights of one small car far ahead, a huge hot orange moon on the horizon, sharp triangular facets, glowing road markings, no text, no letters"
     },
     {
       "id": "cover-porch",
@@ -137,7 +137,7 @@
       "model": "flux-3-image-klein-fp8",
       "seed": 12023,
       "size": "1024x1024",
-      "prompt": "Square album cover, a wooden porch at dusk with one hanging lamp lit, moths around it, a guitar leaning on a chair, gouache and risograph print, limited palette of deep indigo, warm amber, coral and cream, flat shapes with visible paper grain, a night scene lit by small warm lights, quiet and hopeful, no text, no letters"
+      "prompt": "Square album cover, hand-carved linocut print in two colours, a hanging porch lamp with moths circling it and an acoustic guitar leaning on a wooden chair, bold carved lines and rough gouge marks, mustard yellow and forest green ink on cream paper, slightly uneven print, warm and homemade, no text, no letters"
     },
     {
       "id": "song-first-light",
